@@ -6,9 +6,9 @@ state packet can improve reliability and context efficiency. This is an
 experiment: it does not presume that fresh state or any helper configuration wins.
 
 **Status:** runnable compiler, fixtures, experiment contracts, CPU training smoke,
-and Python/Mojo protocol slices. **No pretrained inference or fine-tuning backend
-is implemented yet.** There is no chess strength, vision accuracy, or semantic
-understanding result to report.
+and Python/Mojo protocol slices. No pretrained inference or fine-tuning backend
+is implemented yet. There is no chess strength, vision accuracy, or semantic
+understanding result.
 
 ## Intended system
 
