@@ -1,0 +1,6 @@
+[
+  {"schema_version":1,"corpus_id":"synthetic-teacher","source":"KnightLM fabricated export-shape example; not a Stockfish measurement","revision":"fixture-v1","usage_basis":"project-authored","track":"chess_teacher"},
+  {"schema_version":1,"corpus_id":"synthetic-semantics","source":"deterministic move-effect generator","revision":"fixture-v1","usage_basis":"project-authored","track":"semantic"},
+  {"schema_version":1,"corpus_id":"digital-board-fixtures","source":"procedural board rendering","revision":"fixture-v1","usage_basis":"project-authored","track":"vision"},
+  {"schema_version":1,"corpus_id":"retention-fixtures","source":"hand-authored instruction and arithmetic probes","revision":"fixture-v1","usage_basis":"project-authored","track":"general_language"}
+]

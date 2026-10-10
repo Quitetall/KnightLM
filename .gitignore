@@ -1,0 +1,9 @@
+/target/
+/runs/
+/data/
+/models/
+__pycache__/
+.venv/
+.pixi/
+*.mojopkg
+

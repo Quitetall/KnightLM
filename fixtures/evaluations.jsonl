@@ -1,0 +1,1 @@
+{"fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -","evals":[{"depth":20,"knodes":1000,"pvs":[{"cp":25,"line":"e2e4 e7e5"}]},{"depth":30,"knodes":2000,"pvs":[{"cp":18,"line":"d2d4 d7d5"}]}]}

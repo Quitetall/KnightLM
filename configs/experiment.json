@@ -1,0 +1,1 @@
+{"schema_version":1,"name":"fresh-state-fixture","arm":"fresh_state","checkpoint":"fixture-only:not-a-trained-model","seed":17,"max_input_tokens":8192,"max_output_tokens":1024,"tool_budget":0,"prior_model_text":false}

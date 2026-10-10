@@ -1,0 +1,4 @@
+[
+  {"id":"arithmetic-01","track":"general_language","prompt":"What is 17 plus 25? Return only the integer.","expected":"42","scorer":"exact_match"},
+  {"id":"instruction-01","track":"general_language","prompt":"Return only the word amber in uppercase.","expected":"AMBER","scorer":"exact_match"}
+]
