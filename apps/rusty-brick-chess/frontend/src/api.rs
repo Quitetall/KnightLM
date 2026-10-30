@@ -1436,3 +1436,50 @@ pub async fn delete_piece_set(name: &str) -> Result<Vec<PieceSetInfo>, String> {
     }
     resp.json().await.map_err(|e| e.to_string())
 }
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CloudEval {
+    #[serde(default)]
+    pub available: bool,
+    pub depth: Option<u32>,
+    pub knodes: Option<u64>,
+    pub cp: Option<i32>,
+    pub mate: Option<i32>,
+    pub pv: Vec<String>,
+}
+
+pub async fn cloud_eval(fen: &str) -> Result<CloudEval, String> {
+    let resp = Request::get(&format!(
+        "/api/cloud-eval?fen={}",
+        encode(fen.trim())
+    ))
+    .send()
+    .await
+    .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    let value: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if value.get("available").and_then(|v| v.as_bool()) == Some(false) {
+        return Ok(CloudEval::default());
+    }
+    let pv = value
+        .get("pvs")
+        .and_then(|v| v.as_array())
+        .and_then(|list| list.first())
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    Ok(CloudEval {
+        available: true,
+        depth: value.get("depth").and_then(|v| v.as_u64()).map(|v| v as u32),
+        knodes: value.get("knodes").and_then(|v| v.as_u64()),
+        cp: pv.get("cp").and_then(|v| v.as_i64()).map(|v| v as i32),
+        mate: pv.get("mate").and_then(|v| v.as_i64()).map(|v| v as i32),
+        pv: pv
+            .get("moves")
+            .and_then(|v| v.as_str())
+            .map(|moves| moves.split_whitespace().map(str::to_owned).collect())
+            .unwrap_or_default(),
+    })
+}
+

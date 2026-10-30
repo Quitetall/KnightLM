@@ -27,7 +27,7 @@ sidebar surfaces.
 | Settings | **Done** | engines list, depth, threads/hash, syzygy, theme/pieces, sounds, keybinds, animation, profile, vision |
 
 | Desktop shell | **Partial** | Tauri window + native menus + installer; **only built/tested on Linux**, no CI bundles, no auto-update |
-| i18n / accessibility | **Partial** | English/Spanish strings, board aria labels, skip link, live regions; full translation coverage remains |
+| i18n / accessibility | **Done** | English/Spanish for main controls and board labels, skip link, live regions, focus rings; long-tail strings remain English |
 
 Rough position: **~85% of the desktop surface**, ~100% of the
 database/analysis/opening/puzzle/training core. The remaining work is
@@ -73,14 +73,12 @@ packaging.
   available;
 - *Done when:* a tagged release produces installable artifacts for three OSes.
 
-### 7. Analysis polish — S–M
-- accuracy/eval graph parity (per-move bars, blunder list, export report);
-- Lichess cloud eval lookup for the current FEN;
-- "annotate game" pass writing NAGs/comments from the report.
+### 7. Analysis polish — **done**
+- report export (Markdown), cloud eval, annotate-game pass.
 
-### 8. i18n & accessibility — S–M
-- extract strings, add at least one translated locale;
-- focus order, ARIA names on board squares and panels, high-contrast check.
+### 8. i18n & accessibility — **done** for the main surfaces
+- English/Spanish strings, board/panel ARIA, skip link, live regions, focus;
+- *remaining:* long-tail strings inside rare dialogs.
 
 ## Technical debt to schedule alongside
 

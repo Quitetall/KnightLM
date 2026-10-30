@@ -169,7 +169,15 @@ impl Engine {
                 bail!("engine timeout");
             }
             match self.rx.recv_timeout(remaining.min(Duration::from_secs(2))) {
-                Ok(line) => return Ok(parse_one(&line)),
+                Ok(line) => {
+                    // Terminal positions answer `bestmove (none)`, which the UCI
+                    // parser cannot represent; fail fast instead of waiting for
+                    // the timeout.
+                    if line.starts_with("bestmove") && line.contains("(none)") {
+                        bail!("no best move");
+                    }
+                    return Ok(parse_one(&line));
+                }
                 Err(RecvTimeoutError::Timeout) => continue,
                 Err(RecvTimeoutError::Disconnected) => bail!("engine closed its output"),
             }

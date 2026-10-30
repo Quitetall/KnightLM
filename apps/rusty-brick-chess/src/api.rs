@@ -1487,7 +1487,26 @@ pub async fn game_report(
         let mut engine = knightlm_engine::Engine::spawn_with(&path, 120, options)?;
         let mut evals = Vec::with_capacity(fens.len());
         for f in &fens {
-            evals.push(engine.analyse(f, depth)?);
+            let terminal = knightlm_core::state::parse_variant_fen(f, variant_type, mode)
+                .map(|(pos, _)| pos.legal_moves().is_empty())
+                .unwrap_or(false);
+            if terminal {
+                // Checkmate or stalemate: there is no move for the engine to play.
+                evals.push(knightlm_engine::Analysis {
+                    engine: String::new(),
+                    version: String::new(),
+                    depth,
+                    best_move: "-".into(),
+                    score_cp: None,
+                    mate: Some(0),
+                    pv: Vec::new(),
+                    nodes: None,
+                    nps: None,
+                    multipv: None,
+                });
+            } else {
+                evals.push(engine.analyse(f, depth)?);
+            }
         }
         let eval_rows: Vec<(i64, Option<i32>, Option<i32>)> = evals
             .iter()
@@ -1930,6 +1949,45 @@ pub async fn import_account_games(
         "skipped": skipped,
         "provider": provider,
     })))
+}
+
+#[derive(Deserialize)]
+pub struct CloudQuery {
+    pub fen: String,
+}
+
+fn url_component(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// Lichess cloud evaluation for a position (no key required).
+pub async fn cloud_eval(
+    Query(q): Query<CloudQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let url = format!(
+        "https://lichess.org/api/cloud-eval?fen={}&multiPv=1",
+        url_component(q.fen.trim())
+    );
+    let value = tokio::task::spawn_blocking(move || -> anyhow::Result<serde_json::Value> {
+        let agent = ureq::Agent::new_with_defaults();
+        match agent.get(&url).call() {
+            Ok(mut response) => Ok(response.body_mut().read_json::<serde_json::Value>()?),
+            Err(ureq::Error::StatusCode(404)) => Ok(serde_json::json!({ "available": false })),
+            Err(error) => Err(error.into()),
+        }
+    })
+    .await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
+    Ok(Json(value))
 }
 
 #[derive(Deserialize)]

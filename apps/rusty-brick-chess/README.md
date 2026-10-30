@@ -278,6 +278,10 @@ The report returns, per move, both a **Lichess-style** label and a
   token for private games) or a **Chess.com** username; the Home screen shows
   the profile and rating and imports your games (Lichess: newest N; Chess.com:
   newest monthly archive). Links and tokens stay in the local database.
+- **Game review extras**: **Cloud eval** fetches Lichess's cloud evaluation for
+  the current position (depth, score, line), **Export report** downloads the
+  classification as Markdown, and **Annotate game** writes NAGs (`!`, `?`,
+  `??`, `!?`) and accuracy comments onto the mainline.
 - **AI assistant with tools**: the right-hand dock chats with the configured
   KnightLM model over an OpenAI-compatible `tools` API. The model can call
   `get_position`, `legal_moves`, `analyze`, `draw_arrow`, `draw_circle`,
@@ -290,9 +294,12 @@ The report returns, per move, both a **Lichess-style** label and a
   `p.svg`, or `wK.svg`/`bK.svg`). Custom sets are stored under
   `data_dir/pieces` and served read-only; the size slider adjusts the board per
   session.
-- **Language**: English and Spanish UI strings, switchable in Settings and
-  persisted; the board exposes an accessible group with a label per square
-  ("e4, white pawn"), a skip link and live status announcements.
+- **Language**: English and Spanish for the navigation, Database, Analysis,
+  Practice and Settings controls and the board's own labels, switchable in
+  Settings and persisted. Long-tail strings (some dialogs and rare actions)
+  still fall back to English. The board exposes an accessible group
+  with a label per square ("e4, white pawn"), a skip link, aria labels on
+  icon-only controls and live status announcements.
 - **Settings**: engine binary, model URL, analysis depth, board theme, piece
   set, board colours, coordinates, engine Threads/Hash, Syzygy path and a
   **multi-engine list**
@@ -391,9 +398,75 @@ macOS and Windows with `tauri-action`, producing `.deb`/`.AppImage`, `.dmg` and
 `.msi`/`.exe` in a draft GitHub release. It builds the frontend first
 (`cargo-leptos` + wasm-bindgen pinned to `frontend/Cargo.lock`).
 
-Auto-update needs a signing keypair (`npx @tauri-apps/cli@2 signer generate`)
-and the updater plugin configured with its public key and an update endpoint;
-that key belongs to the release owner, so it is not checked in.
+### Auto-update signing
+
+Tauri updates are signed. The **private key** stays with the release owner
+(CI secret); the **public key** is baked into the app.
+
+1. Generate the keypair once (keep the file safe — losing it means you cannot
+   sign updates for installed copies, rotating it requires shipping a new
+   build with the new public key):
+
+   ```bash
+   npx @tauri-apps/cli@2 signer generate -w ~/.tauri/rustybrick.key
+   ```
+
+   It prints the public key (`~/.tauri/rustybrick.key.pub`).
+
+2. Add GitHub repository secrets:
+
+   | secret | value |
+   |---|---|
+   | `TAURI_SIGNING_PRIVATE_KEY` | contents of `~/.tauri/rustybrick.key` |
+   | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | the password you chose |
+
+3. Add the updater plugin and config:
+
+   ```bash
+   cd src-tauri && cargo add tauri-plugin-updater
+   ```
+
+   ```rust
+   // src-tauri/src/main.rs
+   .plugin(tauri_plugin_updater::Builder::new().build())
+   ```
+
+   ```json
+   // src-tauri/tauri.conf.json
+   "plugins": {
+     "updater": {
+       "pubkey": "PASTE_THE_PUBLIC_KEY",
+       "endpoints": [
+         "https://github.com/Quitetall/KnightLM/releases/latest/download/latest.json"
+       ]
+     }
+   },
+   "bundle": { "createUpdaterArtifacts": true }
+   ```
+
+4. Let the release workflow sign. `tauri-action` picks up
+   `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` from the
+   environment; add them to its `env:` block. With
+   `createUpdaterArtifacts: true` the action uploads every bundle plus its
+   `.sig` and a `latest.json` manifest to the GitHub release.
+
+5. Check for updates in the app (Rust, no JS needed):
+
+   ```rust
+   use tauri_plugin_updater::UpdaterExt;
+   let app = app.handle().clone();
+   tauri::async_runtime::spawn(async move {
+       if let Ok(updater) = app.updater() {
+           if let Ok(Some(update)) = updater.check().await {
+               let _ = update.download_and_install(|_, _| {}, || {}).await;
+           }
+       }
+   });
+   ```
+
+6. Bump `version` in `tauri.conf.json` (and the workspace version) for every
+   release: the updater compares versions, so a tag without a version bump is
+   never offered as an update. Draft releases are not served until published.
 
 ## Session persistence
 

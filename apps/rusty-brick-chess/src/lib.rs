@@ -72,6 +72,7 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/accounts/link", post(api::link_account))
         .route("/api/accounts/unlink", post(api::unlink_account))
         .route("/api/accounts/import", post(api::import_account_games))
+        .route("/api/cloud-eval", get(api::cloud_eval))
         .route("/api/engines/test", post(api::test_engine))
         .route("/api/engine/console/start", post(api::console_start))
         .route("/api/engine/console/command", post(api::console_command))

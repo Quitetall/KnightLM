@@ -348,10 +348,16 @@ pub fn Board(
     #[prop(optional)] dark_color: Option<Signal<String>>,
     /// Show rank/file coordinates in the corners.
     #[prop(optional)] coords: Option<Signal<bool>>,
+    /// UI language for the board's own labels.
+    #[prop(optional)] lang: Option<Signal<String>>,
     #[prop(optional)] on_theme: Option<Callback<String>>,
     #[prop(optional)] on_pieces: Option<Callback<String>>,
 ) -> impl IntoView {
     let widget = RwSignal::new(Widget::new());
+    let lang = move || {
+        lang.map(|signal| signal.get())
+            .unwrap_or_else(|| "en".to_owned())
+    };
     let custom_set = move || {
         pieces.and_then(|signal| {
             let value = signal.get();
@@ -894,7 +900,7 @@ pub fn Board(
         if let Some(win) = web_sys::window() {
             let _ = win.navigator().clipboard().write_text(&fen);
         }
-        status.set("FEN copied".into());
+        status.set(crate::i18n::t(&lang(), "board.fen_copied").to_owned());
     };
     let flip = move |_| {
         widget.update(|w| {
@@ -1114,7 +1120,9 @@ pub fn Board(
             view! {
                 <div class="promo-overlay">
                     <div class="promo-card">
-                        <div class="promo-title">"Promote to"</div>
+                        <div class="promo-title">
+                            {move || crate::i18n::t(&lang(), "board.promote")}
+                        </div>
                         <div class="promo-row">
                             {opts
                                 .into_iter()
@@ -1401,16 +1409,26 @@ pub fn Board(
                 </div>
                 {captured}
                 <div class="movelist">
-                    <div class="panel-sub">"Moves"</div>
+                    <div class="panel-sub">{move || crate::i18n::t(&lang(), "board.moves")}</div>
                     {move_rows}
                 </div>
                 <div class="controls">
-                    <button on:click=move |_| do_prev() title="Previous">"◀"</button>
-                    <button on:click=move |_| do_next() title="Next">"▶"</button>
-                    <button on:click=flip>"Flip"</button>
-                    <button on:click=reset>"Reset"</button>
+                    <button
+                        on:click=move |_| do_prev()
+                        title=move || crate::i18n::t(&lang(), "board.previous")
+                    >
+                        "◀"
+                    </button>
+                    <button
+                        on:click=move |_| do_next()
+                        title=move || crate::i18n::t(&lang(), "board.next")
+                    >
+                        "▶"
+                    </button>
+                    <button on:click=flip>{move || crate::i18n::t(&lang(), "board.flip")}</button>
+                    <button on:click=reset>{move || crate::i18n::t(&lang(), "board.reset")}</button>
                     <label class="size-control" title="Board size">
-                        "Size"
+                        {move || crate::i18n::t(&lang(), "board.size")}
                         <input
                             type="range"
                             min="45"
@@ -1425,7 +1443,7 @@ pub fn Board(
                 </div>
                 <div class="selects">
                     <label>
-                        "Theme"
+                        {move || crate::i18n::t(&lang(), "board.theme")}
                         <select
                             prop:value=move || match widget.with(|w| w.theme()) {
                                 brick_chess::Theme::Green => "green",
@@ -1441,7 +1459,7 @@ pub fn Board(
                         </select>
                     </label>
                     <label>
-                        "Pieces"
+                        {move || crate::i18n::t(&lang(), "board.pieces")}
                         <select
                             prop:value=move || widget.with(|w| w.pieces()).slug()
                             on:change=set_pieces
@@ -1460,10 +1478,16 @@ pub fn Board(
                         prop:value=move || fen_input.get()
                         on:input=move |ev| fen_input.set(event_target_value(&ev))
                     />
-                    <button on:click=load_fen>"Load"</button>
+                    <button on:click=load_fen>{move || crate::i18n::t(&lang(), "board.load")}</button>
                 </div>
                 <button class="link" on:click=move |_| show_pgn.update(|v| *v = !*v)>
-                    {move || if show_pgn.get() { "Hide PGN" } else { "Paste PGN…" }}
+                    {move || {
+                        if show_pgn.get() {
+                            crate::i18n::t(&lang(), "board.hide_pgn")
+                        } else {
+                            crate::i18n::t(&lang(), "board.paste_pgn")
+                        }
+                    }}
                 </button>
                 {move || show_pgn.get().then(|| view! {
                     <div class="pgn-box">
@@ -1472,7 +1496,7 @@ pub fn Board(
                             prop:value=move || pgn_input.get()
                             on:input=move |ev| pgn_input.set(event_target_value(&ev))
                         ></textarea>
-                        <button on:click=load_pgn>"Load PGN"</button>
+                        <button on:click=load_pgn>{move || crate::i18n::t(&lang(), "board.load_pgn")}</button>
                     </div>
                 })}
                 <div class="fen-line">
