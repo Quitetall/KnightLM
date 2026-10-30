@@ -1280,3 +1280,103 @@ fn url_component(value: &str) -> String {
     }
     out
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EngineMove {
+    pub best_move: String,
+    pub score_cp: Option<i32>,
+    pub mate: Option<i32>,
+    pub pv: Vec<String>,
+    pub game_over: Option<String>,
+}
+
+pub async fn analyze_engine(fen: &str, depth: u32, engine: &str) -> Result<EngineMove, String> {
+    let resp = Request::post("/api/analyze/engine")
+        .json(&serde_json::json!({ "fen": fen, "depth": depth, "engine": engine }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountProfile {
+    pub username: String,
+    pub name: Option<String>,
+    pub url: Option<String>,
+    pub rating: Option<i32>,
+    pub games: Option<i64>,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountState {
+    pub provider: String,
+    pub linked: bool,
+    pub username: Option<String>,
+    pub has_token: bool,
+    pub profile: Option<AccountProfile>,
+}
+
+pub async fn accounts() -> Result<Vec<AccountState>, String> {
+    let resp = Request::get("/api/accounts")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn link_account(
+    provider: &str,
+    username: &str,
+    token: Option<&str>,
+) -> Result<Vec<AccountState>, String> {
+    let resp = Request::post("/api/accounts/link")
+        .json(&serde_json::json!({
+            "provider": provider,
+            "username": username,
+            "token": token,
+        }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn unlink_account(provider: &str) -> Result<Vec<AccountState>, String> {
+    let resp = Request::post("/api/accounts/unlink")
+        .json(&serde_json::json!({ "provider": provider }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn import_account(provider: &str, max: u32) -> Result<usize, String> {
+    let resp = Request::post("/api/accounts/import")
+        .json(&serde_json::json!({ "provider": provider, "max": max }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    let value: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(value["imported"].as_u64().unwrap_or(0) as usize)
+}

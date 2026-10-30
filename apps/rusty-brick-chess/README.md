@@ -119,6 +119,11 @@ GET    /api/settings
 PUT    /api/settings               engine/model/depth/theme/pieces/threads/hash/syzygy/engines/variant engine
 POST   /api/report                 {"moves": [MoveInput...], "config": {...}}
 POST   /api/chat                   {"message": "...", "fen": "..."} -> reply + actions
+POST   /api/analyze/engine         {"fen": "...", "engine": "/path", "depth": 12} one engine
+GET    /api/accounts               linked Lichess / Chess.com accounts
+POST   /api/accounts/link          {"provider":"lichess","username":"...","token":"..."}
+POST   /api/accounts/unlink        {"provider":"lichess"}
+POST   /api/accounts/import        {"provider":"lichess","max":50}
 POST   /api/engines/test           {"path": "..."} -> UCI name, author, options
 POST   /api/engine/console/start   {"path": "..."} persistent UCI session
 POST   /api/engine/console/command {"command": "...", "wait_ms": 500}
@@ -244,10 +249,10 @@ The report returns, per move, both a **Lichess-style** label and a
   and train it with
   **SM-2 spaced repetition** (due counts, ease, lapses, correct/wrong feedback
   and scheduled reviews)
-- **Practice**: **Guess the move** steps through a game and scores your move
-  against the one played (correct moves advance, wrong ones snap back and name
-  the game's move, with a restart and reveal), and **Sparring** plays from any
-  FEN against the configured engine as either colour.
+- **Practice**: **Guess the move** scores your move against the game, **Sparring**
+  plays from any FEN against the configured engine, and **Engine match** plays
+  two configured engines against each other (per-engine options, depth, start
+  FEN, pause/reset, live move list, result and checkmate detection).
 - **Statistics**: games, results, players, events, collections and puzzles for
   the current database
 - **Advanced database filters**: date range, result, Elo range, variant and
@@ -265,6 +270,13 @@ The report returns, per move, both a **Lichess-style** label and a
 - **Engine console**: a dock on the right of the analysis board with a
   persistent UCI session — start/stop the selected engine, send commands
   (`isready`, `position …`, `go depth 12`) and read the raw output.
+- **Files**: import a `.pgn` by picking a file or dropping it anywhere on the
+  window, recent-file history, and **Save PGN** on the analysis board (the
+  download is named after the game).
+- **Accounts**: link a **Lichess** username (plus an optional personal API
+  token for private games) or a **Chess.com** username; the Home screen shows
+  the profile and rating and imports your games (Lichess: newest N; Chess.com:
+  newest monthly archive). Links and tokens stay in the local database.
 - **AI assistant with tools**: the right-hand dock chats with the configured
   KnightLM model over an OpenAI-compatible `tools` API. The model can call
   `get_position`, `legal_moves`, `analyze`, `draw_arrow`, `draw_circle`,

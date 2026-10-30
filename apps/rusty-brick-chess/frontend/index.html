@@ -187,6 +187,10 @@
       background: #16161b; color: var(--text); border: 1px solid var(--line);
       font-family: ui-monospace, monospace; font-size: .74rem;
     }
+    .import-actions { display: flex; flex-direction: column; gap: .4rem; }
+    .file-button { display: inline-flex; align-items: center; justify-content: center; padding: .5rem 1rem; background: #2a2a33; color: #e9e9ee; border: 1px solid #454552; border-radius: 7px; cursor: pointer; font-size: .82rem; }
+    .file-button input { display: none; }
+    .recent-files { display: flex; flex-direction: column; gap: .15rem; margin-bottom: .6rem; }
     .link {
       background: none; border: none; color: var(--accent);
       font-size: .76rem; cursor: pointer; padding: 0; text-align: left;
@@ -281,6 +285,8 @@
     .mode.active { background: #2f4a35; color: #eaf5ec; border-color: #3f5f45; }
     .practice-board { flex: 1 1 auto; min-height: 0; }
     .practice-stats { font-size: 1.1rem; font-weight: 600; }
+    .match-moves { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; font-family: ui-monospace, monospace; font-size: .8rem; }
+    .match-move { display: grid; grid-template-columns: 2.2rem 1fr 1fr; gap: .4rem; }
 
     /* ---- workspaces + home ---- */
     .workspaces { display: flex; align-items: center; gap: .35rem; flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; padding-bottom: .15rem; }
@@ -300,6 +306,17 @@
     .home-hero-actions { display: flex; gap: .5rem; align-items: center; }
     .home-hero-actions input { padding: .5rem .7rem; border-radius: 7px; background: #16161b; color: #e9e9ee; border: 1px solid #31313c; width: 190px; }
     .home-hero-actions button { padding: .5rem .9rem; background: #2f4a35; color: #eaf5ec; border: 1px solid #3f5f45; border-radius: 7px; cursor: pointer; }
+    .accounts { display: flex; flex-direction: column; gap: .6rem; }
+    .account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: .8rem; }
+    .account-card { background: #16161b; border: 1px solid #31313c; border-radius: 9px; padding: .7rem .8rem; display: flex; flex-direction: column; gap: .45rem; }
+    .account-head { display: flex; justify-content: space-between; align-items: baseline; }
+    .account-name { font-weight: 700; }
+    .account-form { display: flex; gap: .4rem; flex-wrap: wrap; }
+    .account-form input { flex: 1; min-width: 130px; padding: .42rem .55rem; border-radius: 6px; background: #101014; color: var(--text); border: 1px solid var(--line); font-size: .78rem; }
+    .account-form button, .account-card .row-btns button { padding: .4rem .7rem; background: #2a2a33; color: var(--text); border: 1px solid #454552; border-radius: 7px; cursor: pointer; }
+    .account-actions { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; }
+    .account-actions label { display: flex; gap: .35rem; align-items: center; font-size: .72rem; color: var(--muted); }
+    .account-actions input { width: 5rem; padding: .3rem .4rem; border-radius: 6px; background: #16161b; color: var(--text); border: 1px solid var(--line); }
     .home-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .7rem; }
     .home-stat { background: #1c1c22; border: 1px solid #31313c; border-radius: 10px; padding: .8rem 1rem; }
     .home-stat-value { font-size: 1.5rem; font-weight: 700; }

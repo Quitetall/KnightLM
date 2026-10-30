@@ -302,6 +302,8 @@ pub fn Board(
     #[prop(optional)] animate_last: Option<Signal<bool>>,
     #[prop(optional)] animation_ms: Option<Signal<u32>>,
     #[prop(optional)] keybinds: Option<Signal<Keybinds>>,
+    /// Ignore pointer input (engine-vs-engine boards).
+    #[prop(optional)] read_only: bool,
     #[prop(optional)] shapes: Option<Signal<Vec<Shape>>>,
     #[prop(optional)] on_shape: Option<Callback<Shape>>,
     #[prop(optional, into)] theme: Option<Signal<String>>,
@@ -543,6 +545,9 @@ pub fn Board(
     };
 
     let on_board_down = move |ev: leptos::ev::PointerEvent| {
+        if read_only {
+            return;
+        }
         let Some(idx) = square_at(&ev) else { return };
         if ev.button() == 2 {
             shape_from.set(Some(idx));

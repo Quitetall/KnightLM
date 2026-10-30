@@ -1514,6 +1514,85 @@ pub async fn analyze(
 }
 
 #[derive(Deserialize)]
+pub struct EngineMoveBody {
+    pub fen: String,
+    pub engine: String,
+    #[serde(default)]
+    pub depth: Option<u32>,
+    #[serde(default)]
+    pub variant: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct EngineMove {
+    pub best_move: String,
+    pub score_cp: Option<i32>,
+    pub mate: Option<i32>,
+    pub pv: Vec<String>,
+    pub game_over: Option<String>,
+}
+
+fn game_over_for(fen: &str) -> Option<String> {
+    let (pos, _) = knightlm_core::state::parse_chess(fen).ok()?;
+    if pos.is_checkmate() {
+        Some("checkmate".into())
+    } else if pos.is_stalemate() {
+        Some("stalemate".into())
+    } else if pos.is_insufficient_material() {
+        Some("insufficient material".into())
+    } else if pos.legal_moves().is_empty() {
+        Some("no legal moves".into())
+    } else {
+        None
+    }
+}
+
+/// One move from a specific configured engine (engine-vs-engine matches).
+pub async fn analyze_engine(
+    State(state): State<AppState>,
+    Json(body): Json<EngineMoveBody>,
+) -> Result<Json<EngineMove>, ApiError> {
+    let settings = effective(&state);
+    let depth = body.depth.unwrap_or(settings.depth).clamp(1, 30);
+    let variant = body.variant.unwrap_or_else(|| "standard".into());
+    let entry = settings
+        .engines
+        .iter()
+        .find(|e| e.path == body.engine || e.name == body.engine)
+        .cloned()
+        .ok_or_else(|| ApiError::BadRequest("unknown engine".into()))?;
+    let game_over = game_over_for(&body.fen);
+    if game_over.is_some() {
+        return Ok(Json(EngineMove {
+            best_move: String::new(),
+            score_cp: None,
+            mate: None,
+            pv: Vec::new(),
+            game_over,
+        }));
+    }
+    let mut options = engine_options(&settings, &body.fen, &variant);
+    apply_entry_options(&mut options, Some(&entry));
+    let fen = body.fen.clone();
+    let lines = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        let mut engine = knightlm_engine::Engine::spawn_with(&entry.path, 60, options)?;
+        engine.analyse_lines(&fen, depth, 1)
+    })
+    .await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
+    let best = lines.into_iter().next().ok_or_else(|| {
+        ApiError::Internal(anyhow::anyhow!("engine returned no analysis"))
+    })?;
+    Ok(Json(EngineMove {
+        best_move: best.best_move,
+        score_cp: best.score_cp,
+        mate: best.mate,
+        pv: best.pv,
+        game_over,
+    }))
+}
+
+#[derive(Deserialize)]
 pub struct ReportBody {
     pub moves: Vec<brick_chess_analysis::MoveInput>,
     #[serde(default)]
@@ -1593,6 +1672,191 @@ pub async fn tablebase(
     .await
     .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
     Ok(Json(out))
+}
+
+#[derive(Serialize)]
+pub struct AccountView {
+    pub provider: String,
+    pub linked: bool,
+    pub username: Option<String>,
+    pub has_token: bool,
+    pub profile: Option<crate::accounts::Profile>,
+}
+
+fn accounts_view(state: &AppState) -> Vec<AccountView> {
+    let stored = state.db.settings().unwrap_or_default();
+    let view = |provider: &str, user_key: &str, token_key: &str, profile_key: &str| {
+        let username = stored
+            .get(user_key)
+            .cloned()
+            .filter(|value| !value.trim().is_empty());
+        let profile = stored
+            .get(profile_key)
+            .and_then(|raw| serde_json::from_str(&raw).ok());
+        let has_token = stored
+            .get(token_key)
+            .map(|token| !token.trim().is_empty())
+            .unwrap_or(false);
+        AccountView {
+            provider: provider.to_owned(),
+            linked: username.is_some(),
+            username,
+            has_token,
+            profile,
+        }
+    };
+    vec![
+        view("lichess", "lichess_user", "lichess_token", "lichess_profile"),
+        view("chesscom", "chesscom_user", "", "chesscom_profile"),
+    ]
+}
+
+pub async fn accounts(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<AccountView>>, ApiError> {
+    Ok(Json(accounts_view(&state)))
+}
+
+#[derive(Deserialize)]
+pub struct LinkBody {
+    pub provider: String,
+    pub username: String,
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+pub async fn link_account(
+    State(state): State<AppState>,
+    Json(body): Json<LinkBody>,
+) -> Result<Json<Vec<AccountView>>, ApiError> {
+    let provider = body.provider.to_lowercase();
+    let username = body.username.trim().to_owned();
+    let token = body
+        .token
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_owned());
+    let profile = tokio::task::spawn_blocking({
+        let provider = provider.clone();
+        let username = username.clone();
+        let token = token.clone();
+        move || -> anyhow::Result<crate::accounts::Profile> {
+            match provider.as_str() {
+                "lichess" => crate::accounts::lichess_profile(&username, token.as_deref()),
+                "chesscom" => crate::accounts::chesscom_profile(&username),
+                other => anyhow::bail!("unknown provider: {other}"),
+            }
+        }
+    })
+    .await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
+    match provider.as_str() {
+        "lichess" => {
+            state.db.set_setting("lichess_user", &profile.username)?;
+            if let Some(token) = token {
+                state.db.set_setting("lichess_token", &token)?;
+            }
+            state
+                .db
+                .set_setting("lichess_profile", &serde_json::to_string(&profile)?)?;
+        }
+        "chesscom" => {
+            state.db.set_setting("chesscom_user", &profile.username)?;
+            state
+                .db
+                .set_setting("chesscom_profile", &serde_json::to_string(&profile)?)?;
+        }
+        _ => {}
+    }
+    Ok(Json(accounts_view(&state)))
+}
+
+#[derive(Deserialize)]
+pub struct ProviderBody {
+    pub provider: String,
+}
+
+pub async fn unlink_account(
+    State(state): State<AppState>,
+    Json(body): Json<ProviderBody>,
+) -> Result<Json<Vec<AccountView>>, ApiError> {
+    match body.provider.to_lowercase().as_str() {
+        "lichess" => {
+            state.db.set_setting("lichess_user", "")?;
+            state.db.set_setting("lichess_token", "")?;
+            state.db.set_setting("lichess_profile", "")?;
+        }
+        "chesscom" => {
+            state.db.set_setting("chesscom_user", "")?;
+            state.db.set_setting("chesscom_profile", "")?;
+        }
+        _ => {}
+    }
+    Ok(Json(accounts_view(&state)))
+}
+
+#[derive(Deserialize)]
+pub struct AccountImportBody {
+    pub provider: String,
+    #[serde(default)]
+    pub max: Option<u32>,
+}
+
+pub async fn import_account_games(
+    State(state): State<AppState>,
+    Json(body): Json<AccountImportBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let stored = state.db.settings()?;
+    let provider = body.provider.to_lowercase();
+    let max = body.max.unwrap_or(50).clamp(1, 500);
+    let (username, token) = match provider.as_str() {
+        "lichess" => (
+            stored
+                .get("lichess_user")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_owned(),
+            stored.get("lichess_token").cloned(),
+        ),
+        "chesscom" => (
+            stored
+                .get("chesscom_user")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_owned(),
+            None,
+        ),
+        other => return Err(ApiError::BadRequest(format!("unknown provider: {other}"))),
+    };
+    if username.is_empty() {
+        return Err(ApiError::BadRequest("link an account first".into()));
+    }
+    let pgn = tokio::task::spawn_blocking({
+        let provider = provider.clone();
+        let username = username.clone();
+        move || -> anyhow::Result<String> {
+            match provider.as_str() {
+                "lichess" => crate::accounts::lichess_games(&username, token.as_deref(), max),
+                "chesscom" => crate::accounts::chesscom_latest_pgn(&username)
+                    .map(|pgn| crate::accounts::trim_games(&pgn, max)),
+                _ => anyhow::bail!("unknown provider"),
+            }
+        }
+    })
+    .await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
+    let db = state.db.clone();
+    let (imported, skipped) = tokio::task::spawn_blocking(move || {
+        db.import_pgn_lenient(&pgn, None)
+    })
+    .await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
+    Ok(Json(serde_json::json!({
+        "imported": imported.len(),
+        "skipped": skipped,
+        "provider": provider,
+    })))
 }
 
 #[derive(Deserialize)]

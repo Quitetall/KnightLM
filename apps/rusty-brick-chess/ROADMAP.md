@@ -14,15 +14,15 @@ sidebar surfaces.
 | Analysis board | **Done** | drag/click, instant/slide, history last-move, board editor, clocks, arrows/circles, variants |
 | Engine analysis | **Done** | lines, MultiPV, all-engines, report, eval graph, per-engine UCI options, engine dialog + test, UCI console |
 | AI assistant | **Done** | chat dock with OpenAI-style tool calls: analyse, draw arrows/circles, play moves |
-| Engine-vs-engine | **Missing** | two engines cannot play each other yet |
+| Engine-vs-engine | **Done** | Practice → Engine match, per-engine options, pause/reset, result |
 | Tree editing | **Done** | variations, promote/delete, PGN rewrite, annotations |
 | Openings | **Done** | local/lichess/masters explorer, ECO names, first-12-ply aggregate index |
 | Puzzles | **Done** | Lichess CSV, themes, rating, play-out |
 | Repertoires | **Done** | import, training, SM-2 |
 | Practice | **Partial** | guess-the-move, sparring from FEN; no strength presets or eval-scored guesses |
 | Workspaces | **Partial** | analysis tabs persist across reloads; **tabs are analysis-only**, no Database/Openings tabs, no rename/reorder |
-| Files | **Partial** | PGN import textarea, export link, desktop "Open PGN…"; **no browser file picker/drag-drop, no recent files** |
-| Accounts | **Partial** | local profile + player record; **no Lichess/Chess.com sign-in or sync** |
+| Files | **Done** | file picker + drag-and-drop import, recent files, Save PGN, desktop "Open PGN…" |
+| Accounts | **Done** | Lichess (optional token) and Chess.com links, profile/rating, game import |
 | Settings | **Done** | engines list, depth, threads/hash, syzygy, theme/pieces, sounds, keybinds, animation, profile, vision |
 | Board themes | **Partial** | 8 piece sets, 3 board colours; no custom colours or piece upload |
 | Desktop shell | **Partial** | Tauri window + native menus + installer; **only built/tested on Linux**, no CI bundles, no auto-update |

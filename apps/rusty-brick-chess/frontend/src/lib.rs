@@ -46,6 +46,7 @@ struct Session {
 }
 
 const SESSION_KEY: &str = "rbc.session.v1";
+const RECENT_FILES_KEY: &str = "rbc.recentFiles";
 
 fn tab_name(tab: Tab) -> &'static str {
     match tab {
@@ -78,6 +79,27 @@ fn read_session() -> Option<Session> {
     let storage = web_sys::window()?.local_storage().ok().flatten()?;
     let raw = storage.get_item(SESSION_KEY).ok().flatten()?;
     serde_json::from_str(&raw).ok()
+}
+
+fn read_recent_files() -> Vec<(String, usize)> {
+    let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else {
+        return Vec::new();
+    };
+    storage
+        .get_item(RECENT_FILES_KEY)
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn write_recent_files(files: &[(String, usize)]) {
+    let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else {
+        return;
+    };
+    if let Ok(raw) = serde_json::to_string(files) {
+        let _ = storage.set_item(RECENT_FILES_KEY, &raw);
+    }
 }
 
 fn write_session(session: &Session) {
@@ -359,11 +381,19 @@ pub fn App() -> impl IntoView {
     let profile = RwSignal::new(None::<api::Profile>);
     let keybinds = RwSignal::new(Keybinds::default());
     let home_recent = RwSignal::new(Vec::<api::GameSummary>::new());
+    let accounts = RwSignal::new(Vec::<api::AccountState>::new());
+    let lichess_user_input = RwSignal::new(String::new());
+    let lichess_token_input = RwSignal::new(String::new());
+    let chesscom_user_input = RwSignal::new(String::new());
+    let account_busy = RwSignal::new(false);
+    let account_msg = RwSignal::new(String::new());
+    let account_import_max = RwSignal::new(20u32);
     let games = RwSignal::new(Vec::<api::GameSummary>::new());
     let total = RwSignal::new(0i64);
     let query = RwSignal::new(String::new());
     let status = RwSignal::new(String::new());
     let import_text = RwSignal::new(String::new());
+    let recent_files = RwSignal::new(read_recent_files());
     let selected_pgn = RwSignal::new(String::new());
     let game_detail = RwSignal::new(None::<api::GameDetail>);
     let tree_current = RwSignal::new(String::new());
@@ -485,6 +515,17 @@ pub fn App() -> impl IntoView {
     let practice_seq = RwSignal::new(0u32);
     let practice_pick = RwSignal::new(0i64);
     let practice_query = RwSignal::new(String::new());
+    let match_white = RwSignal::new(0usize);
+    let match_black = RwSignal::new(1usize);
+    let match_depth = RwSignal::new(10u32);
+    let match_start_fen = RwSignal::new(String::new());
+    let match_pgn = RwSignal::new(String::new());
+    let match_play = RwSignal::new(None::<(u32, String)>);
+    let match_seq = RwSignal::new(0u32);
+    let match_running = RwSignal::new(false);
+    let match_status = RwSignal::new(String::new());
+    let match_moves = RwSignal::new(Vec::<String>::new());
+    let match_result = RwSignal::new(String::new());
     let practice_games = RwSignal::new(Vec::<api::GameSummary>::new());
     let spar_pgn = RwSignal::new(String::new());
     let spar_fen = RwSignal::new(String::new());
@@ -792,6 +833,9 @@ pub fn App() -> impl IntoView {
             spawn_local(async move {
                 if let Ok((list, _)) = api::list_games(&api::Filters::default()).await {
                     home_recent.set(list.into_iter().take(6).collect());
+                }
+                if let Ok(list) = api::accounts().await {
+                    accounts.set(list);
                 }
             });
         }
@@ -1200,6 +1244,97 @@ pub fn App() -> impl IntoView {
             }
         });
     };
+
+    let import_file = move |name: String, text: String| {
+        if text.trim().is_empty() {
+            status.set(format!("{name} is empty"));
+            return;
+        }
+        spawn_local(async move {
+            match api::import_pgn(&text).await {
+                Ok(n) => {
+                    status.set(format!("imported {n} game(s) from {name}"));
+                    recent_files.update(|list| {
+                        list.retain(|(existing, _)| existing != &name);
+                        list.insert(0, (name.clone(), n));
+                        list.truncate(8);
+                    });
+                    write_recent_files(&recent_files.get_untracked());
+                    reload();
+                }
+                Err(error) => status.set(format!("{name}: {error}")),
+            }
+        });
+    };
+
+    let read_file = move |file: web_sys::File| {
+        let name = file.name();
+        let Ok(reader) = web_sys::FileReader::new() else {
+            return;
+        };
+        let reader_for_load = reader.clone();
+        let onload = Closure::<dyn FnMut()>::new(move || {
+            let Ok(result) = reader_for_load.result() else {
+                return;
+            };
+            if let Some(text) = result.as_string() {
+                import_file(name.clone(), text);
+            }
+        });
+        reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+        let _ = reader.read_as_text(&file);
+        onload.forget();
+    };
+
+    let on_file_pick = move |ev: leptos::ev::Event| {
+        let Some(input) = ev
+            .current_target()
+            .and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
+        else {
+            return;
+        };
+        if let Some(files) = input.files() {
+            for index in 0..files.length() {
+                if let Some(file) = files.get(index) {
+                    read_file(file);
+                }
+            }
+        }
+        input.set_value("");
+    };
+
+    // Drop a PGN anywhere on the window to import it.
+    {
+        let prevent = Closure::<dyn FnMut(web_sys::DragEvent)>::new(
+            move |event: web_sys::DragEvent| event.prevent_default(),
+        );
+        let on_drop = Closure::<dyn FnMut(web_sys::DragEvent)>::new(
+            move |event: web_sys::DragEvent| {
+                event.prevent_default();
+                let Some(data) = event.data_transfer() else {
+                    return;
+                };
+                let Some(files) = data.files() else {
+                    return;
+                };
+                for index in 0..files.length() {
+                    if let Some(file) = files.get(index) {
+                        read_file(file);
+                    }
+                }
+            },
+        );
+        if let Some(window) = web_sys::window() {
+            let _ = window.add_event_listener_with_callback(
+                "dragover",
+                prevent.as_ref().unchecked_ref(),
+            );
+            let _ = window
+                .add_event_listener_with_callback("drop", on_drop.as_ref().unchecked_ref());
+        }
+        prevent.forget();
+        on_drop.forget();
+    }
 
     let import_online = move |_: leptos::ev::MouseEvent| {
         let user = online_user.get();
@@ -2673,12 +2808,43 @@ pub fn App() -> impl IntoView {
                 </div>
                 <div class="import">
                     <textarea
-                        placeholder="Paste one or more PGN games…"
+                        placeholder="Paste one or more PGN games, or drop a .pgn file anywhere…"
                         prop:value=move || import_text.get()
                         on:input=move |ev| import_text.set(event_target_value(&ev))
                     ></textarea>
-                    <button on:click=import>"Import"</button>
+                    <div class="import-actions">
+                        <button on:click=import>"Import"</button>
+                        <label class="file-button">
+                            "Import file…"
+                            <input
+                                type="file"
+                                accept=".pgn,application/x-chess-pgn,text/plain"
+                                multiple
+                                on:change=on_file_pick
+                            />
+                        </label>
+                    </div>
                 </div>
+                {move || {
+                    let files = recent_files.get();
+                    (!files.is_empty()).then(|| {
+                        view! {
+                            <div class="recent-files">
+                                <span class="panel-sub">"Recent files"</span>
+                                {files
+                                    .into_iter()
+                                    .map(|(name, games)| {
+                                        view! {
+                                            <div class="muted">
+                                                {format!("{name} · {games} game(s)")}
+                                            </div>
+                                        }
+                                    })
+                                    .collect_view()}
+                            </div>
+                        }
+                    })
+                }}
                 <div class="collections">
                     <button
                         class=move || if active_collection.get().is_none() { "chip active" } else { "chip" }
@@ -3206,6 +3372,65 @@ pub fn App() -> impl IntoView {
         });
     };
 
+    let link_account = move |provider: &'static str| {
+        let (username, token) = match provider {
+            "lichess" => (
+                lichess_user_input.get_untracked(),
+                Some(lichess_token_input.get_untracked()),
+            ),
+            _ => (chesscom_user_input.get_untracked(), None),
+        };
+        if username.trim().is_empty() {
+            account_msg.set("enter a username first".into());
+            return;
+        }
+        account_busy.set(true);
+        account_msg.set(format!("linking {provider}…"));
+        spawn_local(async move {
+            match api::link_account(provider, username.trim(), token.as_deref()).await {
+                Ok(list) => {
+                    accounts.set(list);
+                    account_msg.set(format!("linked {provider}"));
+                    lichess_user_input.set(String::new());
+                    lichess_token_input.set(String::new());
+                    chesscom_user_input.set(String::new());
+                }
+                Err(error) => account_msg.set(error),
+            }
+            account_busy.set(false);
+        });
+    };
+
+    let unlink_account = move |provider: &'static str| {
+        account_busy.set(true);
+        spawn_local(async move {
+            match api::unlink_account(provider).await {
+                Ok(list) => {
+                    accounts.set(list);
+                    account_msg.set(format!("unlinked {provider}"));
+                }
+                Err(error) => account_msg.set(error),
+            }
+            account_busy.set(false);
+        });
+    };
+
+    let import_account = move |provider: &'static str| {
+        let max = account_import_max.get_untracked().clamp(1, 500);
+        account_busy.set(true);
+        account_msg.set(format!("importing from {provider}…"));
+        spawn_local(async move {
+            match api::import_account(provider, max).await {
+                Ok(count) => {
+                    account_msg.set(format!("imported {count} game(s) from {provider}"));
+                    reload();
+                }
+                Err(error) => account_msg.set(error),
+            }
+            account_busy.set(false);
+        });
+    };
+
     let home_view = move || {
         let stat = move |value: i64, label: &'static str| {
             view! {
@@ -3238,6 +3463,160 @@ pub fn App() -> impl IntoView {
                             persist_settings();
                             status.set("profile saved".into());
                         }>"Save profile"</button>
+                    </div>
+                </div>
+
+                <div class="panel accounts">
+                    <div class="panel-head"><h2>"Accounts"</h2></div>
+                    <div class="account-grid">
+                        {move || {
+                            let list = accounts.get();
+                            let lichess = list.iter().find(|a| a.provider == "lichess");
+                            let profile = lichess.and_then(|a| a.profile.clone());
+                            if lichess.map(|a| a.linked).unwrap_or(false) {
+                                view! {
+                                    <div class="account-card">
+                                        <div class="account-head">
+                                            <span class="account-name">"Lichess"</span>
+                                            <span class="best">{profile.as_ref().map(|p| p.username.clone()).unwrap_or_default()}</span>
+                                        </div>
+                                        <div class="muted">
+                                            {profile
+                                                .as_ref()
+                                                .map(|p| {
+                                                    let mut parts = Vec::new();
+                                                    if let Some(name) = p.name.clone() { parts.push(name); }
+                                                    if let Some(rating) = p.rating { parts.push(format!("{rating} blitz/rapid")); }
+                                                    if let Some(games) = p.games { parts.push(format!("{games} games")); }
+                                                    parts.join(" · ")
+                                                })
+                                                .unwrap_or_default()}
+                                        </div>
+                                        <div class="row-btns">
+                                            <button
+                                                disabled=move || account_busy.get()
+                                                on:click=move |_| import_account("lichess")
+                                            >
+                                                "Import games"
+                                            </button>
+                                            <button on:click=move |_| unlink_account("lichess")>"Unlink"</button>
+                                        </div>
+                                    </div>
+                                }
+                                    .into_any()
+                            } else {
+                                view! {
+                                    <div class="account-card">
+                                        <div class="account-head">
+                                            <span class="account-name">"Lichess"</span>
+                                        </div>
+                                        <div class="account-form">
+                                            <input
+                                                type="text"
+                                                placeholder="Lichess username"
+                                                prop:value=move || lichess_user_input.get()
+                                                on:input=move |ev| lichess_user_input.set(event_target_value(&ev))
+                                            />
+                                            <input
+                                                type="password"
+                                                placeholder="Personal API token (optional)"
+                                                prop:value=move || lichess_token_input.get()
+                                                on:input=move |ev| lichess_token_input.set(event_target_value(&ev))
+                                            />
+                                            <button
+                                                disabled=move || account_busy.get()
+                                                on:click=move |_| link_account("lichess")
+                                            >
+                                                "Link"
+                                            </button>
+                                        </div>
+                                        <div class="muted">
+                                            "Public games work without a token; a token adds private games."
+                                        </div>
+                                    </div>
+                                }
+                                    .into_any()
+                            }
+                        }}
+                        {move || {
+                            let list = accounts.get();
+                            let chesscom = list.iter().find(|a| a.provider == "chesscom");
+                            let profile = chesscom.and_then(|a| a.profile.clone());
+                            if chesscom.map(|a| a.linked).unwrap_or(false) {
+                                view! {
+                                    <div class="account-card">
+                                        <div class="account-head">
+                                            <span class="account-name">"Chess.com"</span>
+                                            <span class="best">{profile.as_ref().map(|p| p.username.clone()).unwrap_or_default()}</span>
+                                        </div>
+                                        <div class="muted">
+                                            {profile
+                                                .as_ref()
+                                                .map(|p| {
+                                                    let mut parts = Vec::new();
+                                                    if let Some(name) = p.name.clone() { parts.push(name); }
+                                                    if let Some(rating) = p.rating { parts.push(format!("{rating} blitz/rapid")); }
+                                                    if let Some(status) = p.status.clone() { parts.push(status); }
+                                                    parts.join(" · ")
+                                                })
+                                                .unwrap_or_default()}
+                                        </div>
+                                        <div class="row-btns">
+                                            <button
+                                                disabled=move || account_busy.get()
+                                                on:click=move |_| import_account("chesscom")
+                                            >
+                                                "Import latest month"
+                                            </button>
+                                            <button on:click=move |_| unlink_account("chesscom")>"Unlink"</button>
+                                        </div>
+                                    </div>
+                                }
+                                    .into_any()
+                            } else {
+                                view! {
+                                    <div class="account-card">
+                                        <div class="account-head">
+                                            <span class="account-name">"Chess.com"</span>
+                                        </div>
+                                        <div class="account-form">
+                                            <input
+                                                type="text"
+                                                placeholder="Chess.com username"
+                                                prop:value=move || chesscom_user_input.get()
+                                                on:input=move |ev| chesscom_user_input.set(event_target_value(&ev))
+                                            />
+                                            <button
+                                                disabled=move || account_busy.get()
+                                                on:click=move |_| link_account("chesscom")
+                                            >
+                                                "Link"
+                                            </button>
+                                        </div>
+                                        <div class="muted">
+                                            "Uses the public Chess.com API; the newest monthly archive is imported."
+                                        </div>
+                                    </div>
+                                }
+                                    .into_any()
+                            }
+                        }}
+                    </div>
+                    <div class="account-actions">
+                        <label>
+                            "Games to import (Lichess)"
+                            <input
+                                type="number"
+                                min="1"
+                                max="500"
+                                prop:value=move || account_import_max.get().to_string()
+                                on:input=move |ev| {
+                                    account_import_max
+                                        .set(event_target_value(&ev).parse().unwrap_or(20))
+                                }
+                            />
+                        </label>
+                        <span class="muted">{move || account_msg.get()}</span>
                     </div>
                 </div>
 
@@ -3757,10 +4136,18 @@ pub fn App() -> impl IntoView {
                             href=move || {
                                 selected_game_id.get().map(api::game_pgn_url).unwrap_or_default()
                             }
+                            download=move || {
+                                let title = selected_title.get();
+                                let name: String = title
+                                    .chars()
+                                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                                    .collect();
+                                format!("{name}.pgn")
+                            }
                             target="_blank"
                             rel="noopener"
                         >
-                            "Export PGN"
+                            "Save PGN"
                         </a>
                         <button on:click=delete_current>"Delete"</button>
                     </div>
@@ -4368,6 +4755,128 @@ pub fn App() -> impl IntoView {
         }
     };
 
+    let request_match_move = move || {
+
+        if !match_running.get_untracked() {
+            return;
+        }
+        let board_fen = fen.get_untracked();
+        let turn_black = board_fen.split_whitespace().nth(1) == Some("b");
+        let list = engines.get_untracked();
+        let index = if turn_black {
+            match_black.get_untracked()
+        } else {
+            match_white.get_untracked()
+        };
+        let Some(entry) = list.get(index).cloned() else {
+            match_status.set("choose two engines first".into());
+            match_running.set(false);
+            return;
+        };
+        let depth = match_depth.get_untracked().clamp(1, 30);
+
+        match_status.set(format!("{} thinking…", entry.name));
+        spawn_local(async move {
+            match api::analyze_engine(&board_fen, depth, &entry.path).await {
+                Ok(mv) => {
+                    if let Some(over) = mv.game_over {
+                        let white_to_move = board_fen.split_whitespace().nth(1) != Some("b");
+                        let result = if over == "checkmate" {
+                            if white_to_move { "0-1" } else { "1-0" }
+                        } else {
+                            "1/2-1/2"
+                        };
+                        match_result.set(result.to_owned());
+                        match_status.set(format!("finished — {result} ({over})"));
+                        match_running.set(false);
+                        return;
+                    }
+                    if mv.best_move.is_empty() || mv.best_move == "(none)" {
+                        match_result.set("1/2-1/2".into());
+                        match_status.set("finished — no legal moves".into());
+                        match_running.set(false);
+                        return;
+                    }
+                    let seq = match_seq.get_untracked() + 1;
+                    match_seq.set(seq);
+                    match_play.set(Some((seq, mv.best_move)));
+                }
+                Err(error) => {
+                    match_status.set(error);
+                    match_running.set(false);
+                }
+            }
+        });
+    };
+
+    let on_match_play = move |(_uci, san, fen_after): (String, String, String)| {
+
+        match_moves.update(|list| list.push(san));
+        if !match_running.get_untracked() {
+            return;
+        }
+        let turn = if fen_after.split_whitespace().nth(1) == Some("b") {
+            "Black"
+        } else {
+            "White"
+        };
+        match_status.set(format!("{turn} to move"));
+        spawn_local(async move {
+            TimeoutFuture::new(150).await;
+            request_match_move();
+        });
+    };
+
+    let start_match = move |_: leptos::ev::MouseEvent| {
+        let entered = match_start_fen.get_untracked();
+        let start = if entered.trim().is_empty() {
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_owned()
+        } else {
+            entered
+        };
+        match_pgn.set(line_pgn(&start, &[], "standard"));
+        match_moves.set(Vec::new());
+        match_result.set(String::new());
+        match_status.set("starting…".into());
+        match_play.set(None);
+        let seq = match_seq.get_untracked() + 1;
+        match_seq.set(seq);
+        match_running.set(true);
+        let expected = start.clone();
+        spawn_local(async move {
+            for _ in 0..20 {
+                TimeoutFuture::new(100).await;
+                if fen.get_untracked() == expected {
+                    break;
+                }
+            }
+            request_match_move();
+        });
+    };
+
+    let pause_match = move |_: leptos::ev::MouseEvent| {
+        match_running.set(false);
+        if match_result.get_untracked().is_empty() {
+            match_status.set("paused".into());
+        }
+    };
+
+    let reset_match = move |_: leptos::ev::MouseEvent| {
+        match_running.set(false);
+        match_play.set(None);
+        match_moves.set(Vec::new());
+        match_result.set(String::new());
+        match_status.set(String::new());
+        let seq = match_seq.get_untracked() + 1;
+        match_seq.set(seq);
+        let start = if match_start_fen.get_untracked().trim().is_empty() {
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_owned()
+        } else {
+            match_start_fen.get_untracked()
+        };
+        match_pgn.set(line_pgn(&start, &[], "standard"));
+    };
+
     let practice_view = move || {
         view! {
             <section class="practice">
@@ -4388,6 +4897,14 @@ pub fn App() -> impl IntoView {
                             on:click=move |_| practice_mode.set("spar".into())
                         >
                             "Sparring"
+                        </button>
+                        <button
+                            class=move || {
+                                if practice_mode.get() == "engine" { "mode active" } else { "mode" }
+                            }
+                            on:click=move |_| practice_mode.set("engine".into())
+                        >
+                            "Engine match"
                         </button>
                     </div>
                     {move || {
@@ -4438,7 +4955,7 @@ pub fn App() -> impl IntoView {
                                 </div>
                             }
                                 .into_any()
-                        } else {
+                        } else if practice_mode.get() == "spar" {
                             view! {
                                 <div class="practice-row">
                                     <input
@@ -4455,6 +4972,75 @@ pub fn App() -> impl IntoView {
                                         <option value="black">"Play Black"</option>
                                     </select>
                                     <button on:click=start_spar>"Start"</button>
+                                </div>
+                            }
+                                .into_any()
+                        } else {
+                            view! {
+                                <div class="practice-row">
+                                    <select
+                                        prop:value=move || match_white.get().to_string()
+                                        on:change=move |ev| {
+                                            match_white.set(event_target_value(&ev).parse().unwrap_or(0))
+                                        }
+                                    >
+                                        {move || {
+                                            engines
+                                                .get()
+                                                .into_iter()
+                                                .enumerate()
+                                                .map(|(i, engine)| {
+                                                    view! {
+                                                        <option value=i.to_string()>
+                                                            {format!("White: {}", engine.name)}
+                                                        </option>
+                                                    }
+                                                })
+                                                .collect_view()
+                                        }}
+                                    </select>
+                                    <select
+                                        prop:value=move || match_black.get().to_string()
+                                        on:change=move |ev| {
+                                            match_black.set(event_target_value(&ev).parse().unwrap_or(0))
+                                        }
+                                    >
+                                        {move || {
+                                            engines
+                                                .get()
+                                                .into_iter()
+                                                .enumerate()
+                                                .map(|(i, engine)| {
+                                                    view! {
+                                                        <option value=i.to_string()>
+                                                            {format!("Black: {}", engine.name)}
+                                                        </option>
+                                                    }
+                                                })
+                                                .collect_view()
+                                        }}
+                                    </select>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="30"
+                                        title="Depth"
+                                        style="max-width:6rem"
+                                        prop:value=move || match_depth.get().to_string()
+                                        on:input=move |ev| {
+                                            match_depth
+                                                .set(event_target_value(&ev).parse().unwrap_or(10))
+                                        }
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="Start FEN (empty = start)"
+                                        prop:value=move || match_start_fen.get()
+                                        on:input=move |ev| match_start_fen.set(event_target_value(&ev))
+                                    />
+                                    <button on:click=start_match>"Start"</button>
+                                    <button on:click=pause_match>"Pause"</button>
+                                    <button on:click=reset_match>"Reset"</button>
                                 </div>
                             }
                                 .into_any()
@@ -4475,7 +5061,26 @@ pub fn App() -> impl IntoView {
                                         pgn=practice_pgn
                                         title=Signal::derive(move || side.clone())
                                         on_move=Callback::new(on_practice_move)
+                                        on_position=Callback::new(move |f: String| fen.set(f))
                                         goto=Signal::derive(move || practice_goto.get())
+                                        keybinds=Signal::derive(move || keybinds.get())
+                                        theme=Signal::derive(move || settings_theme.get())
+                                        pieces=Signal::derive(move || settings_pieces.get())
+                                    />
+                                }
+                                    .into_any()
+                            } else if practice_mode.get() == "spar" {
+                                view! {
+                                    <Board
+                                        pgn=spar_pgn
+                                        title=Signal::derive(move || "Sparring".to_string())
+                                        orientation=Signal::derive(move || spar_color.get())
+                                        play=Signal::derive(move || spar_play.get())
+                                        on_move=Callback::new(on_spar_move)
+                                        on_position=Callback::new(move |f: String| fen.set(f))
+                                        on_play=Callback::new(move |_: (String, String, String)| {
+                                            spar_status.set("Your move.".into());
+                                        })
                                         keybinds=Signal::derive(move || keybinds.get())
                                         theme=Signal::derive(move || settings_theme.get())
                                         pieces=Signal::derive(move || settings_pieces.get())
@@ -4485,14 +5090,12 @@ pub fn App() -> impl IntoView {
                             } else {
                                 view! {
                                     <Board
-                                        pgn=spar_pgn
-                                        title=Signal::derive(move || "Sparring".to_string())
-                                        orientation=Signal::derive(move || spar_color.get())
-                                        play=Signal::derive(move || spar_play.get())
-                                        on_move=Callback::new(on_spar_move)
-                                        on_play=Callback::new(move |_: (String, String, String)| {
-                                            spar_status.set("Your move.".into());
-                                        })
+                                        pgn=match_pgn
+                                        title=Signal::derive(move || "Engine match".to_string())
+                                        play=Signal::derive(move || match_play.get())
+                                        on_play=Callback::new(on_match_play)
+                                        on_position=Callback::new(move |f: String| fen.set(f))
+                                        read_only=true
                                         keybinds=Signal::derive(move || keybinds.get())
                                         theme=Signal::derive(move || settings_theme.get())
                                         pieces=Signal::derive(move || settings_pieces.get())
@@ -4556,7 +5159,7 @@ pub fn App() -> impl IntoView {
                                     </div>
                                 }
                                     .into_any()
-                            } else {
+                            } else if practice_mode.get() == "spar" {
                                 view! {
                                     <div class="engine-body">
                                         <div class="best">{move || spar_status.get()}</div>
@@ -4571,6 +5174,47 @@ pub fn App() -> impl IntoView {
                                         </div>
                                         <div class="row-btns">
                                             <button on:click=start_spar>"New game"</button>
+                                        </div>
+                                    </div>
+                                }
+                                    .into_any()
+                            } else {
+                                view! {
+                                    <div class="engine-body">
+                                        <div class="practice-stats">{move || match_status.get()}</div>
+                                        <div class="muted">
+                                            {move || {
+                                                if match_result.get().is_empty() {
+                                                    format!("{} moves", match_moves.get().len())
+                                                } else {
+                                                    format!("result {}", match_result.get())
+                                                }
+                                            }}
+                                        </div>
+                                        <div class="match-moves">
+                                            {move || {
+                                                match_moves
+                                                    .get()
+                                                    .chunks(2)
+                                                    .enumerate()
+                                                    .map(|(i, pair)| {
+                                                        view! {
+                                                            <div class="match-move">
+                                                                <span class="muted">{format!("{}.", i + 1)}</span>
+                                                                <span>{pair[0].clone()}</span>
+                                                                <span>{pair.get(1).cloned().unwrap_or_default()}</span>
+                                                            </div>
+                                                        }
+                                                    })
+                                                    .collect_view()
+                                            }}
+                                        </div>
+                                        <div class="row-btns">
+                                            <button on:click=start_match disabled=move || match_running.get()>
+                                                "Start"
+                                            </button>
+                                            <button on:click=pause_match>"Pause"</button>
+                                            <button on:click=reset_match>"Reset"</button>
                                         </div>
                                     </div>
                                 }

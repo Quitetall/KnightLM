@@ -3,6 +3,7 @@
 //! Leptos/BrickChess frontend (static WASM) + an En-Croissant-shaped backend
 //! (games database, engine analysis, classification) + AI chat.
 
+pub mod accounts;
 pub mod api;
 pub mod console;
 pub mod importer;
@@ -63,6 +64,10 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/databases", get(api::databases).post(api::create_database))
         .route("/api/databases/switch", post(api::switch_database))
         .route("/api/sounds/custom/{name}", get(api::custom_sound).post(api::upload_sound))
+        .route("/api/accounts", get(api::accounts))
+        .route("/api/accounts/link", post(api::link_account))
+        .route("/api/accounts/unlink", post(api::unlink_account))
+        .route("/api/accounts/import", post(api::import_account_games))
         .route("/api/engines/test", post(api::test_engine))
         .route("/api/engine/console/start", post(api::console_start))
         .route("/api/engine/console/command", post(api::console_command))
@@ -104,6 +109,7 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/puzzles/import", post(api::import_puzzles))
         .route("/api/games/{id}/report", get(api::game_report))
         .route("/api/analyze", post(api::analyze))
+        .route("/api/analyze/engine", post(api::analyze_engine))
         .route("/api/report", post(api::report))
         .route("/api/chat", post(api::chat))
         .fallback_service(ServeDir::new(static_dir).fallback(ServeFile::new(index)))
