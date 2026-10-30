@@ -111,20 +111,51 @@ struct QueryResponse {
     total: i64,
 }
 
-pub async fn list_games(
-    query: &str,
-    event: Option<&str>,
-    collection: Option<i64>,
-) -> Result<(Vec<GameSummary>, i64), String> {
+#[derive(Debug, Clone, Default)]
+pub struct Filters {
+    pub player: String,
+    pub event: Option<String>,
+    pub collection: Option<i64>,
+    pub date_from: String,
+    pub date_to: String,
+    pub result: String,
+    pub elo_min: String,
+    pub elo_max: String,
+    pub variant: String,
+    pub sort: String,
+}
+
+pub async fn list_games(filters: &Filters) -> Result<(Vec<GameSummary>, i64), String> {
     let mut url = String::from("/api/games?limit=100");
-    if !query.trim().is_empty() {
-        url.push_str(&format!("&player={}", encode(query.trim())));
+    if !filters.player.trim().is_empty() {
+        url.push_str(&format!("&player={}", encode(filters.player.trim())));
     }
-    if let Some(event) = event.filter(|e| !e.is_empty()) {
+    if let Some(event) = filters.event.as_deref().filter(|e| !e.is_empty()) {
         url.push_str(&format!("&event={}", encode(event)));
     }
-    if let Some(id) = collection {
+    if let Some(id) = filters.collection {
         url.push_str(&format!("&collection_id={id}"));
+    }
+    if !filters.date_from.trim().is_empty() {
+        url.push_str(&format!("&date_from={}", encode(filters.date_from.trim())));
+    }
+    if !filters.date_to.trim().is_empty() {
+        url.push_str(&format!("&date_to={}", encode(filters.date_to.trim())));
+    }
+    if !filters.result.trim().is_empty() {
+        url.push_str(&format!("&result={}", encode(filters.result.trim())));
+    }
+    if let Ok(min) = filters.elo_min.trim().parse::<i32>() {
+        url.push_str(&format!("&elo_min={min}"));
+    }
+    if let Ok(max) = filters.elo_max.trim().parse::<i32>() {
+        url.push_str(&format!("&elo_max={max}"));
+    }
+    if !filters.variant.trim().is_empty() && filters.variant != "any" {
+        url.push_str(&format!("&variant={}", encode(filters.variant.trim())));
+    }
+    if !filters.sort.trim().is_empty() && filters.sort != "newest" {
+        url.push_str(&format!("&sort={}", encode(filters.sort.trim())));
     }
     let resp = Request::get(&url).send().await.map_err(|e| e.to_string())?;
     if !resp.ok() {
@@ -363,6 +394,7 @@ pub struct Settings {
     pub puzzle_rating: i32,
     pub profile_name: String,
     pub profile_player: Option<String>,
+    pub keybinds: String,
     pub engines: Vec<EngineEntry>,
 }
 
@@ -387,6 +419,7 @@ impl Default for Settings {
             puzzle_rating: 1500,
             profile_name: "Player".into(),
             profile_player: None,
+            keybinds: "{\"previous\":\"ArrowLeft\",\"next\":\"ArrowRight\",\"start\":\"Home\",\"end\":\"End\",\"flip\":\"f\"}".into(),
             engines: Vec::new(),
         }
     }
@@ -420,6 +453,7 @@ pub async fn save_settings(settings: &Settings) -> Result<Settings, String> {
             "piece_animation_ms": settings.piece_animation_ms,
             "profile_name": settings.profile_name,
             "profile_player": settings.profile_player,
+            "keybinds": settings.keybinds,
             "engines": settings.engines,
         }))
         .map_err(|e| e.to_string())?

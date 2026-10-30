@@ -176,7 +176,16 @@ pub struct GameQuery {
     pub event: Option<String>,
     pub player: Option<String>,
     pub collection_id: Option<i64>,
-    /// `newest` (default), `oldest`, `white`, `black`.
+    /// Inclusive lower bound on the PGN date (`YYYY.MM.DD`).
+    pub date_from: Option<String>,
+    /// Inclusive upper bound on the PGN date (`YYYY.MM.DD`).
+    pub date_to: Option<String>,
+    /// Keep games where either side's Elo falls inside this range.
+    pub elo_min: Option<i32>,
+    pub elo_max: Option<i32>,
+    /// Variant name; `standard` also matches games with no variant tag.
+    pub variant: Option<String>,
+    /// `newest` (default), `oldest`, `date`, `white`, `black`.
     pub sort: Option<String>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
@@ -449,6 +458,40 @@ impl Db {
             );
             args.push(Value::Integer(v));
         }
+        if let Some(from) = q.date_from.as_ref().filter(|d| !d.trim().is_empty()) {
+            filters.push("date >= ?".into());
+            args.push(Value::Text(from.trim().replace('-', ".")));
+        }
+        if let Some(to) = q.date_to.as_ref().filter(|d| !d.trim().is_empty()) {
+            filters.push("date <= ?".into());
+            args.push(Value::Text(to.trim().replace('-', ".")));
+        }
+        if let Some(min) = q.elo_min {
+            filters.push(
+                "((white_elo IS NOT NULL AND white_elo >= ?) OR (black_elo IS NOT NULL AND black_elo >= ?))"
+                    .into(),
+            );
+            args.push(Value::Integer(min as i64));
+            args.push(Value::Integer(min as i64));
+        }
+        if let Some(max) = q.elo_max {
+            filters.push(
+                "((white_elo IS NOT NULL AND white_elo <= ?) OR (black_elo IS NOT NULL AND black_elo <= ?))"
+                    .into(),
+            );
+            args.push(Value::Integer(max as i64));
+            args.push(Value::Integer(max as i64));
+        }
+        if let Some(variant) = q.variant.as_deref().filter(|v| !v.trim().is_empty()) {
+            if variant == "standard" {
+                filters.push(
+                    "(variant IS NULL OR variant = '' OR variant = 'standard')".into(),
+                );
+            } else {
+                filters.push("variant = ?".into());
+                args.push(Value::Text(variant.to_owned()));
+            }
+        }
         let where_sql = if filters.is_empty() {
             String::new()
         } else {
@@ -462,8 +505,10 @@ impl Db {
         )?;
         let order = match q.sort.as_deref() {
             Some("oldest") => "id ASC",
+            Some("date") => "date DESC, id DESC",
             Some("white") => "white ASC, id DESC",
             Some("black") => "black ASC, id DESC",
+            Some("length") => "ply_count DESC, id DESC",
             _ => "id DESC",
         };
         let limit = q.limit.unwrap_or(50).min(500) as i64;

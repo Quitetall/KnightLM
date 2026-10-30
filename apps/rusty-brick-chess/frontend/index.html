@@ -177,6 +177,11 @@
     .controls button:hover, .load button:hover, .pgn-box button:hover { background: #30303a; }
 
     .load { display: flex; gap: .4rem; }
+    .filters { display: flex; flex-wrap: wrap; gap: .5rem .7rem; align-items: flex-end; margin-top: .6rem; }
+    .filters label { display: flex; flex-direction: column; gap: .2rem; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .filters input, .filters select { padding: .35rem .5rem; border-radius: 6px; background: #16161b; color: var(--text); border: 1px solid var(--line); font-size: .78rem; }
+    .filters input[type="number"] { width: 7.2rem; }
+    .filters button { padding: .38rem .7rem; background: #2a2a33; color: var(--text); border: 1px solid #454552; border-radius: 7px; cursor: pointer; align-self: end; }
     .load input, .pgn-box textarea {
       flex: 1; padding: .42rem .6rem; border-radius: 7px;
       background: #16161b; color: var(--text); border: 1px solid var(--line);
@@ -238,6 +243,19 @@
     .best { color: #9fd39f; }
     .pv { font-family: ui-monospace, monospace; font-size: .78rem; color: #c8c8d2; word-break: break-all; }
 
+    /* ---- practice ---- */
+    .practice { display: flex; flex-direction: column; gap: .8rem; min-height: 0; }
+    .practice-controls { padding: .7rem .9rem; }
+    .practice-controls .row-btns { margin-top: 0; }
+    .practice-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
+    .practice-row input, .practice-row select { padding: .42rem .6rem; border-radius: 7px; background: #16161b; color: var(--text); border: 1px solid var(--line); font-size: .8rem; }
+    .practice-row input { flex: 1; min-width: 240px; }
+    .practice-row button { padding: .42rem .75rem; background: #2a2a33; color: var(--text); border: 1px solid #454552; border-radius: 7px; cursor: pointer; }
+    .mode { background: #1c1c22; color: var(--muted); border: 1px solid var(--line); padding: .4rem .8rem; border-radius: 7px; cursor: pointer; }
+    .mode.active { background: #2f4a35; color: #eaf5ec; border-color: #3f5f45; }
+    .practice-board { flex: 1 1 auto; min-height: 0; }
+    .practice-stats { font-size: 1.1rem; font-weight: 600; }
+
     /* ---- workspaces + home ---- */
     .workspaces { display: flex; align-items: center; gap: .35rem; flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; padding-bottom: .15rem; }
     .ws-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .09em; color: #6f6f7a; margin-right: .2rem; }
@@ -266,6 +284,9 @@
     .profile-name { font-weight: 700; }
     .profile-record { color: #9fd39f; font-size: .95rem; }
     .profile-score { font-size: .85rem; }
+    .keybinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .55rem; }
+    .keybinds label { display: flex; flex-direction: column; gap: .2rem; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .keybinds input { padding: .4rem .55rem; border-radius: 6px; background: #16161b; color: var(--text); border: 1px solid var(--line); font-family: ui-monospace, monospace; font-size: .78rem; }
     .row-btns { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }
     .row-btns button { padding: .45rem .75rem; background: #2a2a33; color: #e9e9ee; border: 1px solid #454552; border-radius: 7px; cursor: pointer; }
     .row-btns button:hover { background: #33333f; }

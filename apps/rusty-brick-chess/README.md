@@ -70,7 +70,8 @@ Environment:
 
 ```bash
 GET    /api/health
-GET    /api/games?limit=50&player=&event=&collection_id=
+GET    /api/games?limit=50&player=&event=&collection_id=&date_from=&date_to=
+                 &result=&elo_min=&elo_max=&variant=&sort=newest|oldest|date|white|black|length
 POST   /api/games                  {"pgn": "..."}
 POST   /api/import/lichess         {"username": "...", "max": 30}
 POST   /api/import/chesscom        {"username": "...", "months": 1}
@@ -238,12 +239,23 @@ The report returns, per move, both a **Lichess-style** label and a
   and train it with
   **SM-2 spaced repetition** (due counts, ease, lapses, correct/wrong feedback
   and scheduled reviews)
+- **Practice**: **Guess the move** steps through a game and scores your move
+  against the one played (correct moves advance, wrong ones snap back and name
+  the game's move, with a restart and reveal), and **Sparring** plays from any
+  FEN against the configured engine as either colour.
 - **Statistics**: games, results, players, events, collections and puzzles for
   the current database
+- **Advanced database filters**: date range, result, Elo range, variant and
+  sort (newest, oldest, game date, player names, longest) alongside the player,
+  event, collection and position filters; every filter is a SQL predicate on
+  the local store.
+- **Keybinds**: previous/next move, start, end and flip are rebindable in
+  Settings (browser key names such as `ArrowLeft`, `Home`, `End`, or a single
+  letter) and persist with the rest of the settings.
 - **Settings**: engine binary, model URL, analysis depth, board theme, piece
   set, engine Threads/Hash, Syzygy path and a **multi-engine list**
-  (add/remove/select), sound options, move-animation speed, the optional
-  vision model and custom sound upload, all persisted in SQLite
+  (add/remove/select), sound options, move-animation speed, keybinds, the
+  optional vision model and custom sound upload, all persisted in SQLite
 
 Build and deploy:
 

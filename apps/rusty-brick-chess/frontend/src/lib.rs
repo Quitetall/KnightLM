@@ -11,13 +11,14 @@ use leptos::task::spawn_local;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 
-use board::Board;
+use board::{Board, Keybinds};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Home,
     Database,
     Analysis,
+    Practice,
     Openings,
     Puzzles,
     Stats,
@@ -51,6 +52,7 @@ fn tab_name(tab: Tab) -> &'static str {
         Tab::Home => "home",
         Tab::Database => "database",
         Tab::Analysis => "analysis",
+        Tab::Practice => "practice",
         Tab::Openings => "openings",
         Tab::Puzzles => "puzzles",
         Tab::Stats => "stats",
@@ -63,6 +65,7 @@ fn tab_from_name(name: &str) -> Option<Tab> {
         "home" => Tab::Home,
         "database" => Tab::Database,
         "analysis" => Tab::Analysis,
+        "practice" => Tab::Practice,
         "openings" => Tab::Openings,
         "puzzles" => Tab::Puzzles,
         "stats" => Tab::Stats,
@@ -354,6 +357,7 @@ pub fn App() -> impl IntoView {
     let profile_name = RwSignal::new("Player".to_string());
     let profile_player = RwSignal::new(String::new());
     let profile = RwSignal::new(None::<api::Profile>);
+    let keybinds = RwSignal::new(Keybinds::default());
     let home_recent = RwSignal::new(Vec::<api::GameSummary>::new());
     let games = RwSignal::new(Vec::<api::GameSummary>::new());
     let total = RwSignal::new(0i64);
@@ -469,6 +473,31 @@ pub fn App() -> impl IntoView {
     let moves_text = RwSignal::new(String::new());
     let new_database = RwSignal::new(String::new());
     let position_fen = RwSignal::new(String::new());
+    let practice_mode = RwSignal::new("guess".to_string());
+    let practice_game = RwSignal::new(None::<api::GameDetail>);
+    let practice_sans = RwSignal::new(Vec::<String>::new());
+    let practice_step = RwSignal::new(0usize);
+    let practice_hits = RwSignal::new(0u32);
+    let practice_misses = RwSignal::new(0u32);
+    let practice_feedback = RwSignal::new(String::new());
+    let practice_pgn = RwSignal::new(String::new());
+    let practice_goto = RwSignal::new(None::<(u32, usize)>);
+    let practice_seq = RwSignal::new(0u32);
+    let practice_pick = RwSignal::new(0i64);
+    let spar_pgn = RwSignal::new(String::new());
+    let spar_fen = RwSignal::new(String::new());
+    let spar_color = RwSignal::new("white".to_string());
+    let spar_play = RwSignal::new(None::<(u32, String)>);
+    let spar_seq = RwSignal::new(0u32);
+    let spar_thinking = RwSignal::new(false);
+    let spar_status = RwSignal::new(String::new());
+    let filter_date_from = RwSignal::new(String::new());
+    let filter_date_to = RwSignal::new(String::new());
+    let filter_result = RwSignal::new(String::new());
+    let filter_elo_min = RwSignal::new(String::new());
+    let filter_elo_max = RwSignal::new(String::new());
+    let filter_variant = RwSignal::new("any".to_string());
+    let sort_by = RwSignal::new("newest".to_string());
     let fen = RwSignal::new(String::new());
     let analysis = RwSignal::new(None::<api::Analysis>);
     let analyzing = RwSignal::new(false);
@@ -503,7 +532,19 @@ pub fn App() -> impl IntoView {
         let collection = active_collection.get();
         let event = event_filter.get();
         spawn_local(async move {
-            match api::list_games(&q, event.as_deref(), collection).await {
+            let filters = api::Filters {
+                player: q.clone(),
+                event: event.clone(),
+                collection,
+                date_from: filter_date_from.get_untracked(),
+                date_to: filter_date_to.get_untracked(),
+                result: filter_result.get_untracked(),
+                elo_min: filter_elo_min.get_untracked(),
+                elo_max: filter_elo_max.get_untracked(),
+                variant: filter_variant.get_untracked(),
+                sort: sort_by.get_untracked(),
+            };
+            match api::list_games(&filters).await {
                 Ok((g, t)) => {
                     games.set(g);
                     total.set(t);
@@ -700,6 +741,9 @@ pub fn App() -> impl IntoView {
                 puzzle_rating.set(s.puzzle_rating);
                 profile_name.set(s.profile_name);
                 profile_player.set(s.profile_player.unwrap_or_default());
+                if let Ok(binds) = serde_json::from_str::<Keybinds>(&s.keybinds) {
+                    keybinds.set(binds);
+                }
                 engines.set(s.engines);
             }
         });
@@ -732,7 +776,7 @@ pub fn App() -> impl IntoView {
     Effect::new(move |_| {
         if tab.get() == Tab::Home {
             spawn_local(async move {
-                if let Ok((list, _)) = api::list_games("", None, None).await {
+                if let Ok((list, _)) = api::list_games(&api::Filters::default()).await {
                     home_recent.set(list.into_iter().take(6).collect());
                 }
             });
@@ -1721,6 +1765,7 @@ pub fn App() -> impl IntoView {
                 let v = profile_player.get_untracked();
                 if v.trim().is_empty() { None } else { Some(v) }
             },
+            keybinds: serde_json::to_string(&keybinds.get_untracked()).unwrap_or_default(),
             engines: engines.get_untracked(),
         };
         spawn_local(async move {
@@ -2187,8 +2232,72 @@ pub fn App() -> impl IntoView {
                         />
                     </label>
                     <div class="muted">{move || sound_msg.get()}</div>
+                    <div class="panel-sub">"Keybinds"</div>
+                    <div class="keybinds">
+                        <label>
+                            "Previous move"
+                            <input
+                                type="text"
+                                prop:value=move || keybinds.get().previous
+                                on:change=move |ev| {
+                                    let v = event_target_value(&ev);
+                                    keybinds.update(|k| k.previous = v);
+                                }
+                            />
+                        </label>
+                        <label>
+                            "Next move"
+                            <input
+                                type="text"
+                                prop:value=move || keybinds.get().next
+                                on:change=move |ev| {
+                                    let v = event_target_value(&ev);
+                                    keybinds.update(|k| k.next = v);
+                                }
+                            />
+                        </label>
+                        <label>
+                            "Start"
+                            <input
+                                type="text"
+                                prop:value=move || keybinds.get().start
+                                on:change=move |ev| {
+                                    let v = event_target_value(&ev);
+                                    keybinds.update(|k| k.start = v);
+                                }
+                            />
+                        </label>
+                        <label>
+                            "End"
+                            <input
+                                type="text"
+                                prop:value=move || keybinds.get().end
+                                on:change=move |ev| {
+                                    let v = event_target_value(&ev);
+                                    keybinds.update(|k| k.end = v);
+                                }
+                            />
+                        </label>
+                        <label>
+                            "Flip board"
+                            <input
+                                type="text"
+                                prop:value=move || keybinds.get().flip
+                                on:change=move |ev| {
+                                    let v = event_target_value(&ev);
+                                    keybinds.update(|k| k.flip = v);
+                                }
+                            />
+                        </label>
+                    </div>
+                    <div class="muted">
+                        "Key names follow the browser: ArrowLeft, Home, End, or a single letter."
+                    </div>
                     <div class="row-btns">
                         <button on:click=move |_| persist_settings()>"Save"</button>
+                        <button on:click=move |_| {
+                            keybinds.set(Keybinds::default());
+                        }>"Reset keybinds"</button>
                         <span class="status">{move || settings_status.get()}</span>
                     </div>
                 </div>
@@ -2347,8 +2456,98 @@ pub fn App() -> impl IntoView {
                         position_fen.set(String::new());
                         event_filter.set(None);
                         query.set(String::new());
+                        filter_date_from.set(String::new());
+                        filter_date_to.set(String::new());
+                        filter_result.set(String::new());
+                        filter_elo_min.set(String::new());
+                        filter_elo_max.set(String::new());
+                        filter_variant.set("any".into());
+                        sort_by.set("newest".into());
                         reload();
                     }>"Clear filters"</button>
+                </div>
+                <div class="filters">
+                    <label>
+                        "From"
+                        <input
+                            type="date"
+                            prop:value=move || filter_date_from.get()
+                            on:change=move |ev| filter_date_from.set(event_target_value(&ev))
+                        />
+                    </label>
+                    <label>
+                        "To"
+                        <input
+                            type="date"
+                            prop:value=move || filter_date_to.get()
+                            on:change=move |ev| filter_date_to.set(event_target_value(&ev))
+                        />
+                    </label>
+                    <label>
+                        "Result"
+                        <select
+                            prop:value=move || filter_result.get()
+                            on:change=move |ev| filter_result.set(event_target_value(&ev))
+                        >
+                            <option value="">"Any"</option>
+                            <option value="1-0">"White wins"</option>
+                            <option value="0-1">"Black wins"</option>
+                            <option value="1/2-1/2">"Draw"</option>
+                            <option value="*">"Unfinished"</option>
+                        </select>
+                    </label>
+                    <label>
+                        "Elo"
+                        <input
+                            type="number"
+                            placeholder="min"
+                            min="0"
+                            max="4000"
+                            prop:value=move || filter_elo_min.get()
+                            on:input=move |ev| filter_elo_min.set(event_target_value(&ev))
+                        />
+                        <input
+                            type="number"
+                            placeholder="max"
+                            min="0"
+                            max="4000"
+                            prop:value=move || filter_elo_max.get()
+                            on:input=move |ev| filter_elo_max.set(event_target_value(&ev))
+                        />
+                    </label>
+                    <label>
+                        "Variant"
+                        <select
+                            prop:value=move || filter_variant.get()
+                            on:change=move |ev| filter_variant.set(event_target_value(&ev))
+                        >
+                            <option value="any">"Any"</option>
+                            <option value="standard">"Standard"</option>
+                            <option value="chess960">"Chess960"</option>
+                            <option value="atomic">"Atomic"</option>
+                            <option value="antichess">"Antichess"</option>
+                            <option value="kingofthehill">"King of the Hill"</option>
+                            <option value="3check">"Three-check"</option>
+                            <option value="crazyhouse">"Crazyhouse"</option>
+                            <option value="racingkings">"Racing Kings"</option>
+                            <option value="horde">"Horde"</option>
+                        </select>
+                    </label>
+                    <label>
+                        "Sort"
+                        <select
+                            prop:value=move || sort_by.get()
+                            on:change=move |ev| sort_by.set(event_target_value(&ev))
+                        >
+                            <option value="newest">"Newest"</option>
+                            <option value="oldest">"Oldest"</option>
+                            <option value="date">"Game date"</option>
+                            <option value="white">"White"</option>
+                            <option value="black">"Black"</option>
+                            <option value="length">"Longest"</option>
+                        </select>
+                    </label>
+                    <button on:click=move |_| reload()>"Apply filters"</button>
                 </div>
                 {move || {
                     event_filter
@@ -2951,6 +3150,7 @@ pub fn App() -> impl IntoView {
                         on_play=Callback::new(on_engine_play)
                         animate_last=Signal::derive(move || animate_last_move.get())
                         animation_ms=Signal::derive(move || piece_animation_ms.get())
+                        keybinds=Signal::derive(move || keybinds.get())
                         orientation=Signal::derive(move || {
                             if vs_engine.get() && play_as.get() == "black" {
                                 "black".to_string()
@@ -3602,6 +3802,332 @@ pub fn App() -> impl IntoView {
         .into_any()
     };
 
+    let normalize_san = |san: &str| -> String {
+        san.chars()
+            .filter(|c| !matches!(c, '+' | '#' | '!' | '?'))
+            .collect::<String>()
+            .to_lowercase()
+    };
+
+    let start_guess = move |id: i64| {
+        if id <= 0 {
+            practice_feedback.set("choose a game first".into());
+            return;
+        }
+        spawn_local(async move {
+            match api::get_game(id).await {
+                Ok(detail) => {
+                    if detail.moves.trim().is_empty() {
+                        practice_feedback.set("that game has no moves".into());
+                        return;
+                    }
+                    let sans: Vec<String> =
+                        detail.moves.split_whitespace().map(str::to_owned).collect();
+                    let variant = detail
+                        .variant
+                        .clone()
+                        .unwrap_or_else(|| "standard".into());
+                    practice_sans.set(sans.clone());
+                    practice_step.set(0);
+                    practice_hits.set(0);
+                    practice_misses.set(0);
+                    practice_feedback
+                        .set(format!("Play the game's move — {} to go", sans.len()));
+                    practice_pgn.set(line_pgn(&detail.fen, &[], &variant));
+                    let seq = practice_seq.get_untracked() + 1;
+                    practice_seq.set(seq);
+                    practice_goto.set(Some((seq, 0)));
+                    practice_game.set(Some(detail));
+                }
+                Err(e) => practice_feedback.set(e),
+            }
+        });
+    };
+
+    let on_practice_move = move |(_uci, san, _fen): (String, String, String)| {
+        let sans = practice_sans.get_untracked();
+        let step = practice_step.get_untracked();
+        if step >= sans.len() {
+            return;
+        }
+        if normalize_san(&san) == normalize_san(&sans[step]) {
+            let hits = practice_hits.get_untracked() + 1;
+            practice_hits.set(hits);
+            practice_step.set(step + 1);
+            if step + 1 >= sans.len() {
+                practice_feedback.set(format!(
+                    "Finished — {} of {} moves matched",
+                    hits,
+                    sans.len()
+                ));
+            } else {
+                practice_feedback.set(format!(
+                    "Correct — {} moves to go",
+                    sans.len() - step - 1
+                ));
+            }
+        } else {
+            practice_misses.update(|m| *m += 1);
+            practice_feedback
+                .set(format!("Not the game move — the game played {}", sans[step]));
+            let seq = practice_seq.get_untracked() + 1;
+            practice_seq.set(seq);
+            practice_goto.set(Some((seq, step)));
+        }
+    };
+
+    let start_spar = move |_| {
+        let entered = spar_fen.get_untracked();
+        let fen = if entered.trim().is_empty() {
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_owned()
+        } else {
+            entered
+        };
+        spar_pgn.set(line_pgn(&fen, &[], "standard"));
+        spar_play.set(None);
+        spar_status.set(format!(
+            "You are {}. Play a move.",
+            if spar_color.get_untracked() == "black" {
+                "Black"
+            } else {
+                "White"
+            }
+        ));
+    };
+
+    let on_spar_move = move |(_uci, _san, fen_after): (String, String, String)| {
+        let engine_white = spar_color.get_untracked() == "black";
+        let turn_white = fen_after.split_whitespace().nth(1) != Some("b");
+        spar_status.set("Engine thinking…".into());
+        if turn_white == engine_white {
+            spar_thinking.set(true);
+            let depth = settings_depth.get_untracked();
+            spawn_local(async move {
+                match api::analyze(&fen_after, depth, "standard").await {
+                    Ok(a) => {
+                        let seq = spar_seq.get_untracked() + 1;
+                        spar_seq.set(seq);
+                        spar_play.set(Some((seq, a.best_move)));
+                    }
+                    Err(e) => spar_status.set(e),
+                }
+                spar_thinking.set(false);
+            });
+        } else {
+            spar_status.set("Your move.".into());
+        }
+    };
+
+    let practice_view = move || {
+        view! {
+            <section class="practice">
+                <div class="panel practice-controls">
+                    <div class="row-btns">
+                        <button
+                            class=move || {
+                                if practice_mode.get() == "guess" { "mode active" } else { "mode" }
+                            }
+                            on:click=move |_| practice_mode.set("guess".into())
+                        >
+                            "Guess the move"
+                        </button>
+                        <button
+                            class=move || {
+                                if practice_mode.get() == "spar" { "mode active" } else { "mode" }
+                            }
+                            on:click=move |_| practice_mode.set("spar".into())
+                        >
+                            "Sparring"
+                        </button>
+                    </div>
+                    {move || {
+                        if practice_mode.get() == "guess" {
+                            view! {
+                                <div class="practice-row">
+                                    <select
+                                        prop:value=move || practice_pick.get().to_string()
+                                        on:change=move |ev| {
+                                            practice_pick
+                                                .set(event_target_value(&ev).parse().unwrap_or(0))
+                                        }
+                                    >
+                                        <option value="0">"Choose a game…"</option>
+                                        {move || {
+                                            games
+                                                .get()
+                                                .into_iter()
+                                                .map(|g| {
+                                                    view! {
+                                                        <option value=g.id.to_string()>
+                                                            {format!("{} vs {} · {}", g.white, g.black, g.result)}
+                                                        </option>
+                                                    }
+                                                })
+                                                .collect_view()
+                                        }}
+                                    </select>
+                                    <button on:click=move |_| start_guess(practice_pick.get_untracked())>
+                                        "Practise"
+                                    </button>
+                                    <button
+                                        disabled=move || selected_game_id.get().is_none()
+                                        on:click=move |_| {
+                                            if let Some(id) = selected_game_id.get_untracked() {
+                                                start_guess(id);
+                                            }
+                                        }
+                                    >
+                                        "Use the game in Analysis"
+                                    </button>
+                                </div>
+                            }
+                                .into_any()
+                        } else {
+                            view! {
+                                <div class="practice-row">
+                                    <input
+                                        type="text"
+                                        placeholder="Starting FEN (empty = start position)"
+                                        prop:value=move || spar_fen.get()
+                                        on:input=move |ev| spar_fen.set(event_target_value(&ev))
+                                    />
+                                    <select
+                                        prop:value=move || spar_color.get()
+                                        on:change=move |ev| spar_color.set(event_target_value(&ev))
+                                    >
+                                        <option value="white">"Play White"</option>
+                                        <option value="black">"Play Black"</option>
+                                    </select>
+                                    <button on:click=start_spar>"Start"</button>
+                                </div>
+                            }
+                                .into_any()
+                        }
+                    }}
+                </div>
+
+                <div class="analysis practice-board">
+                    <div class="board-pane">
+                        {move || {
+                            if practice_mode.get() == "guess" {
+                                let side = practice_game
+                                    .get()
+                                    .map(|g| format!("{} vs {}", g.white, g.black))
+                                    .unwrap_or_else(|| "Guess the move".into());
+                                view! {
+                                    <Board
+                                        pgn=practice_pgn
+                                        title=Signal::derive(move || side.clone())
+                                        on_move=Callback::new(on_practice_move)
+                                        goto=Signal::derive(move || practice_goto.get())
+                                        keybinds=Signal::derive(move || keybinds.get())
+                                        theme=Signal::derive(move || settings_theme.get())
+                                        pieces=Signal::derive(move || settings_pieces.get())
+                                    />
+                                }
+                                    .into_any()
+                            } else {
+                                view! {
+                                    <Board
+                                        pgn=spar_pgn
+                                        title=Signal::derive(move || "Sparring".to_string())
+                                        orientation=Signal::derive(move || spar_color.get())
+                                        play=Signal::derive(move || spar_play.get())
+                                        on_move=Callback::new(on_spar_move)
+                                        on_play=Callback::new(move |_: (String, String, String)| {
+                                            spar_status.set("Your move.".into());
+                                        })
+                                        keybinds=Signal::derive(move || keybinds.get())
+                                        theme=Signal::derive(move || settings_theme.get())
+                                        pieces=Signal::derive(move || settings_pieces.get())
+                                    />
+                                }
+                                    .into_any()
+                            }
+                        }}
+                    </div>
+                    <aside class="engine-pane">
+                        <div class="panel-head"><h2>"Practice"</h2></div>
+                        {move || {
+                            if practice_mode.get() == "guess" {
+                                let total = practice_sans.get().len();
+                                let step = practice_step.get();
+                                view! {
+                                    <div class="engine-body">
+                                        <div class="practice-stats">
+                                            {format!("Move {} / {}", (step + 1).min(total), total)}
+                                        </div>
+                                        <div class="muted">
+                                            {format!(
+                                                "{} correct · {} missed",
+                                                practice_hits.get(),
+                                                practice_misses.get(),
+                                            )}
+                                        </div>
+                                        <div class="best">{move || practice_feedback.get()}</div>
+                                        <div class="row-btns">
+                                            <button
+                                                disabled=move || practice_sans.get().is_empty()
+                                                on:click=move |_| {
+                                                    practice_step.set(0);
+                                                    practice_hits.set(0);
+                                                    practice_misses.set(0);
+                                                    practice_feedback.set(String::new());
+                                                    let seq = practice_seq.get_untracked() + 1;
+                                                    practice_seq.set(seq);
+                                                    practice_goto.set(Some((seq, 0)));
+                                                    if let Some(game) = practice_game.get_untracked() {
+                                                        let variant = game
+                                                            .variant
+                                                            .clone()
+                                                            .unwrap_or_else(|| "standard".into());
+                                                        practice_pgn.set(line_pgn(&game.fen, &[], &variant));
+                                                    }
+                                                }
+                                            >
+                                                "Restart"
+                                            </button>
+                                            <button on:click=move |_| {
+                                                if let Some(next) = practice_sans
+                                                    .get_untracked()
+                                                    .get(practice_step.get_untracked())
+                                                {
+                                                    practice_feedback
+                                                        .set(format!("The game move is {next}"));
+                                                }
+                                            }>"Reveal"</button>
+                                        </div>
+                                    </div>
+                                }
+                                    .into_any()
+                            } else {
+                                view! {
+                                    <div class="engine-body">
+                                        <div class="best">{move || spar_status.get()}</div>
+                                        <div class="muted">
+                                            {move || {
+                                                if spar_thinking.get() {
+                                                    "engine is thinking…"
+                                                } else {
+                                                    ""
+                                                }
+                                            }}
+                                        </div>
+                                        <div class="row-btns">
+                                            <button on:click=start_spar>"New game"</button>
+                                        </div>
+                                    </div>
+                                }
+                                    .into_any()
+                            }
+                        }}
+                    </aside>
+                </div>
+            </section>
+        }
+        .into_any()
+    };
+
     let opening_view = move || {
         let explore = move |_| {
             let f = opening_fen.get();
@@ -4238,13 +4764,14 @@ pub fn App() -> impl IntoView {
             <aside class="sidebar">
                 <div class="brand">"RustyBrickChess"</div>
                 <nav>
-                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
+                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
                         .into_iter()
                         .map(|t| {
                             let label = match t {
                                 Tab::Home => "Home",
                                 Tab::Database => "Database",
                                 Tab::Analysis => "Analysis",
+                                Tab::Practice => "Practice",
                                 Tab::Openings => "Openings",
                                 Tab::Puzzles => "Puzzles",
                                 Tab::Stats => "Stats",
@@ -4317,6 +4844,7 @@ pub fn App() -> impl IntoView {
                     Tab::Home => home_view().into_any(),
                     Tab::Database => database_view().into_any(),
                     Tab::Analysis => analysis_view().into_any(),
+                    Tab::Practice => practice_view().into_any(),
                     Tab::Openings => opening_view().into_any(),
                     Tab::Puzzles => puzzle_view().into_any(),
                     Tab::Stats => stats_view().into_any(),

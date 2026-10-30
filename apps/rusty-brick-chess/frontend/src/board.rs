@@ -11,6 +11,28 @@ use std::rc::Rc;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 
+/// Rebinding-friendly navigation keys (Settings -> Keybinds).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Keybinds {
+    pub previous: String,
+    pub next: String,
+    pub start: String,
+    pub end: String,
+    pub flip: String,
+}
+
+impl Default for Keybinds {
+    fn default() -> Self {
+        Self {
+            previous: "ArrowLeft".into(),
+            next: "ArrowRight".into(),
+            start: "Home".into(),
+            end: "End".into(),
+            flip: "f".into(),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Drag {
     from: usize,
@@ -279,6 +301,7 @@ pub fn Board(
     #[prop(optional)] on_play: Option<Callback<(String, String, String)>>,
     #[prop(optional)] animate_last: Option<Signal<bool>>,
     #[prop(optional)] animation_ms: Option<Signal<u32>>,
+    #[prop(optional)] keybinds: Option<Signal<Keybinds>>,
     #[prop(optional)] shapes: Option<Signal<Vec<Shape>>>,
     #[prop(optional)] on_shape: Option<Callback<Shape>>,
     #[prop(optional, into)] theme: Option<Signal<String>>,
@@ -857,10 +880,44 @@ pub fn Board(
             go(idx + 1);
         }
     };
-    let on_key = move |ev: leptos::ev::KeyboardEvent| match ev.key().as_str() {
-        "ArrowLeft" => do_prev(),
-        "ArrowRight" => do_next(),
-        _ => {}
+    let keys = move || keybinds.map(|signal| signal.get()).unwrap_or_default();
+    let do_start = move || go(0);
+    let do_end = move || {
+        let len = widget.with(|w| w.history_len());
+        if len > 0 {
+            go(len - 1);
+        }
+    };
+    let do_flip = move || {
+        let current = widget.with(|w| w.orientation());
+        let next = if current == Orientation::White {
+            Orientation::Black
+        } else {
+            Orientation::White
+        };
+        widget.update(|w| {
+            w.apply(Command::Orient {
+                color: match next {
+                    Orientation::White => "white".into(),
+                    Orientation::Black => "black".into(),
+                },
+            });
+        });
+    };
+    let on_key = move |ev: leptos::ev::KeyboardEvent| {
+        let bound = keys();
+        let key = ev.key();
+        if key == bound.previous {
+            do_prev();
+        } else if key == bound.next {
+            do_next();
+        } else if key == bound.start {
+            do_start();
+        } else if key == bound.end {
+            do_end();
+        } else if key.eq_ignore_ascii_case(&bound.flip) {
+            do_flip();
+        }
     };
 
     if let Some(goto) = goto {

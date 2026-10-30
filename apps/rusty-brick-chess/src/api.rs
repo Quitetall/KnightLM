@@ -414,6 +414,7 @@ pub struct SettingsResponse {
     pub puzzle_rating: i32,
     pub profile_name: String,
     pub profile_player: Option<String>,
+    pub keybinds: String,
     pub engines: Vec<EngineEntry>,
 }
 
@@ -447,6 +448,10 @@ fn effective(state: &AppState) -> SettingsResponse {
             .unwrap_or(1500),
         profile_name: get("profile_name").unwrap_or_else(|| "Player".into()),
         profile_player: get("profile_player"),
+        keybinds: get("keybinds").unwrap_or_else(|| {
+            r#"{"previous":"ArrowLeft","next":"ArrowRight","start":"Home","end":"End","flip":"f"}"#
+                .into()
+        }),
         engines: get("engines")
             .and_then(|json| serde_json::from_str::<Vec<EngineEntry>>(&json).ok())
             .filter(|v| !v.is_empty())
@@ -566,6 +571,8 @@ pub struct SettingsInput {
     #[serde(default)]
     pub profile_player: Option<String>,
     #[serde(default)]
+    pub keybinds: Option<String>,
+    #[serde(default)]
     pub engines: Option<Vec<EngineEntry>>,
 }
 
@@ -627,6 +634,11 @@ pub async fn put_settings(
     }
     if let Some(v) = body.profile_player {
         state.db.set_setting("profile_player", v.trim())?;
+    }
+    if let Some(v) = body.keybinds {
+        let parsed: serde_json::Value = serde_json::from_str(&v)
+            .map_err(|e| ApiError::BadRequest(format!("keybinds: {e}")))?;
+        state.db.set_setting("keybinds", &parsed.to_string())?;
     }
     if let Some(v) = body.engines {
         state.db.set_setting("engines", &serde_json::to_string(&v)?)?;
