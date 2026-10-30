@@ -527,7 +527,19 @@ pub fn App() -> impl IntoView {
     let ann_nag = RwSignal::new(0i64);
     let lines = RwSignal::new(Vec::<api::EngineLine>::new());
     let chat_text = RwSignal::new(String::new());
-    let chat_reply = RwSignal::new(String::new());
+    let dock = RwSignal::new(String::new());
+    let chat_messages = RwSignal::new(Vec::<(String, String)>::new());
+    let chat_tools = RwSignal::new(Vec::<String>::new());
+    let ai_shapes = RwSignal::new(Vec::<brick_chess::Shape>::new());
+    let console_running = RwSignal::new(false);
+    let console_name = RwSignal::new(String::new());
+    let console_log = RwSignal::new(Vec::<String>::new());
+    let console_cmd = RwSignal::new(String::new());
+    let console_path = RwSignal::new(String::new());
+    let console_busy = RwSignal::new(false);
+    let engine_dialog = RwSignal::new(None::<usize>);
+    let engine_test = RwSignal::new(None::<api::EngineInfo>);
+    let engine_test_busy = RwSignal::new(false);
 
     let reload = move || {
         let q = query.get();
@@ -1794,6 +1806,187 @@ pub fn App() -> impl IntoView {
         });
     };
 
+    let apply_ai_action = move |action: serde_json::Value| {
+        match action.get("kind").and_then(|v| v.as_str()) {
+            Some("arrow") => {
+                let from = action.get("from").and_then(|v| v.as_str()).unwrap_or_default();
+                let to = action.get("to").and_then(|v| v.as_str()).unwrap_or_default();
+                let color = action
+                    .get("color")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("green");
+                if !from.is_empty() && !to.is_empty() {
+                    ai_shapes.update(|list| {
+                        list.retain(|shape| {
+                            !matches!(shape, brick_chess::Shape::Arrow { from: f, to: t, .. } if f == from && t == to)
+                        });
+                        list.push(brick_chess::Shape::Arrow {
+                            from: from.to_owned(),
+                            to: to.to_owned(),
+                            color: color.to_owned(),
+                        });
+                    });
+                }
+            }
+            Some("circle") => {
+                let square = action
+                    .get("square")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let color = action
+                    .get("color")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("green");
+                if !square.is_empty() {
+                    ai_shapes.update(|list| {
+                        list.retain(|shape| {
+                            !matches!(shape, brick_chess::Shape::Circle { square: s, .. } if s == square)
+                        });
+                        list.push(brick_chess::Shape::Circle {
+                            square: square.to_owned(),
+                            color: color.to_owned(),
+                        });
+                    });
+                }
+            }
+            Some("clear") => ai_shapes.set(Vec::new()),
+            Some("move") => {
+                if let Some(uci) = action.get("uci").and_then(|v| v.as_str()) {
+                    let seq = play_seq.get_untracked() + 1;
+                    play_seq.set(seq);
+                    play_uci.set(Some((seq, uci.to_owned())));
+                }
+            }
+            _ => {}
+        }
+    };
+
+    let send_chat = move || {
+        let message = chat_text.get_untracked();
+        if message.trim().is_empty() {
+            return;
+        }
+        let position = fen.get_untracked();
+        chat_messages.update(|list| list.push(("user".into(), message.clone())));
+        chat_text.set(String::new());
+        spawn_local(async move {
+            match api::chat(&position, &message).await {
+                Ok(reply) => {
+                    chat_messages
+                        .update(|list| list.push(("assistant".into(), reply.reply.clone())));
+                    chat_tools.set(reply.tools.clone());
+                    for action in reply.actions {
+                        apply_ai_action(action);
+                    }
+                }
+                Err(error) => {
+                    chat_messages.update(|list| list.push(("error".into(), error)));
+                }
+            }
+        });
+    };
+
+    let console_start = move |_: leptos::ev::MouseEvent| {
+        let path = {
+            let selected = console_path.get_untracked();
+            if selected.trim().is_empty() {
+                engines
+                    .get_untracked()
+                    .first()
+                    .map(|engine| engine.path.clone())
+                    .unwrap_or_default()
+            } else {
+                selected
+            }
+        };
+        console_busy.set(true);
+        console_log.update(|log| log.push(format!("> starting {}", if path.is_empty() { "engine" } else { &path })));
+        spawn_local(async move {
+            match api::console_start((!path.is_empty()).then_some(path.as_str())).await {
+                Ok(status) => {
+                    console_running.set(true);
+                    console_name.set(status.name.clone());
+                    console_log.update(|log| log.push(format!("< {}", status.name)));
+                }
+                Err(error) => console_log.update(|log| log.push(format!("< {error}"))),
+            }
+            console_busy.set(false);
+        });
+    };
+
+    let console_stop = move |_: leptos::ev::MouseEvent| {
+        console_busy.set(true);
+        spawn_local(async move {
+            let _ = api::console_stop().await;
+            console_running.set(false);
+            console_name.set(String::new());
+            console_log.update(|log| log.push("< stopped".into()));
+            console_busy.set(false);
+        });
+    };
+
+    let console_send = move || {
+        let command = console_cmd.get_untracked();
+        if command.trim().is_empty() {
+            return;
+        }
+        console_cmd.set(String::new());
+        console_log.update(|log| log.push(format!("> {}", command.trim())));
+        console_busy.set(true);
+        let wait = if command.trim().starts_with("go") { 8000 } else { 800 };
+        spawn_local(async move {
+            match api::console_command(command.trim(), wait).await {
+                Ok(lines) => {
+                    console_log.update(|log| {
+                        for line in lines {
+                            log.push(line);
+                        }
+                    });
+                }
+                Err(error) => console_log.update(|log| log.push(format!("< {error}"))),
+            }
+            console_busy.set(false);
+        });
+    };
+
+    let set_engine_option = move |index: usize, key: &'static str, value: String| {
+        engines.update(|list| {
+            if let Some(entry) = list.get_mut(index) {
+                if value.trim().is_empty() {
+                    entry.options.remove(key);
+                } else {
+                    entry.options.insert(key.to_owned(), value);
+                }
+            }
+        });
+    };
+
+    let run_engine_test = move |_| {
+        let Some(index) = engine_dialog.get_untracked() else {
+            return;
+        };
+        let path = engines
+            .get_untracked()
+            .get(index)
+            .map(|entry| entry.path.clone())
+            .unwrap_or_default();
+        engine_test_busy.set(true);
+        engine_test.set(None);
+        spawn_local(async move {
+            match api::test_engine(&path).await {
+                Ok(info) => engine_test.set(Some(info)),
+                Err(error) => engine_test.set(Some(api::EngineInfo {
+                    ok: false,
+                    name: String::new(),
+                    author: String::new(),
+                    options: Vec::new(),
+                    error: Some(error),
+                })),
+            }
+            engine_test_busy.set(false);
+        });
+    };
+
     let add_engine = move |_| {
         let name = new_engine_name.get();
         let path = new_engine_path.get();
@@ -1806,6 +1999,7 @@ pub fn App() -> impl IntoView {
                 v.push(api::EngineEntry {
                     name: name.trim().to_owned(),
                     path: path.clone(),
+                    options: Default::default(),
                 });
             }
         });
@@ -2080,6 +2274,113 @@ pub fn App() -> impl IntoView {
                             on:input=move |ev| settings_syzygy.set(event_target_value(&ev))
                         />
                     </label>
+                    {move || {
+                        let index = engine_dialog.get()?;
+                        let entry = engines.get().get(index).cloned()?;
+                        let option = |key: &'static str, label: &'static str, numeric: bool| {
+                            let stored = entry.options.get(key).cloned().unwrap_or_default();
+                            let value = if stored.is_empty() {
+                                match key {
+                                    "MultiPV" => "1".to_owned(),
+                                    "Hash" | "Threads" => "0".to_owned(),
+                                    _ => String::new(),
+                                }
+                            } else {
+                                stored
+                            };
+                            view! {
+                                <label>
+                                    {label}
+                                    <input
+                                        type=if numeric { "number" } else { "text" }
+                                        prop:value=value
+                                        on:change=move |ev| {
+                                            set_engine_option(index, key, event_target_value(&ev))
+                                        }
+                                    />
+                                </label>
+                            }
+                        };
+                        let test = engine_test.get();
+                        Some(view! {
+                            <div class="engine-dialog">
+                                <div class="panel-head">
+                                    <h2>{format!("Engine: {}", entry.name)}</h2>
+                                    <button on:click=move |_| {
+                                        engine_dialog.set(None);
+                                        engine_test.set(None);
+                                    }>"Close"</button>
+                                </div>
+                                <div class="engine-fields">
+                                    <label>
+                                        "Name"
+                                        <input
+                                            type="text"
+                                            prop:value=entry.name.clone()
+                                            on:change=move |ev| {
+                                                let value = event_target_value(&ev);
+                                                engines.update(|list| {
+                                                    if let Some(item) = list.get_mut(index) {
+                                                        item.name = value;
+                                                    }
+                                                });
+                                            }
+                                        />
+                                    </label>
+                                    <label>
+                                        "Path"
+                                        <input
+                                            type="text"
+                                            prop:value=entry.path.clone()
+                                            on:change=move |ev| {
+                                                let value = event_target_value(&ev);
+                                                engines.update(|list| {
+                                                    if let Some(item) = list.get_mut(index) {
+                                                        item.path = value;
+                                                    }
+                                                });
+                                            }
+                                        />
+                                    </label>
+                                </div>
+                                <div class="engine-fields">
+                                    {option("Hash", "Hash (MB)", true)}
+                                    {option("Threads", "Threads", true)}
+                                    {option("MultiPV", "MultiPV", true)}
+                                    {option("Skill Level", "Skill level", true)}
+                                    {option("UCI_Elo", "UCI Elo", true)}
+                                    {option("SyzygyPath", "Syzygy path", false)}
+                                </div>
+                                <div class="muted">
+                                    "Empty values use the engine defaults; these override the global Hash/Threads for this engine."
+                                </div>
+                                <div class="row-btns">
+                                    <button on:click=run_engine_test disabled=move || engine_test_busy.get()>
+                                        {move || if engine_test_busy.get() { "Testing…" } else { "Test engine" }}
+                                    </button>
+                                    <button on:click=move |_| {
+                                        persist_settings();
+                                        settings_status.set("engine saved".into());
+                                    }>"Save"</button>
+                                    <span class="status">{move || settings_status.get()}</span>
+                                </div>
+                                {test.map(|info| view! {
+                                    <div class="engine-test">
+                                        <div class=if info.ok { "best" } else { "error" }>
+                                            {if info.ok {
+                                                format!("{} — {}", info.name, info.author)
+                                            } else {
+                                                format!("could not start engine: {}", info.error.unwrap_or_default())
+                                            }}
+                                        </div>
+                                        <div class="muted">
+                                            {format!("{} UCI option(s)", info.options.len())}
+                                        </div>
+                                    </div>
+                                })}
+                            </div>
+                        })
+                    }}
                     <label>
                         "Variant engine (Fairy-Stockfish)"
                         <input
@@ -2144,6 +2445,14 @@ pub fn App() -> impl IntoView {
                                             <span class=if active { "engine-name active" } else { "engine-name" }>
                                                 {format!("{} — {}", e.name, e.path)}
                                             </span>
+                                            <button
+                                                on:click=move |_| {
+                                                    engine_test.set(None);
+                                                    engine_dialog.set(Some(i));
+                                                }
+                                            >
+                                                "Configure"
+                                            </button>
                                             <button
                                                 on:click=move |_| {
                                                     settings_engine.set(path.clone());
@@ -3173,7 +3482,11 @@ pub fn App() -> impl IntoView {
                                 "white".to_string()
                             }
                         })
-                        shapes=Signal::derive(move || shapes.get())
+                        shapes=Signal::derive(move || {
+                            let mut list = shapes.get();
+                            list.extend(ai_shapes.get());
+                            list
+                        })
                         on_shape=Callback::new(move |s: brick_chess::Shape| {
                             shapes.update(|v| v.push(s));
                         })
@@ -3546,31 +3859,13 @@ pub fn App() -> impl IntoView {
                             "Record moves"
                         </label>
                     </div>
-                    <div class="panel-sub">"AI commentary"</div>
-                    <div class="chat">
-                        <textarea
-                            placeholder="Ask about this position…"
-                            prop:value=move || chat_text.get()
-                            on:input=move |ev| chat_text.set(event_target_value(&ev))
-                        ></textarea>
-                        <button on:click=move |_| {
-                            let msg = chat_text.get();
-                            if msg.trim().is_empty() {
-                                return;
-                            }
-                            let f = fen.get();
-                            chat_reply.set("thinking…".into());
-                            spawn_local(async move {
-                                match api::chat(&f, &msg).await {
-                                    Ok(r) => chat_reply.set(r),
-                                    Err(e) => chat_reply.set(e),
-                                }
-                            });
-                        }>"Ask"</button>
-                        {move || {
-                            let r = chat_reply.get();
-                            (!r.is_empty()).then(|| view! { <div class="chat-reply">{r}</div> })
-                        }}
+                    <div class="panel-sub">"Assistant"</div>
+                    <div class="row-btns">
+                        <button on:click=move |_| dock.set("ai".into())>"AI chat"</button>
+                        <button on:click=move |_| dock.set("console".into())>"Engine console"</button>
+                    </div>
+                    <div class="muted">
+                        "The assistant can analyse, play moves and draw arrows on this board."
                     </div>
                     <div class="panel-sub">"Game tags"</div>
                     <div class="row-btns">
@@ -3812,6 +4107,146 @@ pub fn App() -> impl IntoView {
                         <button on:click=save_annotation>"Save"</button>
                     </div>
                 </aside>
+                {move || {
+                    let kind = dock.get();
+                    if kind.is_empty() {
+                        return None;
+                    }
+                    let ai = view! {
+                        <div class="dock-body">
+                            <div class="chat-messages">
+                                {move || {
+                                    chat_messages
+                                        .get()
+                                        .into_iter()
+                                        .map(|(role, text)| {
+                                            view! {
+                                                <div class=format!("chat-msg {role}")>{text}</div>
+                                            }
+                                        })
+                                        .collect_view()
+                                }}
+                            </div>
+                            {move || {
+                                let tools = chat_tools.get();
+                                (!tools.is_empty()).then(|| view! {
+                                    <div class="chat-tools">
+                                        {tools
+                                            .into_iter()
+                                            .map(|tool| view! { <span class="tool-chip">{tool}</span> })
+                                            .collect_view()}
+                                    </div>
+                                })
+                            }}
+                            <div class="row-btns">
+                                <button on:click=move |_| {
+                                    chat_text.set("Analyse this position.".into());
+                                    send_chat();
+                                }>"Analyse"</button>
+                                <button on:click=move |_| {
+                                    chat_text.set("Explain the plan and draw the key idea with arrows.".into());
+                                    send_chat();
+                                }>"Explain plan"</button>
+                                <button on:click=move |_| ai_shapes.set(Vec::new())>"Clear arrows"</button>
+                            </div>
+                            <div class="chat-input">
+                                <textarea
+                                    placeholder="Ask the assistant…"
+                                    prop:value=move || chat_text.get()
+                                    on:input=move |ev| chat_text.set(event_target_value(&ev))
+                                ></textarea>
+                                <button on:click=move |_| send_chat()>"Send"</button>
+                            </div>
+                        </div>
+                    }
+                    .into_any();
+                    let console = view! {
+                        <div class="dock-body">
+                            <div class="engine-fields">
+                                <label>
+                                    "Engine"
+                                    <select
+                                        prop:value=move || console_path.get()
+                                        on:change=move |ev| console_path.set(event_target_value(&ev))
+                                    >
+                                        {move || {
+                                            engines
+                                                .get()
+                                                .into_iter()
+                                                .map(|engine| {
+                                                    view! {
+                                                        <option value=engine.path.clone()>
+                                                            {format!("{} — {}", engine.name, engine.path)}
+                                                        </option>
+                                                    }
+                                                })
+                                                .collect_view()
+                                        }}
+                                    </select>
+                                </label>
+                                <div class="row-btns">
+                                    <button on:click=console_start disabled=move || console_running.get()>
+                                        "Start"
+                                    </button>
+                                    <button on:click=console_stop disabled=move || !console_running.get()>
+                                        "Stop"
+                                    </button>
+                                    <span class="status">
+                                        {move || {
+                                            if console_running.get() {
+                                                console_name.get()
+                                            } else {
+                                                "stopped".to_owned()
+                                            }
+                                        }}
+                                    </span>
+                                </div>
+                            </div>
+                            <pre class="console-log">{move || console_log.get().join("\n")}</pre>
+                            <div class="chat-input">
+                                <input
+                                    type="text"
+                                    placeholder="UCI command, e.g. go depth 12"
+                                    prop:value=move || console_cmd.get()
+                                    on:input=move |ev| console_cmd.set(event_target_value(&ev))
+                                    on:keydown=move |ev| {
+                                        if ev.key() == "Enter" {
+                                            console_send();
+                                        }
+                                    }
+                                />
+                                <button on:click=move |_| console_send() disabled=move || console_busy.get()>
+                                    "Send"
+                                </button>
+                            </div>
+                        </div>
+                    }
+                    .into_any();
+                    Some(view! {
+                        <div class="engine-dock">
+                            <div class="dock-head">
+                                <div class="dock-tabs">
+                                    <button
+                                        class=if kind == "ai" { "dock-tab active" } else { "dock-tab" }
+                                        on:click=move |_| dock.set("ai".into())
+                                    >
+                                        "AI"
+                                    </button>
+                                    <button
+                                        class=if kind == "console" { "dock-tab active" } else { "dock-tab" }
+                                        on:click=move |_| dock.set("console".into())
+                                    >
+                                        "Console"
+                                    </button>
+                                </div>
+                                <button class="dock-close" on:click=move |_| dock.set(String::new())>
+                                    "×"
+                                </button>
+                            </div>
+                            {if kind == "ai" { ai } else { console }}
+                        </div>
+                    })
+                }}
             </section>
         }
         .into_any()

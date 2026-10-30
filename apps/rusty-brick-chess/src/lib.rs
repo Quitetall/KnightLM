@@ -4,6 +4,7 @@
 //! (games database, engine analysis, classification) + AI chat.
 
 pub mod api;
+pub mod console;
 pub mod importer;
 pub mod vision;
 
@@ -62,6 +63,11 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/databases", get(api::databases).post(api::create_database))
         .route("/api/databases/switch", post(api::switch_database))
         .route("/api/sounds/custom/{name}", get(api::custom_sound).post(api::upload_sound))
+        .route("/api/engines/test", post(api::test_engine))
+        .route("/api/engine/console/start", post(api::console_start))
+        .route("/api/engine/console/command", post(api::console_command))
+        .route("/api/engine/console/stop", post(api::console_stop))
+        .route("/api/engine/console/status", get(api::console_status))
         .route("/api/vision", get(api::get_vision))
         .route("/api/vision/download", post(api::download_vision))
         .route("/api/vision/recognize", post(api::recognize_image))
@@ -167,6 +173,7 @@ pub fn state_from_env() -> anyhow::Result<(api::AppState, String)> {
             .ok()
             .and_then(|d| d.parse().ok())
             .unwrap_or(15),
+        console: std::sync::Arc::new(std::sync::Mutex::new(None)),
     };
     Ok((state, db_path))
 }

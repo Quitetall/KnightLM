@@ -58,6 +58,10 @@ pub struct EngineOptions {
     /// `UCI_Variant` value for Fairy-Stockfish et al. (None for standard).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
+    /// Arbitrary `setoption` pairs from the engine's own settings
+    /// (Skill Level, UCI_Elo, Ponder, ...).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra: Vec<(String, String)>,
 }
 
 impl EngineOptions {
@@ -81,6 +85,14 @@ impl EngineOptions {
         }
         if let Some(variant) = self.variant.as_deref().filter(|v| !v.is_empty()) {
             out.push(format!("setoption name UCI_Variant value {variant}"));
+        }
+        for (name, value) in &self.extra {
+            let name = name.trim();
+            let value = value.trim();
+            if name.is_empty() || value.is_empty() {
+                continue;
+            }
+            out.push(format!("setoption name {name} value {value}"));
         }
         out
     }
@@ -383,8 +395,30 @@ mod option_tests {
     use super::EngineOptions;
 
     #[test]
+    fn extra_options_are_appended_last() {
+        let opts = EngineOptions {
+            threads: Some(2),
+            extra: vec![
+                ("Skill Level".into(), "5".into()),
+                ("UCI_Elo".into(), "1600".into()),
+                ("empty".into(), "".into()),
+            ],
+            ..EngineOptions::default()
+        };
+        assert_eq!(
+            opts.commands(),
+            vec![
+                "setoption name Threads value 2".to_owned(),
+                "setoption name Skill Level value 5".to_owned(),
+                "setoption name UCI_Elo value 1600".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
     fn options_expand_to_uci_commands() {
         let opts = EngineOptions {
+            extra: Vec::new(),
             threads: Some(4),
             hash_mb: Some(512),
             syzygy_path: Some("/data/syzygy".into()),

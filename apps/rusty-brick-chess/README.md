@@ -118,7 +118,12 @@ POST   /api/puzzles/import         {"csv": "PuzzleId,FEN,..."}
 GET    /api/settings
 PUT    /api/settings               engine/model/depth/theme/pieces/threads/hash/syzygy/engines/variant engine
 POST   /api/report                 {"moves": [MoveInput...], "config": {...}}
-POST   /api/chat                   {"message": "...", "fen": "..."}
+POST   /api/chat                   {"message": "...", "fen": "..."} -> reply + actions
+POST   /api/engines/test           {"path": "..."} -> UCI name, author, options
+POST   /api/engine/console/start   {"path": "..."} persistent UCI session
+POST   /api/engine/console/command {"command": "...", "wait_ms": 500}
+POST   /api/engine/console/stop
+GET    /api/engine/console/status
 GET    /api/vision                 model manifest, license, hash, install state
 POST   /api/vision/download        download + SHA-256 check the optional model
 POST   /api/vision/recognize       {"image":"data:image/png;base64,..."} -> FEN placement
@@ -252,6 +257,20 @@ The report returns, per move, both a **Lichess-style** label and a
 - **Keybinds**: previous/next move, start, end and flip are rebindable in
   Settings (browser key names such as `ArrowLeft`, `Home`, `End`, or a single
   letter) and persist with the rest of the settings.
+- **Engine management**: a multi-engine list where each engine opens a
+  **Configure** dialog with its own UCI options (Hash, Threads, MultiPV,
+  Skill Level, UCI_Elo, Syzygy path) and a **Test engine** handshake that
+  shows the engine's name, author and option count before you rely on it.
+  Per-engine options override the global Threads/Hash for that engine.
+- **Engine console**: a dock on the right of the analysis board with a
+  persistent UCI session — start/stop the selected engine, send commands
+  (`isready`, `position …`, `go depth 12`) and read the raw output.
+- **AI assistant with tools**: the right-hand dock chats with the configured
+  KnightLM model over an OpenAI-compatible `tools` API. The model can call
+  `get_position`, `legal_moves`, `analyze`, `draw_arrow`, `draw_circle`,
+  `clear_shapes` and `play_move`; server-side tools run in the app, board tools
+  come back as actions that draw real arrows/circles or play the move. Plain
+  `{"reply": …}` model servers still work.
 - **Settings**: engine binary, model URL, analysis depth, board theme, piece
   set, engine Threads/Hash, Syzygy path and a **multi-engine list**
   (add/remove/select), sound options, move-animation speed, keybinds, the

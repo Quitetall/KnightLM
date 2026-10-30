@@ -372,6 +372,8 @@ pub async fn game_report(id: i64, depth: u32) -> Result<GameReport, String> {
 pub struct EngineEntry {
     pub name: String,
     pub path: String,
+    #[serde(default)]
+    pub options: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -563,7 +565,7 @@ pub async fn import_puzzles(csv: &str) -> Result<usize, String> {
     Ok(r.imported)
 }
 
-pub async fn chat(fen: &str, message: &str) -> Result<String, String> {
+pub async fn chat(fen: &str, message: &str) -> Result<ChatReply, String> {
     let resp = Request::post("/api/chat")
         .json(&serde_json::json!({ "message": message, "fen": fen }))
         .map_err(|e| e.to_string())?
@@ -573,12 +575,98 @@ pub async fn chat(fen: &str, message: &str) -> Result<String, String> {
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
-    #[derive(Deserialize)]
-    struct Reply {
-        reply: String,
+    let r: ChatReply = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(r)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChatReply {
+    pub reply: String,
+    #[serde(default)]
+    pub actions: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub tools: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EngineOptionInfo {
+    pub name: String,
+    pub kind: String,
+    pub default: Option<String>,
+    pub min: Option<String>,
+    pub max: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EngineInfo {
+    pub ok: bool,
+    pub name: String,
+    pub author: String,
+    pub options: Vec<EngineOptionInfo>,
+    pub error: Option<String>,
+}
+
+pub async fn test_engine(path: &str) -> Result<EngineInfo, String> {
+    let resp = Request::post("/api/engines/test")
+        .json(&serde_json::json!({ "path": path }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConsoleStatus {
+    pub running: bool,
+    pub name: String,
+}
+
+pub async fn console_status() -> Result<ConsoleStatus, String> {
+    let resp = Request::get("/api/engine/console/status")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn console_start(path: Option<&str>) -> Result<ConsoleStatus, String> {
+    let resp = Request::post("/api/engine/console/start")
+        .json(&serde_json::json!({ "path": path }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
     }
-    let r: Reply = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(r.reply)
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn console_command(command: &str, wait_ms: u64) -> Result<Vec<String>, String> {
+    let resp = Request::post("/api/engine/console/command")
+        .json(&serde_json::json!({ "command": command, "wait_ms": wait_ms }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    #[derive(Deserialize)]
+    struct Output {
+        output: Vec<String>,
+    }
+    let out: Output = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(out.output)
+}
+
+pub async fn console_stop() -> Result<(), String> {
+    Request::post("/api/engine/console/stop")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Deserialize)]

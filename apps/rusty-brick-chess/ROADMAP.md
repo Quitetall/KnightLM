@@ -12,7 +12,9 @@ sidebar surfaces.
 | Database: import, search, filters, position search | **Done** | player/event/result/date/Elo/variant filters, exact + partial position search, collections, multi-DB, indexes |
 | Database at scale | **Done** | 1M-game slice imported; stats 38 ms, explorer 45 ms, position search 35 ms |
 | Analysis board | **Done** | drag/click, instant/slide, history last-move, board editor, clocks, arrows/circles, variants |
-| Engine analysis | **Partial** | lines, MultiPV, all-engines, report, eval graph; **no per-engine UCI options**, no engine-vs-engine |
+| Engine analysis | **Done** | lines, MultiPV, all-engines, report, eval graph, per-engine UCI options, engine dialog + test, UCI console |
+| AI assistant | **Done** | chat dock with OpenAI-style tool calls: analyse, draw arrows/circles, play moves |
+| Engine-vs-engine | **Missing** | two engines cannot play each other yet |
 | Tree editing | **Done** | variations, promote/delete, PGN rewrite, annotations |
 | Openings | **Done** | local/lichess/masters explorer, ECO names, first-12-ply aggregate index |
 | Puzzles | **Done** | Lichess CSV, themes, rating, play-out |
@@ -33,14 +35,12 @@ packaging.
 
 ## Remaining work, in recommended order
 
-### 1. Engine management parity — M
-- per-engine UCI options (Hash, Threads, MultiPV, Syzygy, Ponder) stored with
-  each engine, applied per spawn;
-- engine settings dialog with a live "test engine" result (name, options);
-- engine-vs-engine from Practice (colour, depth/time, two configured engines);
-- strength limiting (Skill Level / UCI_Elo) for sparring.
-- *Done when:* two engines can play each other with their own Hash/Threads, and
-  an engine's options survive a restart.
+### 1. Engine management parity — **done** (engine-vs-engine remains)
+- per-engine UCI options stored with each engine and applied per spawn;
+- engine dialog with a live "test engine" handshake (name, author, options);
+- strength limiting via Skill Level / UCI_Elo in the dialog;
+- engine console dock (persistent UCI session);
+- *remaining:* engine-vs-engine from Practice.
 
 ### 2. Files — S–M
 - browser PGN file input and drag-and-drop onto the window;

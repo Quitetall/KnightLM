@@ -9,9 +9,10 @@ use axum::{
 };
 use brick_chess_analysis::{AnalysisConfig, Eval, MoveInput};
 use rbc_db::{Annotation, AnnotationInput, Collection, Db, EventRow, Game, GameQuery, GameTags, PlayerRow, QueryResponse};
-use shakmaty::{CastlingMode, Chess, EnPassantMode, Position, fen::Fen, san::SanPlus, uci::UciMove};
+use shakmaty::{CastlingMode, Chess, EnPassantMode, Position, fen::Fen, san::{San, SanPlus}, uci::UciMove};
 use shakmaty_syzygy::Tablebase;
-use std::sync::{Mutex, OnceLock};
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
@@ -23,8 +24,11 @@ pub struct AppState {
     pub engine_path: Option<String>,
     pub model_url: Option<String>,
     pub default_depth: u32,
+    /// Persistent UCI session used by the engine console.
+    pub console: Arc<Mutex<Option<crate::console::Console>>>,
 }
 
+#[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),
     NotFound,
@@ -82,6 +86,10 @@ pub async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
 pub struct EngineEntry {
     pub name: String,
     pub path: String,
+    /// UCI options applied when this engine is spawned (Hash, Threads,
+    /// MultiPV, SyzygyPath, Skill Level, UCI_Elo, ...).
+    #[serde(default)]
+    pub options: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -394,7 +402,7 @@ pub async fn switch_database(
     })))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct SettingsResponse {
     pub engine_path: Option<String>,
     pub model_url: Option<String>,
@@ -459,7 +467,13 @@ fn effective(state: &AppState) -> SettingsResponse {
                 state
                     .engine_path
                     .clone()
-                    .map(|path| vec![EngineEntry { name: "Stockfish".into(), path }])
+                    .map(|path| {
+                        vec![EngineEntry {
+                            name: "Stockfish".into(),
+                            path,
+                            options: BTreeMap::new(),
+                        }]
+                    })
                     .unwrap_or_default()
             }),
     }
@@ -488,6 +502,20 @@ fn variant_uci(name: &str) -> Option<&'static str> {
     }
 }
 
+fn apply_entry_options(
+    options: &mut knightlm_engine::EngineOptions,
+    entry: Option<&EngineEntry>,
+) {
+    if let Some(entry) = entry {
+        for (name, value) in &entry.options {
+            if value.trim().is_empty() {
+                continue;
+            }
+            options.extra.push((name.clone(), value.clone()));
+        }
+    }
+}
+
 fn engine_options(
     settings: &SettingsResponse,
     fen: &str,
@@ -505,6 +533,7 @@ fn engine_options(
         multipv: None,
         chess960,
         variant: variant_uci(&canonical).map(str::to_owned),
+        extra: Vec::new(),
     }
 }
 
@@ -527,7 +556,10 @@ fn engine_for(
             .clone()
             .ok_or(ApiError::Unavailable("engine path is not set"))?
     };
-    Ok((path, engine_options(settings, fen, &canonical)))
+    let mut options = engine_options(settings, fen, &canonical);
+    let entry = settings.engines.iter().find(|e| e.path == path);
+    apply_entry_options(&mut options, entry);
+    Ok((path, options))
 }
 
 pub async fn get_settings(State(state): State<AppState>) -> Json<SettingsResponse> {
@@ -884,11 +916,12 @@ pub async fn analyze_engines(
             "configure a variant-capable engine (e.g. Fairy-Stockfish)",
         ));
     }
-    let options = engine_options(&settings, &fen, &variant);
+
     let engines: Vec<EngineEntry> = if variant_uci(&variant).is_some() {
         vec![EngineEntry {
             name: "Variant engine".into(),
             path: settings.variant_engine_path.clone().unwrap_or_default(),
+            options: BTreeMap::new(),
         }]
     } else {
         settings.engines.iter().take(4).cloned().collect()
@@ -899,7 +932,8 @@ pub async fn analyze_engines(
                 .iter()
                 .map(|engine| {
                     let fen = fen.clone();
-                    let options = options.clone();
+                    let mut options = engine_options(&settings, &fen, &variant);
+                    apply_entry_options(&mut options, Some(engine));
                     scope.spawn(move || {
                         let result = knightlm_engine::Engine::spawn_with(
                             &engine.path, 30, options,
@@ -1562,32 +1596,405 @@ pub async fn tablebase(
 }
 
 #[derive(Deserialize)]
+pub struct EngineTestBody {
+    pub path: String,
+}
+
+pub async fn test_engine(Json(body): Json<EngineTestBody>) -> Json<crate::console::EngineInfo> {
+    let info = tokio::task::spawn_blocking(move || crate::console::probe(&body.path))
+        .await
+        .unwrap_or_else(|e| crate::console::EngineInfo {
+            ok: false,
+            name: String::new(),
+            author: String::new(),
+            options: Vec::new(),
+            error: Some(e.to_string()),
+        });
+    Json(info)
+}
+
+#[derive(Deserialize)]
+pub struct ConsoleStartBody {
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+pub async fn console_start(
+    State(state): State<AppState>,
+    Json(body): Json<ConsoleStartBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let settings = effective(&state);
+    let path = body
+        .path
+        .filter(|p| !p.trim().is_empty())
+        .or_else(|| settings.engines.first().map(|e| e.path.clone()))
+        .ok_or(ApiError::Unavailable("no engine is configured"))?;
+    let slot = state.console.clone();
+    let name = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+        let mut guard = slot.lock().expect("console lock");
+        if let Some(old) = guard.take() {
+            old.stop();
+        }
+        let console = crate::console::Console::spawn(&path)?;
+        let name = console.name.clone();
+        *guard = Some(console);
+        Ok(name)
+    })
+    .await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
+    Ok(Json(serde_json::json!({
+        "running": true,
+        "name": if name.is_empty() { "engine".to_string() } else { name },
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct ConsoleCommandBody {
+    pub command: String,
+    #[serde(default)]
+    pub wait_ms: Option<u64>,
+}
+
+pub async fn console_command(
+    State(state): State<AppState>,
+    Json(body): Json<ConsoleCommandBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let slot = state.console.clone();
+    let output = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<String>> {
+        let mut guard = slot.lock().expect("console lock");
+        let console = guard
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("engine console is not running"))?;
+        console.command(&body.command, body.wait_ms.unwrap_or(500))
+    })
+    .await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
+    Ok(Json(serde_json::json!({ "output": output })))
+}
+
+pub async fn console_stop(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let slot = state.console.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut guard = slot.lock().expect("console lock");
+        if let Some(console) = guard.take() {
+            console.stop();
+        }
+    })
+    .await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?;
+    Ok(Json(serde_json::json!({ "running": false })))
+}
+
+pub async fn console_status(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let guard = state.console.lock().expect("console lock");
+    let (running, name) = match guard.as_ref() {
+        Some(console) => (true, console.name.clone()),
+        None => (false, String::new()),
+    };
+    Ok(Json(serde_json::json!({ "running": running, "name": name })))
+}
+
+#[derive(Deserialize)]
 pub struct ChatBody {
     pub message: String,
     #[serde(default)]
     pub fen: Option<String>,
+    #[serde(default)]
+    pub depth: Option<u32>,
 }
 
 #[derive(Serialize)]
 pub struct ChatReply {
     pub reply: String,
+    #[serde(default)]
+    pub actions: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub tools: Vec<String>,
+}
+
+fn chat_tools() -> serde_json::Value {
+    let function = |name: &str, description: &str, parameters: serde_json::Value| {
+        serde_json::json!({
+            "type": "function",
+            "function": { "name": name, "description": description, "parameters": parameters }
+        })
+    };
+    serde_json::json!([
+        function("get_position", "The position on the board: FEN, side to move and piece count.", serde_json::json!({"type":"object","properties":{}})),
+        function("legal_moves", "Every legal move in the current position as SAN.", serde_json::json!({"type":"object","properties":{}})),
+        function("analyze", "Run the engine on the current position and return the best move, score and line.", serde_json::json!({"type":"object","properties":{"depth":{"type":"integer","minimum":1,"maximum":30}}})),
+        function("draw_arrow", "Draw an arrow on the board to point something out.", serde_json::json!({"type":"object","properties":{"from":{"type":"string","description":"origin square, e.g. e2"},"to":{"type":"string","description":"target square, e.g. e4"},"color":{"type":"string","enum":["green","red","blue","yellow"]}},"required":["from","to"]})),
+        function("draw_circle", "Circle a square on the board.", serde_json::json!({"type":"object","properties":{"square":{"type":"string"},"color":{"type":"string","enum":["green","red","blue","yellow"]}},"required":["square"]})),
+        function("clear_shapes", "Remove every arrow and circle from the board.", serde_json::json!({"type":"object","properties":{}})),
+        function("play_move", "Play a legal move on the board (SAN or UCI).", serde_json::json!({"type":"object","properties":{"move":{"type":"string","description":"e.g. Nf3 or g1f3"}},"required":["move"]}))
+    ])
+}
+
+fn square_ok(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() == 2
+        && (b'a'..=b'h').contains(&bytes[0])
+        && (b'1'..=b'8').contains(&bytes[1])
+}
+
+fn legal_moves_san(fen: &str) -> anyhow::Result<Vec<(String, String)>> {
+    let (pos, mode) = knightlm_core::state::parse_chess(fen)?;
+    let mut out = Vec::new();
+    for mv in pos.legal_moves() {
+        let san = SanPlus::from_move(pos.clone(), mv).to_string();
+        let uci = UciMove::from_move(mv, mode).to_string();
+        out.push((san, uci));
+    }
+    Ok(out)
+}
+
+fn run_chat_tool(
+    name: &str,
+    arguments: &serde_json::Value,
+    fen: &str,
+    settings: &SettingsResponse,
+    depth: u32,
+) -> (String, Option<serde_json::Value>) {
+    let color = arguments
+        .get("color")
+        .and_then(|v| v.as_str())
+        .unwrap_or("green");
+    match name {
+        "get_position" => {
+            let legal = legal_moves_san(fen).map(|m| m.len()).unwrap_or(0);
+            let turn = fen.split_whitespace().nth(1).unwrap_or("w");
+            (
+                format!(
+                    "FEN {fen} · {} to move · {legal} legal moves",
+                    if turn == "b" { "Black" } else { "White" }
+                ),
+                None,
+            )
+        }
+        "legal_moves" => match legal_moves_san(fen) {
+            Ok(moves) => {
+                let list: Vec<String> = moves.iter().take(60).map(|(san, _)| san.clone()).collect();
+                (list.join(" "), None)
+            }
+            Err(error) => (format!("could not read the position: {error}"), None),
+        },
+        "analyze" => {
+            let depth = arguments
+                .get("depth")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32)
+                .unwrap_or(depth)
+                .clamp(1, 30);
+            let analysed: Result<Vec<knightlm_engine::Analysis>, String> =
+                match engine_for(settings, fen, "standard") {
+                    Ok((path, options)) => knightlm_engine::Engine::spawn_with(&path, 30, options)
+                        .and_then(|mut engine| engine.analyse_lines(fen, depth, 1))
+                        .map_err(|e| e.to_string()),
+                    Err(error) => Err(format!("{error:?}")),
+                };
+            match analysed {
+                Ok(lines) => match lines.first() {
+                    Some(line) => {
+                        let score = line
+                            .mate
+                            .map(|m| format!("mate {m}"))
+                            .or_else(|| line.score_cp.map(|c| format!("{:+.2}", c as f64 / 100.0)))
+                            .unwrap_or_else(|| "?".into());
+                        (
+                            format!(
+                                "best {} ({score}) · pv {}",
+                                line.best_move,
+                                line.pv.join(" ")
+                            ),
+                            None,
+                        )
+                    }
+                    None => ("no analysis returned".into(), None),
+                },
+                Err(error) => (format!("engine unavailable: {error:?}"), None),
+            }
+        }
+        "draw_arrow" => {
+            let from = arguments.get("from").and_then(|v| v.as_str()).unwrap_or("");
+            let to = arguments.get("to").and_then(|v| v.as_str()).unwrap_or("");
+            if !square_ok(from) || !square_ok(to) {
+                return ("invalid squares".into(), None);
+            }
+            (
+                "arrow drawn".into(),
+                Some(serde_json::json!({"kind":"arrow","from":from,"to":to,"color":color})),
+            )
+        }
+        "draw_circle" => {
+            let square = arguments
+                .get("square")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if !square_ok(square) {
+                return ("invalid square".into(), None);
+            }
+            (
+                "circle drawn".into(),
+                Some(serde_json::json!({"kind":"circle","square":square,"color":color})),
+            )
+        }
+        "clear_shapes" => (
+            "shapes cleared".into(),
+            Some(serde_json::json!({"kind":"clear"})),
+        ),
+        "play_move" => {
+            let raw = arguments
+                .get("move")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if raw.is_empty() {
+                return ("no move given".into(), None);
+            }
+            let Ok((pos, mode)) = knightlm_core::state::parse_chess(fen) else {
+                return ("the board position is invalid".into(), None);
+            };
+            let mv = if let Ok(uci) = UciMove::from_ascii(raw.as_bytes()) {
+                uci.to_move(&pos).ok()
+            } else {
+                San::from_ascii(raw.as_bytes())
+                    .ok()
+                    .and_then(|san| san.to_move(&pos).ok())
+            };
+            match mv {
+                Some(mv) if pos.is_legal(mv) => {
+                    let san = SanPlus::from_move(pos.clone(), mv).to_string();
+                    let uci = UciMove::from_move(mv, mode).to_string();
+                    (
+                        format!("played {san}"),
+                        Some(serde_json::json!({"kind":"move","uci":uci,"san":san})),
+                    )
+                }
+                _ => (format!("{raw} is not legal here"), None),
+            }
+        }
+        other => (format!("unknown tool {other}"), None),
+    }
+}
+
+fn chat_with_tools(
+    url: &str,
+    message: &str,
+    fen: &str,
+    depth: u32,
+    settings: &SettingsResponse,
+) -> anyhow::Result<ChatReply> {
+    let agent = ureq::Agent::new_with_defaults();
+    let tools = chat_tools();
+    let mut messages = vec![
+        serde_json::json!({
+            "role": "system",
+            "content": "You are the KnightLM chess assistant. The board position is given as a FEN. Use the tools to read the position, run the engine, draw arrows/circles and play legal moves. Keep replies short; the board shows your actions automatically."
+        }),
+        serde_json::json!({ "role": "user", "content": message }),
+    ];
+    let mut actions = Vec::new();
+    let mut used = Vec::new();
+    let mut reply = String::new();
+    for _ in 0..3 {
+        let payload = serde_json::json!({
+            "model": "knightlm",
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",
+            "temperature": 0.2,
+            "fen": fen,
+        });
+        let mut response = agent.post(url).send_json(payload)?;
+        let value: serde_json::Value = response.body_mut().read_json()?;
+        // Plain-text servers that do not implement the OpenAI chat shape.
+        if let Some(plain) = value.get("reply").and_then(|v| v.as_str()) {
+            return Ok(ChatReply {
+                reply: plain.to_owned(),
+                actions,
+                tools: used,
+            });
+        }
+        let Some(choice) = value
+            .get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|c| c.first())
+        else {
+            anyhow::bail!("model response has neither choices nor reply");
+        };
+        let msg = &choice["message"];
+        if let Some(content) = msg.get("content").and_then(|v| v.as_str()) {
+            if !content.trim().is_empty() {
+                reply = content.trim().to_owned();
+            }
+        }
+        let calls = msg
+            .get("tool_calls")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if calls.is_empty() {
+            return Ok(ChatReply {
+                reply,
+                actions,
+                tools: used,
+            });
+        }
+        messages.push(serde_json::json!({
+            "role": "assistant",
+            "content": msg.get("content").cloned().unwrap_or(serde_json::Value::Null),
+            "tool_calls": calls,
+        }));
+        for call in calls {
+            let name = call["function"]["name"].as_str().unwrap_or_default();
+            let raw_args = call["function"]["arguments"]
+                .as_str()
+                .unwrap_or("{}");
+            let arguments: serde_json::Value =
+                serde_json::from_str(raw_args).unwrap_or(serde_json::json!({}));
+            let (result, action) = run_chat_tool(name, &arguments, fen, settings, depth);
+            used.push(name.to_owned());
+            if let Some(action) = action {
+                actions.push(action);
+            }
+            messages.push(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": call["id"].as_str().unwrap_or_default(),
+                "content": result,
+            }));
+        }
+    }
+    Ok(ChatReply {
+        reply,
+        actions,
+        tools: used,
+    })
 }
 
 pub async fn chat(
     State(state): State<AppState>,
     Json(body): Json<ChatBody>,
 ) -> Result<Json<ChatReply>, ApiError> {
-    let url = effective(&state)
+    let settings = effective(&state);
+    let url = settings
         .model_url
+        .clone()
         .ok_or(ApiError::Unavailable("model URL is not set"))?;
-    let payload = serde_json::json!({ "message": body.message, "fen": body.fen });
-    let reply = tokio::task::spawn_blocking(move || -> anyhow::Result<ChatReply> {
-        let agent = ureq::Agent::new_with_defaults();
-        let mut resp = agent.post(&url).send_json(payload)?;
-        let v: serde_json::Value = resp.body_mut().read_json()?;
-        Ok(ChatReply {
-            reply: v["reply"].as_str().unwrap_or_default().to_owned(),
-        })
+    let fen = body
+        .fen
+        .clone()
+        .filter(|f| !f.trim().is_empty())
+        .unwrap_or_else(|| {
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_owned()
+        });
+    let depth = body.depth.unwrap_or(settings.depth).clamp(1, 30);
+    let message = body.message;
+    let reply = tokio::task::spawn_blocking(move || {
+        chat_with_tools(&url, &message, &fen, depth, &settings)
     })
     .await
     .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
