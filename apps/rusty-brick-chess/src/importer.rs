@@ -144,6 +144,13 @@ pub fn import_dump(options: &DumpOptions, filters: &DumpFilters) -> Result<()> {
         }
     }
     db.commit_bulk()?;
+    eprintln!("  building indexes…");
+    db.ensure_indexes()?;
+    if options.index_positions {
+        eprintln!("  building opening index…");
+        let rows = db.build_opening_index(12)?;
+        eprintln!("  opening index: {rows} continuations");
+    }
 
     let elapsed = started.elapsed();
     let size = std::fs::metadata(&options.db).map(|m| m.len()).unwrap_or(0);

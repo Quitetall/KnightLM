@@ -325,7 +325,14 @@ with it ~19 KB (about 19 GB for a million games). Drop the flag for a
 browse/search-only archive. A player filter is nearly free once the file has
 been read, so `--player` plus `--max 0` imports one account's month in a single
 pass. Progress is printed every few seconds; the output database appears in
-the app's database switcher.
+the app's database switcher. After loading, the importer creates the indexes
+and aggregations that keep a million-game database responsive: player/event
+catalogs, the first-12-ply opening explorer table, and covering indexes for
+position search. A million games with the position index is about 22 GB.
+
+Position search returns up to 500 games per position; partial (piece-only)
+search is refused above 5M indexed positions, where it cannot be answered
+without scanning the whole table.
 
 ## Session persistence
 

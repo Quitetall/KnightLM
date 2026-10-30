@@ -47,7 +47,30 @@ CREATE TABLE IF NOT EXISTS positions (
     uci     TEXT,
     PRIMARY KEY (game_id, ply)
 );
-CREATE INDEX IF NOT EXISTS idx_positions_key ON positions(key);
+CREATE INDEX IF NOT EXISTS idx_positions_key_game ON positions(key, game_id);
+
+-- Aggregated catalogs so player/event lists stay instant on huge databases.
+CREATE TABLE IF NOT EXISTS player_stats (
+    name  TEXT PRIMARY KEY,
+    elo   INTEGER,
+    games INTEGER NOT NULL
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS event_stats (
+    name  TEXT PRIMARY KEY,
+    games INTEGER NOT NULL
+) WITHOUT ROWID;
+
+-- Aggregated opening tree (first plies only) for instant explorer queries.
+CREATE TABLE IF NOT EXISTS opening_moves (
+    key   TEXT NOT NULL,
+    uci   TEXT NOT NULL,
+    games INTEGER NOT NULL,
+    white INTEGER NOT NULL,
+    draw  INTEGER NOT NULL,
+    black INTEGER NOT NULL,
+    PRIMARY KEY (key, uci)
+) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS puzzles (
     id                TEXT PRIMARY KEY,
@@ -309,6 +332,7 @@ impl Db {
         for game in games {
             ids.push(self.import_one(game, collection, true)?);
         }
+        self.build_catalogs()?;
         Ok(ids)
     }
 
@@ -339,10 +363,58 @@ impl Db {
                 Err(_) => skipped += 1,
             }
         }
+        self.build_catalogs()?;
         Ok((ids, skipped))
     }
 
     /// Open a transaction around many imports (bulk loading).
+    /// Indexes that make filtering and statistics cheap on large archives.
+    /// Imports of millions of games create these after loading, so the bulk
+    /// insert does not pay for index maintenance per row.
+    pub fn ensure_indexes(&self) -> Result<()> {
+        let conn = self.conn.lock().expect("db lock");
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_games_white ON games(white);
+             CREATE INDEX IF NOT EXISTS idx_games_black ON games(black);
+             CREATE INDEX IF NOT EXISTS idx_games_result ON games(result);
+             CREATE INDEX IF NOT EXISTS idx_games_date ON games(date);
+             CREATE INDEX IF NOT EXISTS idx_games_event ON games(event);
+             CREATE INDEX IF NOT EXISTS idx_games_white_elo ON games(white_elo);
+             CREATE INDEX IF NOT EXISTS idx_games_black_elo ON games(black_elo);",
+        )?;
+        build_catalogs_locked(&conn)?;
+        conn.execute_batch("ANALYZE")?;
+        Ok(())
+    }
+
+    pub fn build_catalogs(&self) -> Result<()> {
+        let conn = self.conn.lock().expect("db lock");
+        build_catalogs_locked(&conn)
+    }
+
+    /// Aggregate the first plies into `opening_moves` so the explorer answers
+    /// from a small table instead of scanning positions on every request.
+    pub fn build_opening_index(&self, plies: usize) -> Result<usize> {
+        let conn = self.conn.lock().expect("db lock");
+        conn.execute_batch("DELETE FROM opening_moves")?;
+        conn.execute(
+            "INSERT INTO opening_moves (key, uci, games, white, draw, black)
+             SELECT p1.key, p2.uci, COUNT(*),
+                    SUM(CASE WHEN g.result = '1-0' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN g.result = '1/2-1/2' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN g.result = '0-1' THEN 1 ELSE 0 END)
+             FROM positions p1
+             JOIN positions p2 ON p2.game_id = p1.game_id AND p2.ply = p1.ply + 1
+             JOIN games g ON g.id = p1.game_id
+             WHERE p1.ply < ?1 AND p2.uci IS NOT NULL
+             GROUP BY p1.key, p2.uci",
+            params![plies as i64],
+        )?;
+        let count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM opening_moves", [], |row| row.get(0))?;
+        Ok(count as usize)
+    }
+
     pub fn begin_bulk(&self) -> Result<()> {
         self.conn.lock().expect("db lock").execute_batch("BEGIN")?;
         Ok(())
@@ -635,13 +707,13 @@ impl Db {
 
     pub fn players(&self) -> Result<Vec<PlayerRow>> {
         let conn = self.conn.lock().expect("db lock");
+        let cached: i64 =
+            conn.query_row("SELECT COUNT(*) FROM player_stats", [], |row| row.get(0))?;
+        if cached == 0 {
+            build_catalogs_locked(&conn)?;
+        }
         let mut stmt = conn.prepare(
-            "SELECT name, MAX(elo), COUNT(*) FROM (
-                 SELECT white AS name, white_elo AS elo FROM games
-                 UNION ALL
-                 SELECT black AS name, black_elo AS elo FROM games
-             ) WHERE name IS NOT NULL
-             GROUP BY name ORDER BY COUNT(*) DESC LIMIT 500",
+            "SELECT name, elo, games FROM player_stats ORDER BY games DESC, name LIMIT 500",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(PlayerRow {
@@ -655,10 +727,13 @@ impl Db {
 
     pub fn events(&self) -> Result<Vec<EventRow>> {
         let conn = self.conn.lock().expect("db lock");
-        let mut stmt = conn.prepare(
-            "SELECT event, COUNT(*) FROM games WHERE event IS NOT NULL
-             GROUP BY event ORDER BY COUNT(*) DESC LIMIT 300",
-        )?;
+        let cached: i64 =
+            conn.query_row("SELECT COUNT(*) FROM event_stats", [], |row| row.get(0))?;
+        if cached == 0 {
+            build_catalogs_locked(&conn)?;
+        }
+        let mut stmt =
+            conn.prepare("SELECT name, games FROM event_stats ORDER BY games DESC, name LIMIT 300")?;
         let rows = stmt.query_map([], |row| {
             Ok(EventRow {
                 name: row.get(0)?,
@@ -674,17 +749,18 @@ impl Db {
         let (pos, _) = variant_start(fen, Some(variant))?;
         let key = position_key_variant(&pos, variant);
         let conn = self.conn.lock().expect("db lock");
-        let mut stmt =
-            conn.prepare("SELECT DISTINCT game_id FROM positions WHERE key = ?1 ORDER BY game_id DESC")?;
-        let ids = stmt
-            .query_map(params![key], |row| row.get::<_, i64>(0))?
+        let mut stmt = conn.prepare(
+            "SELECT g.id, g.event, g.site, g.date, g.round, g.white, g.white_elo,
+                    g.black, g.black_elo, g.result, g.fen, g.moves, g.ply_count,
+                    g.time_control, g.other, g.variant, g.added_at, NULL
+             FROM games g
+             JOIN (SELECT DISTINCT game_id FROM positions WHERE key = ?1
+                   ORDER BY game_id DESC LIMIT 500) p ON p.game_id = g.id
+             ORDER BY g.id DESC",
+        )?;
+        let games = stmt
+            .query_map(params![key], row_to_game)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut games = Vec::new();
-        for id in ids {
-            if let Some(g) = get_game(&conn, id)? {
-                games.push(g);
-            }
-        }
         Ok(games)
     }
 
@@ -715,6 +791,13 @@ impl Db {
             anyhow::bail!("partial search needs at least one piece");
         }
         let conn = self.conn.lock().expect("db lock");
+        let positions: i64 =
+            conn.query_row("SELECT COALESCE(MAX(rowid), 0) FROM positions", [], |row| row.get(0))?;
+        if positions > 5_000_000 {
+            anyhow::bail!(
+                "partial search is limited to 5M indexed positions; use an exact FEN on this database"
+            );
+        }
         let mut stmt = conn.prepare("SELECT DISTINCT game_id, key FROM positions")?;
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
@@ -738,17 +821,18 @@ impl Db {
     pub fn search_position(&self, fen: &str) -> Result<Vec<Game>> {
         let key = normalize_key(fen)?;
         let conn = self.conn.lock().expect("db lock");
-        let mut stmt =
-            conn.prepare("SELECT DISTINCT game_id FROM positions WHERE key = ?1 ORDER BY game_id DESC")?;
-        let ids = stmt
-            .query_map(params![key], |row| row.get::<_, i64>(0))?
+        let mut stmt = conn.prepare(
+            "SELECT g.id, g.event, g.site, g.date, g.round, g.white, g.white_elo,
+                    g.black, g.black_elo, g.result, g.fen, g.moves, g.ply_count,
+                    g.time_control, g.other, g.variant, g.added_at, NULL
+             FROM games g
+             JOIN (SELECT DISTINCT game_id FROM positions WHERE key = ?1
+                   ORDER BY game_id DESC LIMIT 500) p ON p.game_id = g.id
+             ORDER BY g.id DESC",
+        )?;
+        let games = stmt
+            .query_map(params![key], row_to_game)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut games = Vec::new();
-        for id in ids {
-            if let Some(g) = get_game(&conn, id)? {
-                games.push(g);
-            }
-        }
         Ok(games)
     }
 
@@ -912,7 +996,12 @@ impl Db {
             parse_chess(&full)?.0
         };
         let conn = self.conn.lock().expect("db lock");
-        let mut stmt = conn.prepare(
+        let aggregated: i64 =
+            conn.query_row("SELECT COUNT(*) FROM opening_moves", [], |row| row.get(0))?;
+        let sql = if aggregated > 0 {
+            "SELECT uci, games, white, draw, black FROM opening_moves
+             WHERE key = ?1 ORDER BY games DESC LIMIT 12"
+        } else {
             "SELECT p2.uci,
                     COUNT(*),
                     SUM(CASE WHEN g.result = '1-0' THEN 1 ELSE 0 END),
@@ -924,8 +1013,9 @@ impl Db {
              WHERE p1.key = ?1 AND p2.uci IS NOT NULL
              GROUP BY p2.uci
              ORDER BY COUNT(*) DESC
-             LIMIT 12",
-        )?;
+             LIMIT 12"
+        };
+        let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map(params![key], |row| {
             let uci: String = row.get(0)?;
             let san = UciMove::from_ascii(uci.as_bytes())
@@ -1396,25 +1486,40 @@ impl Db {
     pub fn stats(&self) -> Result<Stats> {
         let conn = self.conn.lock().expect("db lock");
         let count = |sql: &str| -> Result<i64> { Ok(conn.query_row(sql, [], |row| row.get(0))?) };
-        let games = count("SELECT COUNT(*) FROM games")?;
-        let white_wins = count("SELECT COUNT(*) FROM games WHERE result = '1-0'")?;
-        let draws = count("SELECT COUNT(*) FROM games WHERE result = '1/2-1/2'")?;
-        let black_wins = count("SELECT COUNT(*) FROM games WHERE result = '0-1'")?;
-        let unfinished = count("SELECT COUNT(*) FROM games WHERE result NOT IN ('1-0','1/2-1/2','0-1')")?;
-        let players = count(
-            "SELECT COUNT(*) FROM (SELECT white AS n FROM games UNION SELECT black AS n FROM games)",
-        )?;
+        let mut games = 0i64;
+        let mut white_wins = 0i64;
+        let mut draws = 0i64;
+        let mut black_wins = 0i64;
+        let mut unfinished = 0i64;
+        {
+            let mut stmt = conn.prepare("SELECT result, COUNT(*) FROM games GROUP BY result")?;
+            let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
+                let result: Option<String> = row.get(0)?;
+                let n: i64 = row.get(1)?;
+                games += n;
+                match result.as_deref() {
+                    Some("1-0") => white_wins += n,
+                    Some("0-1") => black_wins += n,
+                    Some("1/2-1/2") => draws += n,
+                    _ => unfinished += n,
+                }
+            }
+        }
+        let mut catalogs = conn.query_row("SELECT COUNT(*) FROM player_stats", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+        if catalogs == 0 {
+            build_catalogs_locked(&conn)?;
+            catalogs = conn
+                .query_row("SELECT COUNT(*) FROM player_stats", [], |row| row.get(0))?;
+        }
+        let players = catalogs;
         let events = count("SELECT COUNT(DISTINCT event) FROM games WHERE event IS NOT NULL")?;
         let collections = count("SELECT COUNT(*) FROM collections")?;
         let puzzles = count("SELECT COUNT(*) FROM puzzles")?;
-        let mut stmt = conn.prepare(
-            "SELECT name, MAX(elo), COUNT(*) FROM (
-                 SELECT white AS name, white_elo AS elo FROM games
-                 UNION ALL
-                 SELECT black AS name, black_elo AS elo FROM games
-             ) WHERE name IS NOT NULL
-             GROUP BY name ORDER BY COUNT(*) DESC LIMIT 8",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT name, elo, games FROM player_stats ORDER BY games DESC LIMIT 8")?;
         let top_players = stmt
             .query_map([], |row| {
                 Ok(PlayerRow {
@@ -1424,10 +1529,8 @@ impl Db {
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut stmt = conn.prepare(
-            "SELECT event, COUNT(*) FROM games WHERE event IS NOT NULL
-             GROUP BY event ORDER BY COUNT(*) DESC LIMIT 8",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT name, games FROM event_stats ORDER BY games DESC LIMIT 8")?;
         let top_events = stmt
             .query_map([], |row| {
                 Ok(EventRow {
@@ -2004,6 +2107,23 @@ fn get_game(conn: &Connection, id: i64) -> Result<Option<Game>> {
     )?;
     let mut rows = stmt.query_map(params![id], row_to_game)?;
     Ok(rows.next().transpose()?)
+}
+
+fn build_catalogs_locked(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "DELETE FROM player_stats;
+         INSERT INTO player_stats (name, elo, games)
+         SELECT name, MAX(elo), COUNT(*) FROM (
+             SELECT white AS name, white_elo AS elo FROM games
+             UNION ALL
+             SELECT black AS name, black_elo AS elo FROM games
+         ) WHERE name IS NOT NULL
+         GROUP BY name;
+         DELETE FROM event_stats;
+         INSERT INTO event_stats (name, games)
+         SELECT event, COUNT(*) FROM games WHERE event IS NOT NULL GROUP BY event;",
+    )?;
+    Ok(())
 }
 
 fn index_positions(

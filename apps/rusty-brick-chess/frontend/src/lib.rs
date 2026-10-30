@@ -484,6 +484,8 @@ pub fn App() -> impl IntoView {
     let practice_goto = RwSignal::new(None::<(u32, usize)>);
     let practice_seq = RwSignal::new(0u32);
     let practice_pick = RwSignal::new(0i64);
+    let practice_query = RwSignal::new(String::new());
+    let practice_games = RwSignal::new(Vec::<api::GameSummary>::new());
     let spar_pgn = RwSignal::new(String::new());
     let spar_fen = RwSignal::new(String::new());
     let spar_color = RwSignal::new("white".to_string());
@@ -781,6 +783,19 @@ pub fn App() -> impl IntoView {
                 }
             });
         }
+    });
+
+    Effect::new(move |_| {
+        let query = practice_query.get();
+        spawn_local(async move {
+            let filters = api::Filters {
+                player: query,
+                ..api::Filters::default()
+            };
+            if let Ok((list, _)) = api::list_games(&filters).await {
+                practice_games.set(list);
+            }
+        });
     });
 
     Effect::new(move |_| {
@@ -3944,6 +3959,12 @@ pub fn App() -> impl IntoView {
                         if practice_mode.get() == "guess" {
                             view! {
                                 <div class="practice-row">
+                                    <input
+                                        type="text"
+                                        placeholder="Filter games by player or event…"
+                                        prop:value=move || practice_query.get()
+                                        on:input=move |ev| practice_query.set(event_target_value(&ev))
+                                    />
                                     <select
                                         prop:value=move || practice_pick.get().to_string()
                                         on:change=move |ev| {
@@ -3953,7 +3974,7 @@ pub fn App() -> impl IntoView {
                                     >
                                         <option value="0">"Choose a game…"</option>
                                         {move || {
-                                            games
+                                            practice_games
                                                 .get()
                                                 .into_iter()
                                                 .map(|g| {
