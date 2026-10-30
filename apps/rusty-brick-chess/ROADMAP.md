@@ -21,13 +21,13 @@ sidebar surfaces.
 | Repertoires | **Done** | import, training, SM-2 |
 | Practice | **Partial** | guess-the-move, sparring from FEN; no strength presets or eval-scored guesses |
 | Workspaces | **Done** | Analysis/Database/Openings/Puzzles tabs, rename, reorder, session restore |
-| Board customization | **Done** | custom square colours, coordinates toggle, 8 piece sets; piece-set upload remains |
+| Board customization | **Done** | custom colours, coordinates, 8 sets, custom SVG set upload |
 | Files | **Done** | file picker + drag-and-drop import, recent files, Save PGN, desktop "Open PGN…" |
 | Accounts | **Done** | Lichess (optional token) and Chess.com links, profile/rating, game import |
 | Settings | **Done** | engines list, depth, threads/hash, syzygy, theme/pieces, sounds, keybinds, animation, profile, vision |
 
 | Desktop shell | **Partial** | Tauri window + native menus + installer; **only built/tested on Linux**, no CI bundles, no auto-update |
-| i18n / accessibility | **Missing** | English strings inline, keyboard-only paths untested |
+| i18n / accessibility | **Partial** | English/Spanish strings, board aria labels, skip link, live regions; full translation coverage remains |
 
 Rough position: **~85% of the desktop surface**, ~100% of the
 database/analysis/opening/puzzle/training core. The remaining work is

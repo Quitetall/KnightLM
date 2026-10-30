@@ -1,0 +1,76 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    name: bundle (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-22.04, macos-14, windows-2022]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/rusty-brick-chess/src-tauri -> target
+            apps/rusty-brick-chess/frontend -> target
+
+      - name: Install frontend tooling
+        uses: taiki-e/install-action@cargo-binstall
+
+      - name: Install cargo-leptos and wasm-bindgen
+        shell: bash
+        run: |
+          cargo binstall -y cargo-leptos
+          # wasm-bindgen-cli must match the wasm-bindgen crate in frontend/Cargo.lock
+          VERSION=$(grep -A1 '^name = "wasm-bindgen"$' apps/rusty-brick-chess/frontend/Cargo.lock \
+            | grep '^version' | head -1 | cut -d '"' -f2)
+          cargo binstall -y "wasm-bindgen-cli@${VERSION}" \
+            || cargo install wasm-bindgen-cli --version "${VERSION}" --locked
+
+      - name: Build frontend
+        shell: bash
+        run: |
+          cd apps/rusty-brick-chess/frontend
+          ./deploy.sh
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/rusty-brick-chess
+          tagName: ${{ github.ref_name }}
+          releaseName: "RustyBrickChess ${{ github.ref_name }}"
+          releaseBody: |
+            Desktop builds for Linux, macOS and Windows.
+
+            The browser/server build is the same code: run
+            `rustybrickchess --open` from the app package.
+          releaseDraft: true
+          prerelease: false

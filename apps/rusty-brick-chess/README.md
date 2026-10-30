@@ -285,8 +285,14 @@ The report returns, per move, both a **Lichess-style** label and a
   come back as actions that draw real arrows/circles or play the move. Plain
   `{"reply": …}` model servers still work.
 - **Board customization**: pick custom light/dark square colours (saved with
-  the theme as "Custom"), turn coordinates on or off, and choose from the eight
-  piece sets; the size slider adjusts the board per session.
+  the theme as "Custom"), turn coordinates on or off, choose from the eight
+  piece sets, and **upload a custom SVG set** (twelve files named `K.svg` …
+  `p.svg`, or `wK.svg`/`bK.svg`). Custom sets are stored under
+  `data_dir/pieces` and served read-only; the size slider adjusts the board per
+  session.
+- **Language**: English and Spanish UI strings, switchable in Settings and
+  persisted; the board exposes an accessible group with a label per square
+  ("e4, white pawn"), a skip link and live status announcements.
 - **Settings**: engine binary, model URL, analysis depth, board theme, piece
   set, board colours, coordinates, engine Threads/Hash, Syzygy path and a
   **multi-engine list**
@@ -369,6 +375,25 @@ position search. A million games with the position index is about 22 GB.
 Position search returns up to 500 games per position; partial (piece-only)
 search is refused above 5M indexed positions, where it cannot be answered
 without scanning the whole table.
+
+## Desktop bundles
+
+`tauri.conf.json` already points the shell at the bundled frontend. Build
+installers locally or let CI do it:
+
+```bash
+cd src-tauri
+npx @tauri-apps/cli@2 build          # .deb/.rpm/.AppImage on Linux
+```
+
+`.github/workflows/release.yml` builds on `v*` tags (or manually) for Linux,
+macOS and Windows with `tauri-action`, producing `.deb`/`.AppImage`, `.dmg` and
+`.msi`/`.exe` in a draft GitHub release. It builds the frontend first
+(`cargo-leptos` + wasm-bindgen pinned to `frontend/Cargo.lock`).
+
+Auto-update needs a signing keypair (`npx @tauri-apps/cli@2 signer generate`)
+and the updater plugin configured with its public key and an update endpoint;
+that key belongs to the release owner, so it is not checked in.
 
 ## Session persistence
 

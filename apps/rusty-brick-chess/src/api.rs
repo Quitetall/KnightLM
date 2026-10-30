@@ -412,6 +412,7 @@ pub struct SettingsResponse {
     pub board_light: String,
     pub board_dark: String,
     pub show_coords: bool,
+    pub language: String,
     pub threads: u32,
     pub hash_mb: u32,
     pub syzygy_path: Option<String>,
@@ -443,6 +444,7 @@ fn effective(state: &AppState) -> SettingsResponse {
         board_light: get("board_light").unwrap_or_else(|| "#eeeed2".into()),
         board_dark: get("board_dark").unwrap_or_else(|| "#769656".into()),
         show_coords: get("show_coords").as_deref() != Some("false"),
+        language: get("language").unwrap_or_else(|| "en".into()),
         threads: get("threads").and_then(|v| v.parse().ok()).unwrap_or(0),
         hash_mb: get("hash_mb").and_then(|v| v.parse().ok()).unwrap_or(0),
         syzygy_path: get("syzygy_path"),
@@ -591,6 +593,8 @@ pub struct SettingsInput {
     #[serde(default)]
     pub show_coords: Option<bool>,
     #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
     pub threads: Option<u32>,
     #[serde(default)]
     pub hash_mb: Option<u32>,
@@ -649,6 +653,9 @@ pub async fn put_settings(
         state
             .db
             .set_setting("show_coords", if v { "true" } else { "false" })?;
+    }
+    if let Some(v) = body.language {
+        state.db.set_setting("language", v.trim())?;
     }
     if let Some(v) = body.threads {
         state.db.set_setting("threads", &v.to_string())?;
@@ -1695,6 +1702,49 @@ pub async fn tablebase(
     .await
     .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
     Ok(Json(out))
+}
+
+#[derive(Deserialize)]
+pub struct PieceSetBody {
+    pub name: String,
+    pub files: std::collections::BTreeMap<String, String>,
+}
+
+pub async fn piece_sets(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::pieces::PieceSet>>, ApiError> {
+    Ok(Json(crate::pieces::list(&state.data_dir)?))
+}
+
+pub async fn upload_piece_set(
+    State(state): State<AppState>,
+    Json(body): Json<PieceSetBody>,
+) -> Result<Json<Vec<crate::pieces::PieceSet>>, ApiError> {
+    crate::pieces::save(&state.data_dir, body.name.trim(), &body.files)?;
+    Ok(Json(crate::pieces::list(&state.data_dir)?))
+}
+
+pub async fn delete_piece_set(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<Vec<crate::pieces::PieceSet>>, ApiError> {
+    crate::pieces::delete(&state.data_dir, &name)?;
+    Ok(Json(crate::pieces::list(&state.data_dir)?))
+}
+
+pub async fn piece_file(
+    State(state): State<AppState>,
+    Path((name, code)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    let bytes = crate::pieces::read(&state.data_dir, &name, &code)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        bytes,
+    )
+        .into_response())
 }
 
 #[derive(Serialize)]

@@ -43,6 +43,9 @@ fn main() {
             let reload = MenuItemBuilder::with_id("reload", "Reload")
                 .accelerator("CmdOrCtrl+R")
                 .build(handle)?;
+            let new_window = MenuItemBuilder::with_id("new_window", "New window")
+                .accelerator("CmdOrCtrl+N")
+                .build(handle)?;
             let quit = PredefinedMenuItem::quit(handle, Some("Quit"))?;
             let file = SubmenuBuilder::new(handle, "File")
                 .item(&open_pgn)
@@ -50,7 +53,11 @@ fn main() {
                 .separator()
                 .item(&quit)
                 .build()?;
-            let view = SubmenuBuilder::new(handle, "View").item(&reload).build()?;
+            let view = SubmenuBuilder::new(handle, "View")
+                .item(&new_window)
+                .separator()
+                .item(&reload)
+                .build()?;
             let menu = MenuBuilder::new(handle).item(&file).item(&view).build()?;
             app.set_menu(menu)?;
             Ok(())
@@ -60,6 +67,7 @@ fn main() {
             match event.id().0.as_str() {
                 "open_pgn" => open_pgn(app, port),
                 "open_db" => open_database(app, port),
+                "new_window" => open_window(app),
                 "reload" => {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.eval("window.location.reload()");
@@ -70,6 +78,26 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running RustyBrickChess");
+}
+
+/// Open another window onto the same running server.
+fn open_window(app: &AppHandle) {
+    let port = server_port();
+    let Ok(url) = format!("http://127.0.0.1:{port}/").parse() else {
+        return;
+    };
+    let label = format!(
+        "main-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    let _ = WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
+        .title("RustyBrickChess")
+        .inner_size(1200.0, 850.0)
+        .min_inner_size(900.0, 600.0)
+        .build();
 }
 
 fn server_port() -> u16 {

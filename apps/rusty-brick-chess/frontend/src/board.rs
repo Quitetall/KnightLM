@@ -128,6 +128,40 @@ fn sound_for(events: &[brick_chess::Event]) -> Option<SoundEvent> {
     sound
 }
 
+fn piece_name(kind: Kind, color: Color) -> &'static str {
+    match (kind, color) {
+        (Kind::King, Color::White) => "white king",
+        (Kind::Queen, Color::White) => "white queen",
+        (Kind::Rook, Color::White) => "white rook",
+        (Kind::Bishop, Color::White) => "white bishop",
+        (Kind::Knight, Color::White) => "white knight",
+        (Kind::Pawn, Color::White) => "white pawn",
+        (Kind::King, Color::Black) => "black king",
+        (Kind::Queen, Color::Black) => "black queen",
+        (Kind::Rook, Color::Black) => "black rook",
+        (Kind::Bishop, Color::Black) => "black bishop",
+        (Kind::Knight, Color::Black) => "black knight",
+        (Kind::Pawn, Color::Black) => "black pawn",
+    }
+}
+
+fn piece_code(kind: Kind, color: Color) -> &'static str {
+    match (kind, color) {
+        (Kind::King, Color::White) => "K",
+        (Kind::Queen, Color::White) => "Q",
+        (Kind::Rook, Color::White) => "R",
+        (Kind::Bishop, Color::White) => "B",
+        (Kind::Knight, Color::White) => "N",
+        (Kind::Pawn, Color::White) => "P",
+        (Kind::King, Color::Black) => "k",
+        (Kind::Queen, Color::Black) => "q",
+        (Kind::Rook, Color::Black) => "r",
+        (Kind::Bishop, Color::Black) => "b",
+        (Kind::Knight, Color::Black) => "n",
+        (Kind::Pawn, Color::Black) => "p",
+    }
+}
+
 fn piece_svg(set: PieceSet, kind: Kind, color: Color) -> String {
     let vb = brick_chess::pieces::view_box(set);
     format!(
@@ -318,6 +352,24 @@ pub fn Board(
     #[prop(optional)] on_pieces: Option<Callback<String>>,
 ) -> impl IntoView {
     let widget = RwSignal::new(Widget::new());
+    let custom_set = move || {
+        pieces.and_then(|signal| {
+            let value = signal.get();
+            value
+                .strip_prefix("custom:")
+                .map(str::to_owned)
+                .filter(|name| !name.is_empty())
+        })
+    };
+    let piece_html = move |kind: Kind, color: Color| -> String {
+        match custom_set() {
+            Some(set) => format!(
+                "<img class=\"piece-img\" alt=\"\" src=\"/api/pieces/{set}/{}.svg\">",
+                piece_code(kind, color)
+            ),
+            None => piece_svg(widget.with_untracked(|w| w.pieces()), kind, color),
+        }
+    };
     let move_cb = on_move;
 
     // Load a PGN pushed by the parent (e.g. a game picked in the database).
@@ -369,6 +421,11 @@ pub fn Board(
     if let Some(pieces) = pieces {
         Effect::new(move |_| {
             let value = pieces.get();
+            let value = if value.starts_with("custom:") {
+                "cburnett".to_owned()
+            } else {
+                value
+            };
             widget.update(move |w| {
                 w.apply(Command::SetPieces { pieces: value });
             });
@@ -533,7 +590,7 @@ pub fn Board(
         };
         let piece = widget.with(|w| w.scene().board[from]);
         if let Some(p) = piece {
-            let html = piece_svg(widget.with(|w| w.pieces()), p.kind, p.color);
+            let html = piece_html(p.kind, p.color);
             show_ghost(&ghost_ref, &html, size, fx, fy);
             drag_from.set(Some(from));
             let ms = anim_ms();
@@ -568,7 +625,7 @@ pub fn Board(
                 let size = square_center(idx).map(|(_, _, s)| s).unwrap_or(40.0);
                 let x = ev.client_x() as f64;
                 let y = ev.client_y() as f64;
-                let html = piece_svg(widget.with(|w| w.pieces()), p.kind, p.color);
+                let html = piece_html(p.kind, p.color);
                 show_ghost(&ghost_ref, &html, size, x, y);
                 select_square(idx);
                 drag_from.set(Some(idx));
@@ -762,8 +819,7 @@ pub fn Board(
                     square_center(to),
                     widget.with_untracked(|w| w.scene().board[from]),
                 ) {
-                    let html =
-                        piece_svg(widget.with_untracked(|w| w.pieces()), piece.kind, piece.color);
+                    let html = piece_html(piece.kind, piece.color);
                     show_ghost(&ghost_ref, &html, size, fx, fy);
                     drag_from.set(Some(from));
                     let ms = anim_ms();
@@ -951,11 +1007,7 @@ pub fn Board(
                                     square_center(to),
                                     widget.with_untracked(|w| w.scene().board[from]),
                                 ) {
-                                    let html = piece_svg(
-                                        widget.with_untracked(|w| w.pieces()),
-                                        piece.kind,
-                                        piece.color,
-                                    );
+                                    let html = piece_html(piece.kind, piece.color);
                                     show_ghost(&ghost_ref, &html, size, fx, fy);
                                     drag_from.set(Some(from));
                                     Timeout::new(10, move || {
@@ -1031,15 +1083,20 @@ pub fn Board(
                 };
                 let inner = format!(
                     "{}{}{}",
-                    piece.map(|p| piece_svg(sc.pieces, p.kind, p.color)).unwrap_or_default(),
+                    piece.map(|p| piece_html(p.kind, p.color)).unwrap_or_default(),
                     rank_label,
                     file_label
                 );
+                let label = match piece {
+                    Some(p) => format!("{}, {}", index_to_name(idx), piece_name(p.kind, p.color)),
+                    None => format!("{}, empty", index_to_name(idx)),
+                };
                 view! {
                     <button
                         class=class
                         data-square=index_to_name(idx)
-                        aria-label=index_to_name(idx)
+                        aria-label=label
+                        aria-pressed=if selected { "true" } else { "false" }
                         inner_html=inner
                     ></button>
                 }
@@ -1307,6 +1364,8 @@ pub fn Board(
                                 if animated { " animate-last" } else { "" }
                             )
                         }
+                        role="group"
+                        aria-label="Chess board"
                         style=move || {
                             let light = light_color
                                 .map(|value| value.get())

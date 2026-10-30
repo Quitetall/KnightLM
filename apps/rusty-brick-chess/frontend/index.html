@@ -17,6 +17,9 @@
       --accent: #7fd18a;
     }
     * { box-sizing: border-box; }
+    .skip-link { position: absolute; left: -9999px; top: 0; z-index: 200; background: #2f4a35; color: #eaf5ec; padding: .5rem .8rem; border-radius: 0 0 8px 0; }
+    .skip-link:focus { left: 0; }
+    :focus-visible { outline: 2px solid #7fd18a; outline-offset: 2px; }
     body {
       font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
       margin: 0; min-height: 100vh;
@@ -336,6 +339,11 @@
     .profile-name { font-weight: 700; }
     .profile-record { color: #9fd39f; font-size: .95rem; }
     .profile-score { font-size: .85rem; }
+    .piece-upload { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+    .piece-upload input[type=text] { padding: .4rem .55rem; border-radius: 6px; background: #16161b; color: var(--text); border: 1px solid var(--line); font-size: .78rem; }
+    .custom-sets { display: flex; flex-direction: column; gap: .2rem; }
+    .custom-set { display: flex; gap: .6rem; align-items: center; font-size: .8rem; }
+    .piece-img { display: block; width: 100%; height: 100%; }
     .keybinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .55rem; }
     .keybinds label { display: flex; flex-direction: column; gap: .2rem; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
     .keybinds input { padding: .4rem .55rem; border-radius: 6px; background: #16161b; color: var(--text); border: 1px solid var(--line); font-family: ui-monospace, monospace; font-size: .78rem; }

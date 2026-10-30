@@ -386,6 +386,7 @@ pub struct Settings {
     pub board_light: String,
     pub board_dark: String,
     pub show_coords: bool,
+    pub language: String,
     pub threads: u32,
     pub hash_mb: u32,
     pub syzygy_path: Option<String>,
@@ -414,6 +415,7 @@ impl Default for Settings {
             board_light: "#eeeed2".into(),
             board_dark: "#769656".into(),
             show_coords: true,
+            language: "en".into(),
             threads: 0,
             hash_mb: 0,
             syzygy_path: None,
@@ -452,6 +454,7 @@ pub async fn save_settings(settings: &Settings) -> Result<Settings, String> {
             "board_light": settings.board_light,
             "board_dark": settings.board_dark,
             "show_coords": settings.show_coords,
+            "language": settings.language,
             "threads": settings.threads,
             "hash_mb": settings.hash_mb,
             "syzygy_path": settings.syzygy_path,
@@ -1388,4 +1391,48 @@ pub async fn import_account(provider: &str, max: u32) -> Result<usize, String> {
     }
     let value: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     Ok(value["imported"].as_u64().unwrap_or(0) as usize)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PieceSetInfo {
+    pub name: String,
+    pub pieces: usize,
+}
+
+pub async fn piece_sets() -> Result<Vec<PieceSetInfo>, String> {
+    let resp = Request::get("/api/pieces")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn upload_piece_set(
+    name: &str,
+    files: &std::collections::BTreeMap<String, String>,
+) -> Result<Vec<PieceSetInfo>, String> {
+    let resp = Request::post("/api/pieces")
+        .json(&serde_json::json!({ "name": name, "files": files }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn delete_piece_set(name: &str) -> Result<Vec<PieceSetInfo>, String> {
+    let resp = Request::delete(&format!("/api/pieces/{name}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    resp.json().await.map_err(|e| e.to_string())
 }

@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod board;
+pub mod i18n;
 pub mod sound;
 
 use brick_chess::scene::index_to_name;
@@ -416,6 +417,11 @@ pub fn App() -> impl IntoView {
     let settings_light = RwSignal::new("#eeeed2".to_string());
     let settings_dark = RwSignal::new("#769656".to_string());
     let settings_coords = RwSignal::new(true);
+    let language = RwSignal::new("en".to_string());
+    let custom_sets = RwSignal::new(Vec::<api::PieceSetInfo>::new());
+    let piece_set_name = RwSignal::new(String::new());
+    let piece_set_msg = RwSignal::new(String::new());
+    let piece_upload_busy = RwSignal::new(false);
     let settings_threads = RwSignal::new(0u32);
     let settings_hash = RwSignal::new(0u32);
     let settings_syzygy = RwSignal::new(String::new());
@@ -798,6 +804,7 @@ pub fn App() -> impl IntoView {
                 settings_light.set(s.board_light);
                 settings_dark.set(s.board_dark);
                 settings_coords.set(s.show_coords);
+                language.set(s.language);
                 settings_threads.set(s.threads);
                 settings_hash.set(s.hash_mb);
                 settings_syzygy.set(s.syzygy_path.unwrap_or_default());
@@ -839,6 +846,9 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             if let Ok(t) = api::puzzle_themes().await {
                 puzzle_themes.set(t);
+            }
+            if let Ok(list) = api::piece_sets().await {
+                custom_sets.set(list);
             }
         });
     });
@@ -2062,6 +2072,7 @@ pub fn App() -> impl IntoView {
             board_light: settings_light.get_untracked(),
             board_dark: settings_dark.get_untracked(),
             show_coords: settings_coords.get_untracked(),
+            language: language.get_untracked(),
             threads: settings_threads.get_untracked(),
             hash_mb: settings_hash.get_untracked(),
             syzygy_path: {
@@ -2239,6 +2250,110 @@ pub fn App() -> impl IntoView {
             }
             console_busy.set(false);
         });
+    };
+
+    let upload_piece_set = move |ev: leptos::ev::Event| {
+        let Some(input) = ev
+            .current_target()
+            .and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
+        else {
+            return;
+        };
+        let name = piece_set_name.get_untracked().trim().to_lowercase();
+        if name.is_empty() {
+            piece_set_msg.set("name the set first".into());
+            return;
+        }
+        let Some(files) = input.files() else {
+            return;
+        };
+        let total = files.length();
+        if total == 0 {
+            return;
+        }
+        let collected = std::rc::Rc::new(std::cell::RefCell::new(
+            std::collections::BTreeMap::<String, String>::new(),
+        ));
+        let pending = std::rc::Rc::new(std::cell::RefCell::new(total));
+        piece_upload_busy.set(true);
+        piece_set_msg.set(format!("reading {total} file(s)…"));
+        for index in 0..total {
+            let Some(file) = files.get(index) else {
+                continue;
+            };
+            let filename = file.name();
+            let stem = filename
+                .rsplit_once('.')
+                .map(|(stem, _)| stem)
+                .unwrap_or(&filename)
+                .to_owned();
+            let code = match stem.as_str() {
+                "wK" => "K",
+                "wQ" => "Q",
+                "wR" => "R",
+                "wB" => "B",
+                "wN" => "N",
+                "wP" => "P",
+                "bK" => "k",
+                "bQ" => "q",
+                "bR" => "r",
+                "bB" => "b",
+                "bN" => "n",
+                "bP" => "p",
+                other => other,
+            }
+            .to_owned();
+            let Ok(reader) = web_sys::FileReader::new() else {
+                continue;
+            };
+            let reader_for_load = reader.clone();
+            let collected = collected.clone();
+            let pending = pending.clone();
+            let name = name.clone();
+            let code = code.clone();
+            let onload = Closure::<dyn FnMut()>::new(move || {
+                if let Ok(result) = reader_for_load.result() {
+                    if let Some(text) = result.as_string() {
+                        collected.borrow_mut().insert(code.clone(), text);
+                    }
+                }
+                let ready = {
+                    let mut left = pending.borrow_mut();
+                    *left = left.saturating_sub(1);
+                    *left == 0
+                };
+                if !ready {
+                    return;
+                }
+                let files = collected.borrow().clone();
+                let missing: Vec<&str> = ["K", "Q", "R", "B", "N", "P", "k", "q", "r", "b", "n", "p"]
+                    .into_iter()
+                    .filter(|code| !files.contains_key(*code))
+                    .collect();
+                if !missing.is_empty() {
+                    piece_set_msg.set(format!("missing pieces: {}", missing.join(", ")));
+                    piece_upload_busy.set(false);
+                    return;
+                }
+                let upload_name = name.clone();
+                spawn_local(async move {
+                    match api::upload_piece_set(&upload_name, &files).await {
+                        Ok(list) => {
+                            custom_sets.set(list);
+                            settings_pieces.set(format!("custom:{upload_name}"));
+                            persist_settings();
+                            piece_set_msg.set(format!("uploaded {upload_name}"));
+                        }
+                        Err(error) => piece_set_msg.set(error),
+                    }
+                    piece_upload_busy.set(false);
+                });
+            });
+            reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+            let _ = reader.read_as_text(&file);
+            onload.forget();
+        }
+        input.set_value("");
     };
 
     let set_engine_option = move |index: usize, key: &'static str, value: String| {
@@ -2472,10 +2587,27 @@ pub fn App() -> impl IntoView {
         view! {
             <section class="panel">
                 <div class="panel-head">
-                    <h2>"Settings"</h2>
+                    <h2>{move || i18n::t(&language.get(), "settings.title")}</h2>
                     <span class="muted">{move || format!("Puzzle rating {}", puzzle_rating.get())}</span>
                 </div>
                 <div class="settings-form">
+                    <label>
+                        {move || i18n::t(&language.get(), "settings.language")}
+                        <select
+                            prop:value=move || language.get()
+                            on:change=move |ev| {
+                                language.set(event_target_value(&ev));
+                                persist_settings();
+                            }
+                        >
+                            {i18n::LANGS
+                                .into_iter()
+                                .map(|(code, name)| {
+                                    view! { <option value=code>{name}</option> }
+                                })
+                                .collect_view()}
+                        </select>
+                    </label>
                     <label>
                         "Engine binary (STOCKFISH_PATH)"
                         <input
@@ -2529,6 +2661,19 @@ pub fn App() -> impl IntoView {
                                     .into_iter()
                                     .map(|s| view! { <option value=s.slug()>{s.label()}</option> })
                                     .collect_view()}
+                                {move || {
+                                    custom_sets
+                                        .get()
+                                        .into_iter()
+                                        .map(|set| {
+                                            view! {
+                                                <option value=format!("custom:{}", set.name)>
+                                                    {format!("{} (custom)", set.name)}
+                                                </option>
+                                            }
+                                        })
+                                        .collect_view()
+                                }}
                             </select>
                         </label>
                         <label>
@@ -2561,6 +2706,79 @@ pub fn App() -> impl IntoView {
                             />
                             "Coordinates"
                         </label>
+                    </div>
+                    <div class="panel-sub">"Custom piece sets"</div>
+                    <div class="piece-upload">
+                        <input
+                            type="text"
+                            placeholder="set name (a-z, 0-9, -)"
+                            prop:value=move || piece_set_name.get()
+                            on:input=move |ev| piece_set_name.set(event_target_value(&ev))
+                        />
+                        <label class="file-button">
+                            "Upload 12 SVGs"
+                            <input
+                                type="file"
+                                multiple
+                                accept=".svg,image/svg+xml"
+                                on:change=upload_piece_set
+                            />
+                        </label>
+                        <span class="muted">{move || piece_set_msg.get()}</span>
+                        <span class="status">
+                            {move || if piece_upload_busy.get() { "uploading…" } else { "" }}
+                        </span>
+                    </div>
+                    <div class="muted">
+                        "Name the files K.svg, Q.svg, R.svg, B.svg, N.svg, P.svg and lowercase for Black (or wK.svg / bK.svg)."
+                    </div>
+                    {move || {
+                        let sets = custom_sets.get();
+                        (!sets.is_empty()).then(|| {
+                            view! {
+                                <div class="custom-sets">
+                                    {sets
+                                        .into_iter()
+                                        .map(|set| {
+                                            let name_for_delete = set.name.clone();
+                                            view! {
+                                                <div class="custom-set">
+                                                    <span>{format!("{} · {} pieces", set.name, set.pieces)}</span>
+                                                    <button
+                                                        class="link"
+                                                        on:click=move |_| {
+                                                            let name = name_for_delete.clone();
+                                                            spawn_local(async move {
+                                                                match api::delete_piece_set(&name).await {
+                                                                    Ok(list) => {
+                                                                        custom_sets.set(list);
+                                                                        if settings_pieces
+                                                                            .get_untracked()
+                                                                            .starts_with(&format!("custom:{name}"))
+                                                                        {
+                                                                            settings_pieces.set("cburnett".into());
+                                                                            persist_settings();
+                                                                        }
+                                                                        piece_set_msg.set(format!("deleted {name}"));
+                                                                    }
+                                                                    Err(error) => piece_set_msg.set(error),
+                                                                }
+                                                            });
+                                                        }
+                                                    >
+                                                        "Delete"
+                                                    </button>
+                                                </div>
+                                            }
+                                        })
+                                        .collect_view()}
+                                </div>
+                            }
+                        })
+                    }}
+                    <div class="row-btns">
+                        <button on:click=move |_| persist_settings()>"Save"</button>
+                        <span class="status">{move || settings_status.get()}</span>
                     </div>
                     <div class="settings-row">
                         <label>
@@ -4692,7 +4910,7 @@ pub fn App() -> impl IntoView {
                     }
                     let ai = view! {
                         <div class="dock-body">
-                            <div class="chat-messages">
+                            <div class="chat-messages" aria-live="polite">
                                 {move || {
                                     chat_messages
                                         .get()
@@ -4817,7 +5035,11 @@ pub fn App() -> impl IntoView {
                                         "Console"
                                     </button>
                                 </div>
-                                <button class="dock-close" on:click=move |_| dock.set(String::new())>
+                                <button
+                                    class="dock-close"
+                                    aria-label="Close panel"
+                                    on:click=move |_| dock.set(String::new())
+                                >
                                     "×"
                                 </button>
                             </div>
@@ -6066,6 +6288,7 @@ pub fn App() -> impl IntoView {
     };
 
     view! {
+        <a class="skip-link" href="#app-main">"Skip to content"</a>
         <div class="app">
             <aside class="sidebar">
                 <div class="brand">"RustyBrickChess"</div>
@@ -6073,22 +6296,22 @@ pub fn App() -> impl IntoView {
                     {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
                         .into_iter()
                         .map(|t| {
-                            let label = match t {
-                                Tab::Home => "Home",
-                                Tab::Database => "Database",
-                                Tab::Analysis => "Analysis",
-                                Tab::Practice => "Practice",
-                                Tab::Openings => "Openings",
-                                Tab::Puzzles => "Puzzles",
-                                Tab::Stats => "Stats",
-                                Tab::Settings => "Settings",
+                            let key = match t {
+                                Tab::Home => "nav.home",
+                                Tab::Database => "nav.database",
+                                Tab::Analysis => "nav.analysis",
+                                Tab::Practice => "nav.practice",
+                                Tab::Openings => "nav.openings",
+                                Tab::Puzzles => "nav.puzzles",
+                                Tab::Stats => "nav.stats",
+                                Tab::Settings => "nav.settings",
                             };
                             view! {
                                 <button
                                     class=move || if tab.get() == t { "nav active" } else { "nav" }
                                     on:click=move |_| switch_tab(t)
                                 >
-                                    {label}
+                                    {move || i18n::t(&language.get(), key)}
                                 </button>
                             }
                         })
@@ -6096,7 +6319,7 @@ pub fn App() -> impl IntoView {
                 </nav>
                 <div class="side-foot">"AGPL-3.0 · BrickChess"</div>
             </aside>
-            <main class="main">
+            <main class="main" id="app-main">
                 <header class="topbar">
                     <input
                         placeholder="Search player…"
@@ -6106,8 +6329,10 @@ pub fn App() -> impl IntoView {
                             if ev.key() == "Enter" { reload(); }
                         }
                     />
-                    <button on:click=move |_| reload()>"Search"</button>
-                    <span class="status">{move || status.get()}</span>
+                    <button on:click=move |_| reload()>
+                        {move || i18n::t(&language.get(), "top.search")}
+                    </button>
+                    <span class="status" aria-live="polite">{move || status.get()}</span>
                 </header>
                 <div class="workspaces">
                     <span class="ws-label">"Workspaces"</span>
@@ -6169,6 +6394,7 @@ pub fn App() -> impl IntoView {
                                     <button
                                         class="ws-icon"
                                         title="Rename"
+                                        aria-label="Rename workspace"
                                         on:click=move |_| {
                                             rename_text.set(title_shared.get_value());
                                             renaming_ws.set(Some(key));
@@ -6179,6 +6405,7 @@ pub fn App() -> impl IntoView {
                                     <button
                                         class="ws-icon"
                                         title="Move left"
+                                        aria-label="Move workspace left"
                                         on:click=move |_| move_workspace(key, -1)
                                     >
                                         "‹"
@@ -6186,6 +6413,7 @@ pub fn App() -> impl IntoView {
                                     <button
                                         class="ws-icon"
                                         title="Move right"
+                                        aria-label="Move workspace right"
                                         on:click=move |_| move_workspace(key, 1)
                                     >
                                         "›"
@@ -6193,6 +6421,7 @@ pub fn App() -> impl IntoView {
                                     <button
                                         class="ws-close"
                                         title="Close workspace"
+                                        aria-label="Close workspace"
                                         on:click=move |_| close_workspace(key)
                                     >
                                         "×"
