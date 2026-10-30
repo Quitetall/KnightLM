@@ -8,10 +8,22 @@ publish.workspace = true
 name = "knightlm"
 path = "src/main.rs"
 
+[[bin]]
+name = "knightlm-uci"
+path = "src/uci_main.rs"
+
+[[bin]]
+name = "knightlm-match"
+path = "src/match_main.rs"
+
 [dependencies]
+vampirc-uci.workspace = true
+ureq.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 clap = { version = "4", features = ["derive"] }
 knightlm-core = { path = "../core" }
 knightlm-model = { path = "../model" }
+knightlm-engine = { path = "../engine" }
+knightlm-notation = { path = "../notation" }

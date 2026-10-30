@@ -8,6 +8,8 @@ fn setup(fen: &str, complete: bool) -> GameState {
         initial_fen: fen.into(),
         history_complete: complete,
         moves: vec![],
+
+        variant: "standard".into(),
     })
     .unwrap()
 }
@@ -16,16 +18,20 @@ fn start() -> GameState {
 }
 
 #[test]
-fn standard_rules_reject_chess960_castling() {
+fn chess960_positions_and_castling_are_playable() {
     for fen in [
         "rk5r/8/8/8/8/8/8/RK5R w HAha - 0 1",
         "rk5r/8/8/8/8/8/8/RK5R w KQkq - 0 1",
     ] {
-        let record = GameRecord {
-            initial_fen: fen.into(),
-            ..start().record().clone()
-        };
-        assert!(GameState::replay(&record).is_err(), "accepted {fen}");
+        let mut record = start().record().clone();
+        record.initial_fen = fen.into();
+        let mut state = GameState::replay(&record).unwrap_or_else(|e| panic!("{fen}: {e}"));
+        // Chess960 UCI castling is king-to-rook.
+        state.play("b1h1").expect("960 castling");
+        assert!(
+            state.board().piece_at(shakmaty::Square::G1).is_some(),
+            "king reached g1 for {fen}"
+        );
     }
 }
 fn cycle(s: &mut GameState) {

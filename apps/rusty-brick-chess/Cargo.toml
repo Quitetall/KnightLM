@@ -1,0 +1,33 @@
+[workspace]
+
+[package]
+name = "rusty-brick-chess"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+description = "The full KnightLM chess app: Leptos/BrickChess frontend, En-Croissant-shaped backend, AI chess."
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.40", features = ["bundled"] }
+ureq = { version = "3", features = ["json"] }
+brick-chess = { path = "../../crates/brick-chess" }
+brick-chess-analysis = { path = "../../crates/brick-chess-analysis" }
+rbc-db = { path = "../../crates/rbc-db" }
+shakmaty = "=0.30.2"
+shakmaty-syzygy = "0.28"
+knightlm-core = { path = "../../crates/core" }
+base64 = "0.22"
+tract-onnx = "0.23"
+sha2 = "0.10"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+knightlm-notation = { path = "../../crates/notation" }
+knightlm-engine = { path = "../../crates/engine" }
+
+[profile.release]
+opt-level = 2

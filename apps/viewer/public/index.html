@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KnightLM</title>
+  <link rel="stylesheet" href="./pkg/knightlm-viewer.css" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #141418;
+      --panel: #1c1c22;
+      --panel-2: #24242c;
+      --line: #31313c;
+      --text: #e9e9ee;
+      --muted: #9a9aa8;
+      --accent: #7fd18a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      margin: 0; min-height: 100vh;
+      background: radial-gradient(1200px 600px at 20% -10%, #1e2430 0%, var(--bg) 60%);
+      color: var(--text);
+      display: flex; justify-content: center;
+      padding: 2rem 1.5rem;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 580px) 320px;
+      gap: 1.6rem;
+      align-items: start;
+      width: 100%;
+      max-width: 960px;
+    }
+    .board-col { min-width: 0; }
+    .board-wrap { position: relative; outline: none; }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 18px 50px rgba(0,0,0,.55), 0 2px 0 rgba(255,255,255,.04) inset;
+      user-select: none;
+      touch-action: none;
+    }
+    .sq {
+      position: relative;
+      display: flex; align-items: center; justify-content: center;
+      min-width: 0; min-height: 0;
+      border: none; padding: 0; cursor: pointer; background-clip: padding-box;
+      transition: filter .07s;
+    }
+    .sq:hover { filter: brightness(1.05); }
+    .sq > svg { display: block; width: 100%; height: 100%; pointer-events: none; }
+
+    .board.green .sq.light { background: #eeeed2; }
+    .board.green .sq.dark  { background: #769656; }
+    .board.brown .sq.light { background: #f0d9b5; }
+    .board.brown .sq.dark  { background: #b58863; }
+    .board.blue  .sq.light { background: #e8eef7; }
+    .board.blue  .sq.dark  { background: #6387ae; }
+
+    .sq.last   { box-shadow: inset 0 0 0 4px rgba(246, 211, 45, .5); }
+    .sq.dest   { box-shadow: inset 0 0 0 4px rgba(246, 211, 45, .75); }
+    .sq.selected { box-shadow: inset 0 0 0 4px #f6d32d; }
+    .sq.hovered  { box-shadow: inset 0 0 0 4px rgba(255,255,255,.65); }
+    .sq.check { background-image: radial-gradient(circle, rgba(220,60,60,.85) 0%, rgba(220,60,60,.32) 46%, transparent 70%); }
+    .sq.dest > svg { animation: pop .16s ease-out; }
+    @keyframes pop { 0% { transform: scale(1.14); } 100% { transform: scale(1); } }
+
+    .sq.target::after {
+      content: ""; position: absolute; left: 50%; top: 50%;
+      width: 28%; height: 28%; transform: translate(-50%, -50%);
+      border-radius: 50%; background: rgba(15,20,15,.34); pointer-events: none;
+    }
+    .sq.capture::after {
+      content: ""; position: absolute; inset: 5px;
+      border: 6px solid rgba(15,20,15,.30); border-radius: 50%; pointer-events: none;
+    }
+
+    .coord {
+      position: absolute; font-size: 10px; font-weight: 700;
+      color: rgba(20,24,20,.5); pointer-events: none; line-height: 1;
+    }
+    .coord.rank { top: 3px; left: 4px; }
+    .coord.file { bottom: 3px; right: 5px; }
+    .board.brown .coord, .board.blue .coord { color: rgba(255,255,255,.55); }
+
+    .ghost {
+      position: fixed; width: 60px; height: 60px; pointer-events: none;
+      z-index: 60; opacity: .96; filter: drop-shadow(0 8px 14px rgba(0,0,0,.55));
+    }
+
+    .promo-overlay {
+      position: absolute; inset: 0; z-index: 70;
+      background: rgba(8,8,12,.55); backdrop-filter: blur(2px);
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 10px;
+    }
+    .promo-card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: .9rem 1rem; text-align: center;
+      box-shadow: 0 20px 50px rgba(0,0,0,.6);
+    }
+    .promo-title { font-size: .78rem; color: var(--muted); margin-bottom: .6rem; letter-spacing: .04em; }
+    .promo-row { display: flex; gap: .5rem; }
+    .promo-btn {
+      width: 56px; height: 56px; padding: 0; border-radius: 8px;
+      background: var(--panel-2); border: 1px solid var(--line); cursor: pointer;
+    }
+    .promo-btn:hover { background: #30303a; }
+    .promo-btn svg { width: 100%; height: 100%; }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 1rem;
+      display: flex; flex-direction: column; gap: .85rem;
+      box-shadow: 0 18px 50px rgba(0,0,0,.4);
+    }
+    .panel-title { font-size: 1.05rem; font-weight: 700; letter-spacing: .02em; }
+    .panel-sub { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+
+    .captured { display: flex; flex-direction: column; gap: .25rem; }
+    .cap-row { display: flex; align-items: center; gap: .5rem; min-height: 24px; }
+    .cap-side { font-size: .72rem; color: var(--muted); width: 5.5rem; }
+    .cap { display: inline-block; width: 20px; height: 20px; vertical-align: middle; }
+    .cap svg { width: 100%; height: 100%; }
+    .cap-adv { font-size: .78rem; color: var(--muted); }
+    .cap-adv b { color: var(--text); }
+
+    .movelist { display: flex; flex-direction: column; gap: .35rem; }
+    .moves {
+      display: flex; flex-direction: column; gap: 1px;
+      max-height: 220px; overflow-y: auto;
+      background: var(--panel-2); border-radius: 8px; padding: .3rem;
+    }
+    .move-row {
+      display: grid; grid-template-columns: 2rem 1fr 1fr; align-items: center;
+      gap: .2rem; border-radius: 5px;
+    }
+    .move-row:nth-child(odd) { background: rgba(255,255,255,.02); }
+    .move-no { font-size: .76rem; color: var(--muted); text-align: right; padding-right: .3rem; }
+    .move {
+      background: transparent; border: none; color: #d3d3dc;
+      text-align: left; padding: .18rem .35rem; border-radius: 4px;
+      font-family: ui-monospace, "SFMono-Regular", monospace; font-size: .8rem; cursor: pointer;
+    }
+    .move:hover { background: #31313c; }
+    .move.current { background: #2f4a35; color: #d9f5df; }
+
+    .controls { display: flex; gap: .4rem; flex-wrap: wrap; }
+    .selects { display: flex; gap: .8rem; flex-wrap: wrap; }
+    .selects label {
+      display: flex; align-items: center; gap: .4rem;
+      font-size: .76rem; color: var(--muted);
+    }
+    .selects select {
+      background: var(--panel-2); color: var(--text);
+      border: 1px solid var(--line); border-radius: 7px;
+      padding: .35rem .5rem; font-size: .78rem; cursor: pointer;
+    }
+    .controls button, .load button, .pgn-box button {
+      padding: .42rem .75rem; background: var(--panel-2); color: var(--text);
+      border: 1px solid var(--line); border-radius: 7px; cursor: pointer; font-size: .82rem;
+    }
+    .controls button:hover, .load button:hover, .pgn-box button:hover { background: #30303a; }
+
+    .load { display: flex; gap: .4rem; }
+    .load input, .pgn-box textarea {
+      flex: 1; padding: .42rem .6rem; border-radius: 7px;
+      background: #16161b; color: var(--text); border: 1px solid var(--line);
+      font-family: ui-monospace, monospace; font-size: .74rem;
+    }
+    .link {
+      background: none; border: none; color: var(--accent);
+      font-size: .76rem; cursor: pointer; padding: 0; text-align: left;
+    }
+    .link:hover { text-decoration: underline; }
+    .pgn-box { display: flex; flex-direction: column; gap: .4rem; }
+    .pgn-box textarea { min-height: 90px; resize: vertical; }
+
+    .fen-line { display: flex; gap: .5rem; align-items: baseline; }
+    .fen-line code {
+      font-size: .68rem; color: #8fb8d8; word-break: break-all; line-height: 1.35;
+    }
+    .status { font-size: .78rem; color: var(--accent); min-height: 1.1em; }
+
+    @media (max-width: 900px) {
+      body { padding: 1rem; }
+      .layout { grid-template-columns: 1fr; max-width: 560px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="main"></div>
+  <script type="module">
+    import init from "./pkg/knightlm-viewer.js";
+    init().catch((e) => {
+      document.getElementById("main").innerHTML =
+        "<pre style='color:#ff6b6b'>failed to load: " + e + "</pre>";
+    });
+  </script>
+</body>
+</html>

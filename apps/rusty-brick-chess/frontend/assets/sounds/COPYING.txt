@@ -1,0 +1,5 @@
+Lichess sound themes — sfx, piano, nes, futuristic
+Author: Enigmahack (https://github.com/Enigmahack)
+License: GNU Affero General Public License v3.0 or later (AGPLv3+)
+Source: https://github.com/lichess-org/lila/tree/master/public/sound
+Vendored unmodified for RustyBrickChess, which is AGPL-3.0-only.

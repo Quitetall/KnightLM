@@ -44,6 +44,62 @@ pub fn render_svg(state: &GameState, black_bottom: bool, blue_theme: bool) -> St
     svg
 }
 
+/// A glyph-based board render using Unicode chess symbols. Pure text — no
+/// third-party font assets, no JS — so it satisfies the Rust-only viewer rule
+/// (KLM-SAS-RQ-008). This is what the Leptos viewer's board component uses.
+///
+/// `orientation_white_bottom` controls which side is at the bottom. This is a
+/// render, not a recognizer: it draws the board, it does not read images.
+pub fn render_glyph_svg(state: &GameState, orientation_white_bottom: bool, blue_theme: bool) -> String {
+    let fen = state.fen();
+    let mut squares = Vec::new();
+    for c in fen.split_whitespace().next().unwrap().chars() {
+        match c {
+            '/' => {}
+            '1'..='8' => squares.extend(std::iter::repeat_n(' ', c.to_digit(10).unwrap() as usize)),
+            _ => squares.push(c),
+        }
+    }
+    let colors = if blue_theme {
+        ["#e8eef7", "#6387ae"]
+    } else {
+        ["#f0d9b5", "#b58863"]
+    };
+    let glyph = |p: char| -> char {
+        match p {
+            'K' => '♔', 'Q' => '♕', 'R' => '♖', 'B' => '♗', 'N' => '♘', 'P' => '♙',
+            'k' => '♚', 'q' => '♛', 'r' => '♜', 'b' => '♝', 'n' => '♞', 'p' => '♟',
+            _ => ' ',
+        }
+    };
+    let size = 64u32;
+    let mut svg = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"512\" height=\"512\" viewBox=\"0 0 512 512\">\n"
+    );
+    for display in 0..64usize {
+        let index = if orientation_white_bottom { display } else { 63 - display };
+        let x = (display % 8) as u32 * size;
+        let y = (display / 8) as u32 * size;
+        svg.push_str(&format!(
+            "<rect x=\"{x}\" y=\"{y}\" width=\"{size}\" height=\"{size}\" fill=\"{}\"/>\n",
+            colors[(display / 8 + display % 8) % 2]
+        ));
+        let piece = squares[index];
+        if piece != ' ' {
+            let ink = if piece.is_ascii_uppercase() { "#1a1a1a" } else { "#1a1a1a" };
+            let g = glyph(piece);
+            svg.push_str(&format!(
+                "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" font-family=\"DejaVu Sans, Noto Sans Symbols, sans-serif\" font-size=\"52\" fill=\"{ink}\">{}</text>\n",
+                x + size / 2,
+                y + size / 2 + 18,
+                g
+            ));
+        }
+    }
+    svg.push_str("</svg>\n");
+    svg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,6 +113,8 @@ mod tests {
             initial_fen: START_FEN.into(),
             history_complete: true,
             moves: vec![],
+
+            variant: "standard".into(),
         })
         .unwrap();
         let white = render_svg(&state, false, false);

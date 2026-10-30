@@ -66,6 +66,8 @@ fn start() -> GameState {
         initial_fen: START_FEN.into(),
         history_complete: true,
         moves: vec![],
+
+        variant: "standard".into(),
     })
     .unwrap()
 }

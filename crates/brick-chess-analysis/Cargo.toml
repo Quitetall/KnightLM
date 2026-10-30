@@ -1,0 +1,10 @@
+[package]
+name = "brick-chess-analysis"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-only"
+description = "Move classification and accuracy for BrickChess: Lichess-style win% labels plus a clean-room Expected Points model."
+
+[dependencies]
+serde.workspace = true

@@ -1,6 +1,7 @@
 [workspace]
-members = ["crates/core", "crates/model", "crates/cli"]
+members = ["crates/core", "crates/model", "crates/cli", "crates/notation", "crates/engine", "crates/brick-chess", "crates/brick-chess-analysis", "crates/rbc-db"]
 resolver = "2"
+exclude = ["apps/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,5 +12,8 @@ publish = false
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-cozy-chess = { version = "=0.3.4", features = ["std"] }
+shakmaty = { version = "=0.30.2", features = ["variant"] }
+pgn-reader = "0.29"
+vampirc-uci = "0.11"
+ureq = { version = "3", features = ["json"] }
 burn = { version = "=0.21.0", default-features = false, features = ["std", "ndarray", "autodiff"] }

@@ -1,0 +1,70 @@
+# KnightLM lichess-bot config.
+#
+# Wires KnightLM's own UCI engine (`knightlm-uci`) into lichess-bot so the model
+# can play humans on lichess. Mode 3 of the game harness (KLM-WAR-0006/0009).
+#
+# Setup (human steps, per no-auto-download + OAuth policy):
+#   1. cargo build --release -p knightlm-cli --bin knightlm-uci
+#   2. Get an OAuth token from https://lichess.org/account/oauth/token
+#      (enable "Play the bot" + "Challenge anyone"), paste it below.
+#   3. pip install -r requirements.txt  (inside a clone of lichess-bot)
+#   4. python lichess-bot.py config.knightlm.yml
+#
+# The engine dir points at the built binary (absolute). For a --release build,
+# change dir to target/release. setup.sh rebuilds and re-points this for you.
+
+token: "PASTE_YOUR_LICHESS_OAUTH_TOKEN_HERE"
+url: "https://lichess.org/"
+
+engine:
+  dir: "/home/brianklam/Projects/KnightLM/code/target/debug"  # directory containing knightlm-uci
+  name: "knightlm-uci"             # the KnightLM UCI binary
+  debug: false
+  protocol: "uci"
+  ponder: false                    # the baseline player answers instantly
+  online_moves:
+    enabled: false
+  lichess_bot_tbs:
+    syzygy:
+      enabled: false
+
+homemade_options: {}
+
+challenge:
+  concurrency: 1
+  games_reserved_for_humans: 0
+  sort_by: "best"
+  preference: "human"
+  accept_bot: true
+  only_bot: false
+  max_increment: 20
+  min_increment: 0
+  max_base: 1800
+  min_base: 0
+  max_days: 14
+  min_days: 1
+  variants:
+    - standard
+  time_controls:
+    - bullet
+    - blitz
+    - rapid
+    - classical
+  modes:
+    - rated
+    - casual
+  bullet_requires_increment: false
+  max_simultaneous_games_per_user: 5
+
+greeting:
+  hello: "Hi! I'm {me}, KnightLM. Good luck!"
+  goodbye: "Good game!"
+  hello_spectators: "Hi! I'm {me}, KnightLM."
+  goodbye_spectators: "Thanks for watching!"
+
+matchmaking:
+  enable: false
+  challenge_variant: "standard"
+  challenge_mode: "blitz"
+  challenge_time_control: "60+0"
+  challenge_color: "random"

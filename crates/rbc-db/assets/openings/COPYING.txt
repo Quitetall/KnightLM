@@ -1,0 +1,3 @@
+Chess opening names — CC0 1.0 Universal (public domain dedication).
+Source: https://github.com/lichess-org/chess-openings
+Files: a.tsv .. e.tsv (eco, name, pgn).

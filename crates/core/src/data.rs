@@ -43,6 +43,8 @@ impl EvaluationRow {
             initial_fen: format!("{} 0 1", self.fen),
             history_complete: false,
             moves: vec![],
+
+            variant: "standard".into(),
         })?;
         ensure!(!self.evals.is_empty(), "empty engine evaluations");
         for eval in &self.evals {
@@ -57,7 +59,7 @@ impl EvaluationRow {
                 );
                 ensure!(!pv.line.trim().is_empty(), "empty principal variation");
                 for mv in pv.line.split_whitespace() {
-                    mv.parse::<cozy_chess::Move>()?;
+                    shakmaty::uci::UciMove::from_ascii(mv.as_bytes())?;
                 }
             }
         }
@@ -129,6 +131,8 @@ pub fn audit_splits(items: &[SplitItem]) -> Result<()> {
             initial_fen: item.fen.clone(),
             history_complete: false,
             moves: vec![],
+
+            variant: "standard".into(),
         })?;
         for key in [
             format!("game:{}", item.game_id),

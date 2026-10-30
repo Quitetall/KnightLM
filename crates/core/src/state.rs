@@ -1,5 +1,8 @@
 use anyhow::{Context, Result, bail, ensure};
-use cozy_chess::{Board, Color, Move, Piece, Square};
+use shakmaty::{
+    fen::Fen, uci::UciMove, variant::{Variant, VariantPosition}, CastlingMode, Chess, Color,
+    EnPassantMode, Position, Role, Square,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -17,13 +20,20 @@ pub struct GameRecord {
     /// An assertion by the trusted source, never inferred from a FEN or image.
     pub history_complete: bool,
     pub moves: Vec<String>,
+    /// `standard`, `chess960`, or a shakmaty variant name (`atomic`, …).
+    #[serde(default = "default_variant")]
+    pub variant: String,
+}
+
+fn default_variant() -> String {
+    "standard".into()
 }
 
 #[derive(Debug, Clone)]
 pub struct GameState {
-    board: Board,
-    halfmove: u32,
-    fullmove: u32,
+    board: VariantPosition,
+    variant: Variant,
+    mode: CastlingMode,
     repetitions: BTreeMap<String, u32>,
     record: GameRecord,
 }
@@ -86,6 +96,70 @@ pub struct BoardObservation {
     pub placement: String,
 }
 
+/// Castling notation implied by a FEN: file-letter rights (`HAha`) are
+/// Chess960/Shredder-FEN, `KQkq` could be either and is resolved by parsing.
+pub fn castling_mode_for_fen(fen: &str) -> CastlingMode {
+    let field = fen.split_whitespace().nth(2).unwrap_or("-");
+    if field != "-"
+        && field
+            .chars()
+            .any(|c| !matches!(c, 'K' | 'Q' | 'k' | 'q' | '-'))
+    {
+        CastlingMode::Chess960
+    } else {
+        CastlingMode::Standard
+    }
+}
+
+/// Parse a FEN as standard chess, falling back to Chess960 when the position
+/// is only valid with 960 castling rules (king not on the e-file).
+pub fn parse_chess(fen: &str) -> Result<(Chess, CastlingMode)> {
+    let parsed = Fen::from_ascii(fen.as_bytes()).context("invalid FEN")?;
+    if castling_mode_for_fen(fen).is_standard() {
+        if let Ok(pos) = parsed.clone().into_position(CastlingMode::Standard) {
+            return Ok((pos, CastlingMode::Standard));
+        }
+        // `KQkq` is also valid for a Chess960 setup whose king is not on e1.
+        let pos = parsed
+            .into_position(CastlingMode::Chess960)
+            .context("invalid standard or Chess960 position")?;
+        return Ok((pos, CastlingMode::Chess960));
+    }
+    let pos = parsed
+        .into_position(CastlingMode::Chess960)
+        .context("invalid Chess960 position")?;
+    Ok((pos, CastlingMode::Chess960))
+}
+
+pub fn variant_for_name(name: &str) -> Variant {
+    if name.eq_ignore_ascii_case("chess960") {
+        Variant::Chess
+    } else {
+        Variant::from_ascii(name.as_bytes()).unwrap_or(Variant::Chess)
+    }
+}
+
+pub fn parse_variant_fen(
+    fen: &str,
+    variant: Variant,
+    mode: CastlingMode,
+) -> Result<(VariantPosition, CastlingMode)> {
+    let parsed = Fen::from_ascii(fen.as_bytes()).context("invalid FEN")?;
+    let setup = parsed.as_setup().clone();
+    let pos = VariantPosition::from_setup(variant, setup, mode)
+        .map_err(|e| anyhow::anyhow!("invalid {:?} position: {e:?}", variant))?;
+    Ok((pos, mode))
+}
+
+fn castling_field(pos: &VariantPosition) -> String {
+    Fen::from_position(pos, EnPassantMode::Legal)
+        .to_string()
+        .split_whitespace()
+        .nth(2)
+        .unwrap_or("-")
+        .to_owned()
+}
+
 impl GameState {
     pub fn replay(record: &GameRecord) -> Result<Self> {
         ensure!(
@@ -96,32 +170,30 @@ impl GameState {
             !record.game_id.is_empty() && !record.source.is_empty(),
             "missing game provenance"
         );
-        let fields: Vec<_> = record.initial_fen.split_whitespace().collect();
-        ensure!(fields.len() == 6, "complete six-field FEN required");
-        let halfmove = fields[4]
-            .parse::<u32>()
-            .context("invalid halfmove counter")?;
-        let fullmove = fields[5]
-            .parse::<u32>()
-            .context("invalid fullmove counter")?;
-        ensure!(fullmove > 0, "fullmove counter must be positive");
-        // cozy-chess caps its counters; retain authoritative counters independently.
-        let board = Board::from_fen(&format!("{} 0 1", fields[..4].join(" ")), false)
-            .context("invalid standard chess position")?;
-        for (color, king_square) in [(Color::White, Square::E1), (Color::Black, Square::E8)] {
-            let rights = board.castle_rights(color);
-            ensure!(
-                (rights.short.is_none() && rights.long.is_none())
-                    || board.king(color) == king_square,
-                "nonstandard castling king origin"
-            );
-        }
+        let variant = variant_for_name(&record.variant);
+        let chess960 = record.variant.eq_ignore_ascii_case("chess960");
+        let mode = if variant == Variant::Chess {
+            if chess960 {
+                CastlingMode::Chess960
+            } else {
+                castling_mode_for_fen(&record.initial_fen)
+            }
+        } else {
+            CastlingMode::Standard
+        };
+        let (board, mode) = if variant == Variant::Chess && record.variant.eq_ignore_ascii_case("standard") {
+            // Auto-detect a Chess960 setup when a standard-tagged FEN needs it.
+            let (pos, mode) = parse_chess(&record.initial_fen)?;
+            (VariantPosition::from(pos), mode)
+        } else {
+            parse_variant_fen(&record.initial_fen, variant, mode)?
+        };
         let mut initial = record.clone();
         initial.moves.clear();
         let mut state = Self {
             board,
-            halfmove,
-            fullmove,
+            variant,
+            mode,
             repetitions: BTreeMap::new(),
             record: initial,
         };
@@ -138,15 +210,25 @@ impl GameState {
         Ok(state)
     }
 
+    /// The canonical position (any shakmaty variant).
+    pub fn position(&self) -> &VariantPosition {
+        &self.board
+    }
+
+    pub fn variant(&self) -> Variant {
+        self.variant
+    }
+
+    pub fn castling_mode(&self) -> CastlingMode {
+        self.mode
+    }
+
+    pub fn board(&self) -> &shakmaty::Board {
+        self.board.board()
+    }
+
     pub fn fen(&self) -> String {
-        let fen = self.board.to_string();
-        let fields: Vec<_> = fen.split_whitespace().collect();
-        format!(
-            "{} {} {}",
-            fields[..4].join(" "),
-            self.halfmove,
-            self.fullmove
-        )
+        Fen::from_position(&self.board, EnPassantMode::Legal).to_string()
     }
 
     pub fn record(&self) -> &GameRecord {
@@ -154,40 +236,28 @@ impl GameState {
     }
 
     pub fn position_key(&self) -> String {
-        let fen = self.board.to_string();
-        let fields: Vec<_> = fen.split_whitespace().collect();
-        let ep_usable = self.board.en_passant().is_some()
-            && self.internal_moves().iter().any(|m| {
-                self.board.piece_on(m.from) == Some(Piece::Pawn)
-                    && m.from.file() != m.to.file()
-                    && self.board.piece_on(m.to).is_none()
-            });
-        format!(
-            "{} {} {} {}",
-            fields[0],
-            fields[1],
-            fields[2],
-            if ep_usable { fields[3] } else { "-" }
-        )
-    }
-
-    fn internal_moves(&self) -> Vec<Move> {
-        let mut moves = Vec::new();
-        self.board.generate_moves(|set| {
-            moves.extend(set);
-            false
-        });
-        moves
+        let key = Fen::from_position(&self.board, EnPassantMode::Legal)
+            .to_string()
+            .split_whitespace()
+            .take(4)
+            .collect::<Vec<_>>()
+            .join(" ");
+        if self.variant == Variant::Chess {
+            key
+        } else {
+            format!("{}|{key}", self.variant.uci())
+        }
     }
 
     pub fn legal_moves(&self) -> Vec<String> {
         if self.facts().terminal_reason.is_some() {
             return vec![];
         }
-        let mut moves: Vec<_> = self
-            .internal_moves()
+        let mut moves: Vec<String> = self
+            .board
+            .legal_moves()
             .into_iter()
-            .map(|m| cozy_chess::util::display_uci_move(&self.board, m).to_string())
+            .map(|m| UciMove::from_move(m, self.mode).to_string())
             .collect();
         moves.sort();
         moves
@@ -195,8 +265,10 @@ impl GameState {
 
     pub fn is_legal(&self, uci: &str) -> bool {
         self.facts().terminal_reason.is_none()
-            && cozy_chess::util::parse_uci_move(&self.board, uci)
-                .is_ok_and(|m| self.board.is_legal(m))
+            && UciMove::from_ascii(uci.as_bytes())
+                .ok()
+                .and_then(|u| u.to_move(&self.board).ok())
+                .is_some()
     }
 
     pub fn play(&mut self, uci: &str) -> Result<()> {
@@ -204,39 +276,16 @@ impl GameState {
             self.facts().terminal_reason.is_none(),
             "game is already terminal"
         );
-        let mv =
-            cozy_chess::util::parse_uci_move(&self.board, uci).context("malformed UCI move")?;
-        ensure!(self.board.is_legal(mv), "illegal move: {uci}");
-        let pawn = self.board.piece_on(mv.from) == Some(Piece::Pawn);
-        let capture = self.board.color_on(mv.to) == Some(!self.board.side_to_move())
-            || (pawn && mv.from.file() != mv.to.file());
-        let rights_before = self
-            .board
-            .to_string()
-            .split_whitespace()
-            .nth(2)
-            .unwrap()
-            .to_owned();
-        let next_half = if pawn || capture {
-            0
-        } else {
-            self.halfmove.checked_add(1).context("halfmove overflow")?
-        };
-        let next_full = self
-            .fullmove
-            .checked_add(u32::from(self.board.side_to_move() == Color::Black))
-            .context("fullmove overflow")?;
-        self.board.try_play(mv).context("illegal move")?;
-        self.halfmove = next_half;
-        self.fullmove = next_full;
-        let rights_after = self
-            .board
-            .to_string()
-            .split_whitespace()
-            .nth(2)
-            .unwrap()
-            .to_owned();
-        if pawn || capture || rights_before != rights_after {
+        let mv = UciMove::from_ascii(uci.as_bytes())
+            .context("malformed UCI move")?
+            .to_move(&self.board)
+            .context("illegal move")?;
+        let zeroing = mv.is_zeroing();
+        let rights_before = castling_field(&self.board);
+        let next = self.board.clone().play(mv).context("illegal move")?;
+        self.board = next;
+        let rights_after = castling_field(&self.board);
+        if zeroing || rights_before != rights_after {
             self.repetitions.clear();
         }
         *self.repetitions.entry(self.position_key()).or_default() += 1;
@@ -245,8 +294,8 @@ impl GameState {
     }
 
     pub fn facts(&self) -> RuleFacts {
-        let in_check = !self.board.checkers().is_empty();
-        let no_moves = self.internal_moves().is_empty();
+        let in_check = self.board.checkers().any();
+        let no_moves = self.board.legal_moves().is_empty();
         let checkmate = no_moves && in_check;
         let stalemate = no_moves && !in_check;
         let count = self
@@ -254,6 +303,7 @@ impl GameState {
             .history_complete
             .then(|| *self.repetitions.get(&self.position_key()).unwrap_or(&0));
         let dead = self.elementary_dead_position().then_some(true);
+        let halfmove = self.board.halfmoves();
         let terminal_reason = if checkmate {
             Some("checkmate")
         } else if stalemate {
@@ -262,10 +312,16 @@ impl GameState {
             Some("proven_dead_position")
         } else if count.is_some_and(|n| n >= 5) {
             Some("fivefold_repetition")
-        } else if self.halfmove >= 150 {
+        } else if halfmove >= 150 {
             Some("seventy_five_move")
         } else {
-            None
+            match self.board.outcome().known() {
+                Some(shakmaty::KnownOutcome::Decisive { winner }) => {
+                    Some(if winner == Color::White { "white_wins" } else { "black_wins" })
+                }
+                Some(shakmaty::KnownOutcome::Draw) => Some("draw"),
+                None => None,
+            }
         }
         .map(str::to_owned);
         let active = terminal_reason.is_none();
@@ -275,21 +331,27 @@ impl GameState {
             stalemate,
             repetition_count: count,
             threefold_claim_now: count.map(|n| active && n >= 3),
-            fifty_move_claim_now: active && self.halfmove >= 100,
+            fifty_move_claim_now: active && halfmove >= 100,
             fivefold_automatic: count.map(|n| !checkmate && n >= 5),
-            seventy_five_move_automatic: !checkmate && self.halfmove >= 150,
+            seventy_five_move_automatic: !checkmate && halfmove >= 150,
             dead_position: dead,
             terminal_reason,
         }
     }
 
     fn elementary_dead_position(&self) -> bool {
+        if self.variant != Variant::Chess {
+            return false;
+        }
         let mut minors = 0;
         for square in Square::ALL {
-            match self.board.piece_on(square) {
-                Some(Piece::Pawn | Piece::Rook | Piece::Queen) => return false,
-                Some(Piece::Bishop | Piece::Knight) => minors += 1,
-                _ => {}
+            match self.board.board().piece_at(square) {
+                Some(p) => match p.role {
+                    Role::Pawn | Role::Rook | Role::Queen => return false,
+                    Role::Bishop | Role::Knight => minors += 1,
+                    Role::King => {}
+                },
+                None => {}
             }
         }
         minors <= 1 // K vs K, K+B vs K, K+N vs K only; no universal dead-position claim.
@@ -298,7 +360,11 @@ impl GameState {
     pub fn compile(&self, options: PacketOptions) -> ContextPacket {
         ContextPacket {
             schema_version: SCHEMA_VERSION,
-            ruleset: "standard-untimed-v1".into(),
+            ruleset: if self.variant == Variant::Chess {
+                "standard-untimed-v1".to_owned()
+            } else {
+                format!("{}-untimed-v1", self.variant.uci())
+            },
             fen: self.fen(),
             history_complete: self.record.history_complete,
             repetition_ledger: self.repetitions.clone(),
@@ -325,28 +391,17 @@ impl GameState {
     pub fn features(&self) -> DerivedFeatures {
         let mut material_counts = BTreeMap::new();
         let mut attacks = BTreeMap::new();
+        let board = self.board.board();
         for color in Color::ALL {
             let mut attacked = std::collections::BTreeSet::new();
-            for square in Square::ALL {
-                if self.board.color_on(square) != Some(color) {
-                    continue;
-                }
-                let piece = self.board.piece_on(square).unwrap();
+            for square in board.by_color(color) {
+                let role = board.role_at(square).expect("piece has a role");
                 *material_counts
-                    .entry(format!("{color:?}_{piece:?}").to_lowercase())
+                    .entry(format!("{color:?}_{role:?}").to_lowercase())
                     .or_default() += 1;
-                let squares = match piece {
-                    Piece::Pawn => cozy_chess::get_pawn_attacks(square, color),
-                    Piece::Knight => cozy_chess::get_knight_moves(square),
-                    Piece::King => cozy_chess::get_king_moves(square),
-                    Piece::Bishop => cozy_chess::get_bishop_moves(square, self.board.occupied()),
-                    Piece::Rook => cozy_chess::get_rook_moves(square, self.board.occupied()),
-                    Piece::Queen => {
-                        cozy_chess::get_bishop_moves(square, self.board.occupied())
-                            | cozy_chess::get_rook_moves(square, self.board.occupied())
-                    }
-                };
-                attacked.extend(squares.into_iter().map(|s| s.to_string()));
+                for target in board.attacks_from(square) {
+                    attacked.insert(target.to_string());
+                }
             }
             attacks.insert(
                 format!("{color:?}").to_lowercase(),
@@ -354,8 +409,7 @@ impl GameState {
             );
         }
         let mut pinned_to_move: Vec<_> = self
-            .board
-            .pinned()
+            .pinned_to_move()
             .into_iter()
             .map(|s| s.to_string())
             .collect();
@@ -365,6 +419,28 @@ impl GameState {
             pinned_to_move,
             attacks,
         }
+    }
+
+    /// Absolute pins of the side to move: a piece whose removal exposes its king
+    /// to an enemy slider. (shakmaty has no direct `pinned()` in 0.30.)
+    fn pinned_to_move(&self) -> Vec<Square> {
+        let board = self.board.board();
+        let us = self.board.turn();
+        let them = us.other();
+        let Some(king) = board.king_of(us) else {
+            return Vec::new();
+        };
+        let occupied = board.occupied();
+        let mut pinned = Vec::new();
+        for square in board.by_color(us) {
+            if square == king {
+                continue;
+            }
+            if board.attacks_to(king, them, occupied.without(square)).any() {
+                pinned.push(square);
+            }
+        }
+        pinned
     }
 }
 

@@ -8,5 +8,5 @@ publish.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-cozy-chess.workspace = true
+shakmaty.workspace = true
 
