@@ -23,6 +23,8 @@ pub enum Theme {
     Brown,
     Blue,
     Green,
+    /// Board colours supplied by the UI as CSS variables.
+    Custom,
 }
 
 fn normalize_variant_name(name: &str) -> String {
@@ -351,6 +353,7 @@ impl Widget {
                     "blue" => Theme::Blue,
                     "brown" => Theme::Brown,
                     "green" => Theme::Green,
+                    "custom" => Theme::Custom,
                     other => return err("bad_theme", format!("unknown theme: {other}")),
                 };
                 vec![]

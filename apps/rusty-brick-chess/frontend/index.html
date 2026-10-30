@@ -66,6 +66,8 @@
     .board.green .sq.dark  { background: #769656; }
     .board.brown .sq.light { background: #f0d9b5; }
     .board.brown .sq.dark  { background: #b58863; }
+    .board.custom .sq.light { background: var(--board-light, #eeeed2); }
+    .board.custom .sq.dark  { background: var(--board-dark, #769656); }
     .board.blue  .sq.light { background: #e8eef7; }
     .board.blue  .sq.dark  { background: #6387ae; }
 
@@ -297,7 +299,14 @@
     .ws-tab.active .ws-name { color: #eaf5ec; }
     .ws-close { background: none; border: none; border-left: 1px solid #31313c; color: #7f7f8c; cursor: pointer; padding: 0 .45rem; font-size: .85rem; }
     .ws-close:hover { background: #3a2a2a; color: #ffb3b3; }
-    .ws-new { background: none; border: 1px dashed #454552; color: #9a9aa8; border-radius: 7px; padding: .3rem .6rem; font-size: .76rem; cursor: pointer; flex: 0 0 auto; }
+    .ws-new { background: #1c1c22; border: 1px dashed #454552; color: #b9b9c4; border-radius: 7px; padding: .3rem .5rem; font-size: .76rem; cursor: pointer; flex: 0 0 auto; }
+    .ws-kind { font-size: .58rem; letter-spacing: .06em; color: #9fd39f; background: #24312a; border-right: 1px solid #31313c; padding: .35rem .35rem; }
+    .ws-kind.kind-database { color: #9fc5e8; background: #1d2733; }
+    .ws-kind.kind-openings { color: #e8d29f; background: #2f2a1d; }
+    .ws-kind.kind-puzzles { color: #e8a0c5; background: #2f1d27; }
+    .ws-icon { background: none; border: none; border-left: 1px solid #31313c; color: #7f7f8c; cursor: pointer; padding: 0 .3rem; font-size: .78rem; }
+    .ws-icon:hover { color: #e9e9ee; background: #2a2a33; }
+    .ws-rename { background: #101014; color: #e9e9ee; border: 1px solid #3f5f45; border-radius: 0; padding: .25rem .4rem; font-size: .76rem; width: 9rem; }
     .ws-new:hover { color: #e9e9ee; border-color: #6f6f7a; }
 
     .home { display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; min-height: 0; padding-right: .2rem; }

@@ -25,9 +25,15 @@ enum Tab {
     Settings,
 }
 
+fn default_workspace_kind() -> String {
+    "analysis".into()
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Workspace {
     key: u32,
+    #[serde(default = "default_workspace_kind")]
+    kind: String,
     game_id: Option<i64>,
     title: String,
     pgn: String,
@@ -375,6 +381,9 @@ pub fn App() -> impl IntoView {
     let workspaces = RwSignal::new(Vec::<Workspace>::new());
     let active_ws = RwSignal::new(0u32);
     let ws_seq = RwSignal::new(1u32);
+    let renaming_ws = RwSignal::new(None::<u32>);
+    let rename_text = RwSignal::new(String::new());
+    let new_tab_kind = RwSignal::new(String::new());
     let session_restored = RwSignal::new(false);
     let profile_name = RwSignal::new("Player".to_string());
     let profile_player = RwSignal::new(String::new());
@@ -404,6 +413,9 @@ pub fn App() -> impl IntoView {
     let goto_seq = RwSignal::new(0u32);
     let settings_theme = RwSignal::new("green".to_string());
     let settings_pieces = RwSignal::new("cburnett".to_string());
+    let settings_light = RwSignal::new("#eeeed2".to_string());
+    let settings_dark = RwSignal::new("#769656".to_string());
+    let settings_coords = RwSignal::new(true);
     let settings_threads = RwSignal::new(0u32);
     let settings_hash = RwSignal::new(0u32);
     let settings_syzygy = RwSignal::new(String::new());
@@ -783,6 +795,9 @@ pub fn App() -> impl IntoView {
                 settings_depth.set(s.depth);
                 settings_theme.set(s.theme);
                 settings_pieces.set(s.pieces);
+                settings_light.set(s.board_light);
+                settings_dark.set(s.board_dark);
+                settings_coords.set(s.show_coords);
                 settings_threads.set(s.threads);
                 settings_hash.set(s.hash_mb);
                 settings_syzygy.set(s.syzygy_path.unwrap_or_default());
@@ -878,8 +893,10 @@ pub fn App() -> impl IntoView {
         let pgn = selected_pgn.get_untracked();
         workspaces.update(|list| {
             if let Some(ws) = list.iter_mut().find(|w| w.key == key) {
-                ws.ply = ply;
-                ws.pgn = pgn;
+                if ws.kind == "analysis" {
+                    ws.ply = ply;
+                    ws.pgn = pgn;
+                }
             }
         });
     };
@@ -901,6 +918,7 @@ pub fn App() -> impl IntoView {
                 workspaces.update(|list| {
                     list.push(Workspace {
                         key,
+                        kind: "analysis".into(),
                         game_id,
                         title: title.clone(),
                         pgn: pgn.clone(),
@@ -936,6 +954,15 @@ pub fn App() -> impl IntoView {
             return;
         };
         active_ws.set(key);
+        if ws.kind != "analysis" {
+            tab.set(match ws.kind.as_str() {
+                "database" => Tab::Database,
+                "openings" => Tab::Openings,
+                "puzzles" => Tab::Puzzles,
+                _ => Tab::Analysis,
+            });
+            return;
+        }
         selected_pgn.set(ws.pgn.clone());
         selected_title.set(ws.title.clone());
         selected_game_id.set(ws.game_id);
@@ -1014,6 +1041,7 @@ pub fn App() -> impl IntoView {
         workspaces.update(|list| {
             list.push(Workspace {
                 key,
+                kind: "analysis".into(),
                 game_id: None,
                 title: "New analysis".into(),
                 pgn: start.clone(),
@@ -1046,12 +1074,119 @@ pub fn App() -> impl IntoView {
         tab.set(Tab::Analysis);
     };
 
+    let open_page_tab = move |kind: &str| {
+        save_workspace();
+        let existing = workspaces.with_untracked(|list| {
+            list.iter().find(|w| w.kind == kind).map(|w| w.key)
+        });
+        let key = match existing {
+            Some(key) => key,
+            None => {
+                let key = ws_seq.get_untracked();
+                ws_seq.set(key + 1);
+                let title = match kind {
+                    "database" => "Database",
+                    "openings" => "Openings",
+                    "puzzles" => "Puzzles",
+                    _ => "Analysis",
+                };
+                workspaces.update(|list| {
+                    list.push(Workspace {
+                        key,
+                        kind: kind.to_owned(),
+                        game_id: None,
+                        title: title.into(),
+                        pgn: String::new(),
+                        ply: 0,
+                        variant: "standard".into(),
+                        preview_only: false,
+                        moves: Vec::new(),
+                    })
+                });
+                key
+            }
+        };
+        active_ws.set(key);
+        tab.set(match kind {
+            "database" => Tab::Database,
+            "openings" => Tab::Openings,
+            "puzzles" => Tab::Puzzles,
+            _ => Tab::Analysis,
+        });
+    };
+
+    let move_workspace = move |key: u32, delta: i32| {
+        workspaces.update(|list| {
+            let Some(index) = list.iter().position(|w| w.key == key) else {
+                return;
+            };
+            let target = index as i32 + delta;
+            if target >= 0 && (target as usize) < list.len() {
+                list.swap(index, target as usize);
+            }
+        });
+    };
+
+    let commit_rename = move || {
+        let Some(key) = renaming_ws.get_untracked() else {
+            return;
+        };
+        let text = rename_text.get_untracked().trim().to_owned();
+        if !text.is_empty() {
+            workspaces.update(|list| {
+                if let Some(ws) = list.iter_mut().find(|w| w.key == key) {
+                    ws.title = text.clone();
+                }
+            });
+            if active_ws.get_untracked() == key
+                && workspaces
+                    .with_untracked(|list| list.iter().find(|w| w.key == key).map(|w| w.kind.clone()))
+                    .as_deref()
+                    == Some("analysis")
+            {
+                selected_title.set(text);
+            }
+        }
+        renaming_ws.set(None);
+    };
+
     let switch_tab = move |next: Tab| {
         if tab.get_untracked() == Tab::Analysis && next != Tab::Analysis {
             save_workspace();
         }
-        if next == Tab::Analysis && tree_ply.get_untracked() > 0 {
-            goto_sig.set(Some((goto_seq.get_untracked() + 1, tree_ply.get_untracked())));
+        let kind = match next {
+            Tab::Database => "database",
+            Tab::Openings => "openings",
+            Tab::Puzzles => "puzzles",
+            Tab::Analysis => "",
+            _ => "",
+        };
+        if !kind.is_empty() {
+            if let Some(key) = workspaces.with_untracked(|list| {
+                list.iter().find(|w| w.kind == kind).map(|w| w.key)
+            }) {
+                active_ws.set(key);
+            }
+            tab.set(next);
+            return;
+        }
+        if next == Tab::Analysis {
+            let active_kind = workspaces.with_untracked(|list| {
+                list.iter()
+                    .find(|w| w.key == active_ws.get_untracked())
+                    .map(|w| w.kind.clone())
+            });
+            if active_kind.as_deref() != Some("analysis") {
+                if let Some(key) = workspaces.with_untracked(|list| {
+                    list.iter().rev().find(|w| w.kind == "analysis").map(|w| w.key)
+                }) {
+                    activate_workspace(key);
+                    return;
+                }
+            }
+            if tree_ply.get_untracked() > 0 {
+                goto_sig.set(Some((goto_seq.get_untracked() + 1, tree_ply.get_untracked())));
+            }
         }
         tab.set(next);
     };
@@ -1109,11 +1244,30 @@ pub fn App() -> impl IntoView {
             .find(|w| w.key == session.active)
             .map(|w| w.key)
             .unwrap_or_else(|| session.workspaces[0].key);
-        let resume_analysis = tab_from_name(&session.tab) == Some(Tab::Analysis);
-        if resume_analysis {
+        let restored_tab = tab_from_name(&session.tab);
+        if restored_tab == Some(Tab::Analysis) {
             activate_workspace(active);
         } else {
-            active_ws.set(active);
+            let page_kind = match restored_tab {
+                Some(Tab::Database) => Some("database"),
+                Some(Tab::Openings) => Some("openings"),
+                Some(Tab::Puzzles) => Some("puzzles"),
+                _ => None,
+            };
+            if let Some(kind) = page_kind {
+                if let Some(key) = session
+                    .workspaces
+                    .iter()
+                    .find(|w| w.kind == kind)
+                    .map(|w| w.key)
+                {
+                    active_ws.set(key);
+                } else {
+                    active_ws.set(active);
+                }
+            } else {
+                active_ws.set(active);
+            }
             if let Some(ws) = session.workspaces.iter().find(|w| w.key == active) {
                 selected_pgn.set(ws.pgn.clone());
                 selected_title.set(ws.title.clone());
@@ -1905,6 +2059,9 @@ pub fn App() -> impl IntoView {
             depth: settings_depth.get_untracked(),
             theme: settings_theme.get_untracked(),
             pieces: settings_pieces.get_untracked(),
+            board_light: settings_light.get_untracked(),
+            board_dark: settings_dark.get_untracked(),
+            show_coords: settings_coords.get_untracked(),
             threads: settings_threads.get_untracked(),
             hash_mb: settings_hash.get_untracked(),
             syzygy_path: {
@@ -2359,6 +2516,7 @@ pub fn App() -> impl IntoView {
                                 <option value="green">"Green"</option>
                                 <option value="brown">"Brown"</option>
                                 <option value="blue">"Blue"</option>
+                                <option value="custom">"Custom"</option>
                             </select>
                         </label>
                         <label>
@@ -2372,6 +2530,36 @@ pub fn App() -> impl IntoView {
                                     .map(|s| view! { <option value=s.slug()>{s.label()}</option> })
                                     .collect_view()}
                             </select>
+                        </label>
+                        <label>
+                            "Light squares"
+                            <input
+                                type="color"
+                                prop:value=move || settings_light.get()
+                                on:input=move |ev| {
+                                    settings_light.set(event_target_value(&ev));
+                                    settings_theme.set("custom".into());
+                                }
+                            />
+                        </label>
+                        <label>
+                            "Dark squares"
+                            <input
+                                type="color"
+                                prop:value=move || settings_dark.get()
+                                on:input=move |ev| {
+                                    settings_dark.set(event_target_value(&ev));
+                                    settings_theme.set("custom".into());
+                                }
+                            />
+                        </label>
+                        <label class="checkline">
+                            <input
+                                type="checkbox"
+                                prop:checked=move || settings_coords.get()
+                                on:change=move |ev| settings_coords.set(event_target_checked(&ev))
+                            />
+                            "Coordinates"
                         </label>
                     </div>
                     <div class="settings-row">
@@ -3871,6 +4059,9 @@ pub fn App() -> impl IntoView {
                         })
                         theme=Signal::derive(move || settings_theme.get())
                         pieces=Signal::derive(move || settings_pieces.get())
+                                        light_color=Signal::derive(move || settings_light.get())
+                                        dark_color=Signal::derive(move || settings_dark.get())
+                                        coords=Signal::derive(move || settings_coords.get())
                         on_theme=Callback::new(move |v: String| {
                             settings_theme.set(v);
                             persist_settings();
@@ -5066,6 +5257,9 @@ pub fn App() -> impl IntoView {
                                         keybinds=Signal::derive(move || keybinds.get())
                                         theme=Signal::derive(move || settings_theme.get())
                                         pieces=Signal::derive(move || settings_pieces.get())
+                                        light_color=Signal::derive(move || settings_light.get())
+                                        dark_color=Signal::derive(move || settings_dark.get())
+                                        coords=Signal::derive(move || settings_coords.get())
                                     />
                                 }
                                     .into_any()
@@ -5084,6 +5278,9 @@ pub fn App() -> impl IntoView {
                                         keybinds=Signal::derive(move || keybinds.get())
                                         theme=Signal::derive(move || settings_theme.get())
                                         pieces=Signal::derive(move || settings_pieces.get())
+                                        light_color=Signal::derive(move || settings_light.get())
+                                        dark_color=Signal::derive(move || settings_dark.get())
+                                        coords=Signal::derive(move || settings_coords.get())
                                     />
                                 }
                                     .into_any()
@@ -5099,6 +5296,9 @@ pub fn App() -> impl IntoView {
                                         keybinds=Signal::derive(move || keybinds.get())
                                         theme=Signal::derive(move || settings_theme.get())
                                         pieces=Signal::derive(move || settings_pieces.get())
+                                        light_color=Signal::derive(move || settings_light.get())
+                                        dark_color=Signal::derive(move || settings_dark.get())
+                                        coords=Signal::derive(move || settings_coords.get())
                                     />
                                 }
                                     .into_any()
@@ -5444,6 +5644,9 @@ pub fn App() -> impl IntoView {
                                             on_move=Callback::new(on_rep_move)
                                             theme=Signal::derive(move || settings_theme.get())
                                             pieces=Signal::derive(move || settings_pieces.get())
+                                        light_color=Signal::derive(move || settings_light.get())
+                                        dark_color=Signal::derive(move || settings_dark.get())
+                                        coords=Signal::derive(move || settings_coords.get())
                                         />
                                     </div>
                                     <aside class="engine-pane">
@@ -5733,6 +5936,9 @@ pub fn App() -> impl IntoView {
                         orientation=Signal::derive(move || puzzle_orientation.get())
                         theme=Signal::derive(move || settings_theme.get())
                         pieces=Signal::derive(move || settings_pieces.get())
+                                        light_color=Signal::derive(move || settings_light.get())
+                                        dark_color=Signal::derive(move || settings_dark.get())
+                                        coords=Signal::derive(move || settings_coords.get())
                     />
                 </div>
                 <aside class="engine-pane">
@@ -5905,40 +6111,115 @@ pub fn App() -> impl IntoView {
                 </header>
                 <div class="workspaces">
                     <span class="ws-label">"Workspaces"</span>
-                    {move || {
-                        let current = active_ws.get();
-                        workspaces
-                            .get()
-                            .into_iter()
-                            .map(|ws| {
-                                let key = ws.key;
-                                let title = ws.title.clone();
-                                view! {
-                                    <div class=move || {
-                                        if current == key { "ws-tab active" } else { "ws-tab" }
-                                    }>
-                                        <button
-                                            class="ws-name"
-                                            title=title.clone()
-                                            on:click=move |_| activate_workspace(key)
-                                        >
-                                            {title.clone()}
-                                        </button>
-                                        <button
-                                            class="ws-close"
-                                            title="Close workspace"
-                                            on:click=move |_| close_workspace(key)
-                                        >
-                                            "×"
-                                        </button>
-                                    </div>
-                                }
-                            })
-                            .collect_view()
-                    }}
-                    <button class="ws-new" on:click=move |_| new_workspace()>
-                        "+ New analysis"
-                    </button>
+                    <For
+                        each=move || workspaces.get()
+                        key=|ws| (ws.key, ws.title.clone())
+                        children=move |ws: Workspace| {
+                            let key = ws.key;
+                            let title = ws.title.clone();
+                            let kind = ws.kind.clone();
+                            let kind_label = match kind.as_str() {
+                                "database" => "DB",
+                                "openings" => "OP",
+                                "puzzles" => "PZ",
+                                _ => "AN",
+                            };
+                            let title_shared = StoredValue::new(title.clone());
+                            view! {
+                                <div class=move || {
+                                    if active_ws.get() == key { "ws-tab active" } else { "ws-tab" }
+                                }>
+                                    <span class=format!("ws-kind kind-{kind}")>{kind_label}</span>
+                                    {move || {
+                                        let title_click = title_shared;
+                                        let title_text = title_shared;
+                                        let title_dbl = title_shared;
+                                        if renaming_ws.get() == Some(key) {
+                                            view! {
+                                                <input
+                                                    class="ws-rename"
+                                                    prop:value=move || rename_text.get()
+                                                    on:input=move |ev| rename_text.set(event_target_value(&ev))
+                                                    on:change=move |_| commit_rename()
+                                                    on:keydown=move |ev| {
+                                                        if ev.key() == "Enter" {
+                                                            commit_rename();
+                                                        }
+                                                    }
+                                                />
+                                            }
+                                                .into_any()
+                                        } else {
+                                            view! {
+                                                <button
+                                                    class="ws-name"
+                                                    title=title_click.get_value()
+                                                    on:click=move |_| activate_workspace(key)
+                                                    on:dblclick=move |_| {
+                                                        rename_text.set(title_dbl.get_value());
+                                                        renaming_ws.set(Some(key));
+                                                    }
+                                                >
+                                                    {title_text.get_value()}
+                                                </button>
+                                            }
+                                                .into_any()
+                                        }
+                                    }}
+                                    <button
+                                        class="ws-icon"
+                                        title="Rename"
+                                        on:click=move |_| {
+                                            rename_text.set(title_shared.get_value());
+                                            renaming_ws.set(Some(key));
+                                        }
+                                    >
+                                        "✎"
+                                    </button>
+                                    <button
+                                        class="ws-icon"
+                                        title="Move left"
+                                        on:click=move |_| move_workspace(key, -1)
+                                    >
+                                        "‹"
+                                    </button>
+                                    <button
+                                        class="ws-icon"
+                                        title="Move right"
+                                        on:click=move |_| move_workspace(key, 1)
+                                    >
+                                        "›"
+                                    </button>
+                                    <button
+                                        class="ws-close"
+                                        title="Close workspace"
+                                        on:click=move |_| close_workspace(key)
+                                    >
+                                        "×"
+                                    </button>
+                                </div>
+                            }
+                        }
+                    />
+                    <select
+                        class="ws-new"
+                        prop:value=move || new_tab_kind.get()
+                        on:change=move |ev| {
+                            let kind = event_target_value(&ev);
+                            new_tab_kind.set(String::new());
+                            match kind.as_str() {
+                                "analysis" => new_workspace(),
+                                "database" | "openings" | "puzzles" => open_page_tab(&kind),
+                                _ => {}
+                            }
+                        }
+                    >
+                        <option value="">"+ New tab"</option>
+                        <option value="analysis">"Analysis"</option>
+                        <option value="database">"Database"</option>
+                        <option value="openings">"Openings"</option>
+                        <option value="puzzles">"Puzzles"</option>
+                    </select>
                 </div>
                 {move || match tab.get() {
                     Tab::Home => home_view().into_any(),

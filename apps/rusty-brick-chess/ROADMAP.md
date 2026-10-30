@@ -20,11 +20,12 @@ sidebar surfaces.
 | Puzzles | **Done** | Lichess CSV, themes, rating, play-out |
 | Repertoires | **Done** | import, training, SM-2 |
 | Practice | **Partial** | guess-the-move, sparring from FEN; no strength presets or eval-scored guesses |
-| Workspaces | **Partial** | analysis tabs persist across reloads; **tabs are analysis-only**, no Database/Openings tabs, no rename/reorder |
+| Workspaces | **Done** | Analysis/Database/Openings/Puzzles tabs, rename, reorder, session restore |
+| Board customization | **Done** | custom square colours, coordinates toggle, 8 piece sets; piece-set upload remains |
 | Files | **Done** | file picker + drag-and-drop import, recent files, Save PGN, desktop "Open PGN…" |
 | Accounts | **Done** | Lichess (optional token) and Chess.com links, profile/rating, game import |
 | Settings | **Done** | engines list, depth, threads/hash, syzygy, theme/pieces, sounds, keybinds, animation, profile, vision |
-| Board themes | **Partial** | 8 piece sets, 3 board colours; no custom colours or piece upload |
+
 | Desktop shell | **Partial** | Tauri window + native menus + installer; **only built/tested on Linux**, no CI bundles, no auto-update |
 | i18n / accessibility | **Missing** | English strings inline, keyboard-only paths untested |
 
@@ -57,17 +58,13 @@ packaging.
 - *Done when:* a user can link Lichess, pull their games, and see their record
   without exporting a PGN.
 
-### 4. Workspaces 2.0 / multi-window — M
-- tab kinds: Database, Analysis, Openings, Puzzles (not just Analysis);
-- rename/reorder tabs, per-tab scroll/selection, restore after crash;
-- optional second window in the desktop shell;
-- *Done when:* a Database tab and two Analysis tabs can be open at once with
-  independent state.
+### 4. Workspaces 2.0 / multi-window — **done** (second window remains)
+- tab kinds, rename/reorder, session restore;
+- *remaining:* an optional second window in the desktop shell.
 
-### 5. Board customization — S
-- custom board colours (light/dark, coordinates on/off);
-- piece-set upload (SVG set) and persisted selection per database;
-- *Done when:* a user can pick custom colours and restart with them applied.
+### 5. Board customization — **done** except piece-set upload
+- custom light/dark colours, coordinates toggle, persisted;
+- *remaining:* uploading a custom SVG piece set.
 
 ### 6. Packaging & release — M
 - GitHub Actions matrix for `.deb`/`.AppImage`/`.dmg`/`.msi`;

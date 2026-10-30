@@ -309,6 +309,11 @@ pub fn Board(
     #[prop(optional, into)] theme: Option<Signal<String>>,
     #[prop(optional, into)] pieces: Option<Signal<String>>,
     #[prop(optional, into)] orientation: Option<Signal<String>>,
+    /// Custom square colours (CSS colours) used when the theme is `custom`.
+    #[prop(optional)] light_color: Option<Signal<String>>,
+    #[prop(optional)] dark_color: Option<Signal<String>>,
+    /// Show rank/file coordinates in the corners.
+    #[prop(optional)] coords: Option<Signal<bool>>,
     #[prop(optional)] on_theme: Option<Callback<String>>,
     #[prop(optional)] on_pieces: Option<Callback<String>>,
 ) -> impl IntoView {
@@ -1010,14 +1015,15 @@ pub fn Board(
                 if dragging == Some(idx) {
                     class.push_str(" dragging-src");
                 }
+                let show_coords = coords.map(|value| value.get()).unwrap_or(true);
                 // coordinates: rank on the left edge, file on the bottom edge
-                let rank_label = if display % 8 == 0 {
+                let rank_label = if show_coords && display % 8 == 0 {
                     let rank = 8 - display / 8;
                     format!("<span class=\"coord rank\">{rank}</span>")
                 } else {
                     String::new()
                 };
-                let file_label = if display / 8 == 7 {
+                let file_label = if show_coords && display / 8 == 7 {
                     let file = (b'a' + (display % 8) as u8) as char;
                     format!("<span class=\"coord file\">{file}</span>")
                 } else {
@@ -1293,12 +1299,22 @@ pub fn Board(
                                 brick_chess::Theme::Green => "green",
                                 brick_chess::Theme::Brown => "brown",
                                 brick_chess::Theme::Blue => "blue",
+                                brick_chess::Theme::Custom => "custom",
                             };
                             let animated = animate_last.map(|s| s.get()).unwrap_or(false);
                             format!(
                                 "board {t}{}",
                                 if animated { " animate-last" } else { "" }
                             )
+                        }
+                        style=move || {
+                            let light = light_color
+                                .map(|value| value.get())
+                                .unwrap_or_else(|| "#eeeed2".into());
+                            let dark = dark_color
+                                .map(|value| value.get())
+                                .unwrap_or_else(|| "#769656".into());
+                            format!("--board-light: {light}; --board-dark: {dark};")
                         }
                         node_ref=board_ref
                         on:pointerdown=on_board_down
@@ -1356,6 +1372,7 @@ pub fn Board(
                                 brick_chess::Theme::Green => "green",
                                 brick_chess::Theme::Brown => "brown",
                                 brick_chess::Theme::Blue => "blue",
+                                brick_chess::Theme::Custom => "custom",
                             }
                             on:change=set_theme
                         >

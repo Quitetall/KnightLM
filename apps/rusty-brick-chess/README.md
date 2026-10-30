@@ -191,10 +191,11 @@ The report returns, per move, both a **Lichess-style** label and a
   circle; Shift/Alt/Ctrl pick red/blue/yellow), stored and reloaded with the
   game; the editor follows the tree
 - **Game tags**: edit Event/Site/Date/Round/players/result/Elo/TimeControl
-- **Workspaces**: every analysed game opens as a tab in the workspace strip;
-  switching tabs restores that game's board, ply and annotations, and the
-  session is restored after a reload. "+ New analysis" starts an empty board;
-  closing a tab falls back to its neighbour.
+- **Workspaces**: tabs of any kind — Analysis (one per game, with its board,
+  ply and annotations), Database, Openings and Puzzles. New tabs come from the
+  strip's menu, tabs can be renamed (✎ or double-click), reordered (‹ ›),
+  closed, and the whole session (kinds, names, order, active tab) is restored
+  after a reload.
 - **Board feel**: a piece follows the cursor at its own size while dragging,
   with pointer samples coalesced into one compositor transform per animation
   frame (no per-event layout or shadow work),
@@ -283,8 +284,12 @@ The report returns, per move, both a **Lichess-style** label and a
   `clear_shapes` and `play_move`; server-side tools run in the app, board tools
   come back as actions that draw real arrows/circles or play the move. Plain
   `{"reply": …}` model servers still work.
+- **Board customization**: pick custom light/dark square colours (saved with
+  the theme as "Custom"), turn coordinates on or off, and choose from the eight
+  piece sets; the size slider adjusts the board per session.
 - **Settings**: engine binary, model URL, analysis depth, board theme, piece
-  set, engine Threads/Hash, Syzygy path and a **multi-engine list**
+  set, board colours, coordinates, engine Threads/Hash, Syzygy path and a
+  **multi-engine list**
   (add/remove/select), sound options, move-animation speed, keybinds, the
   optional vision model and custom sound upload, all persisted in SQLite
 

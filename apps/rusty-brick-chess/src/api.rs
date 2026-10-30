@@ -409,6 +409,9 @@ pub struct SettingsResponse {
     pub depth: u32,
     pub theme: String,
     pub pieces: String,
+    pub board_light: String,
+    pub board_dark: String,
+    pub show_coords: bool,
     pub threads: u32,
     pub hash_mb: u32,
     pub syzygy_path: Option<String>,
@@ -437,6 +440,9 @@ fn effective(state: &AppState) -> SettingsResponse {
             .unwrap_or(state.default_depth),
         theme: get("theme").unwrap_or_else(|| "green".into()),
         pieces: get("pieces").unwrap_or_else(|| "cburnett".into()),
+        board_light: get("board_light").unwrap_or_else(|| "#eeeed2".into()),
+        board_dark: get("board_dark").unwrap_or_else(|| "#769656".into()),
+        show_coords: get("show_coords").as_deref() != Some("false"),
         threads: get("threads").and_then(|v| v.parse().ok()).unwrap_or(0),
         hash_mb: get("hash_mb").and_then(|v| v.parse().ok()).unwrap_or(0),
         syzygy_path: get("syzygy_path"),
@@ -579,6 +585,12 @@ pub struct SettingsInput {
     #[serde(default)]
     pub pieces: Option<String>,
     #[serde(default)]
+    pub board_light: Option<String>,
+    #[serde(default)]
+    pub board_dark: Option<String>,
+    #[serde(default)]
+    pub show_coords: Option<bool>,
+    #[serde(default)]
     pub threads: Option<u32>,
     #[serde(default)]
     pub hash_mb: Option<u32>,
@@ -626,6 +638,17 @@ pub async fn put_settings(
     }
     if let Some(v) = body.pieces {
         state.db.set_setting("pieces", v.trim())?;
+    }
+    if let Some(v) = body.board_light {
+        state.db.set_setting("board_light", v.trim())?;
+    }
+    if let Some(v) = body.board_dark {
+        state.db.set_setting("board_dark", v.trim())?;
+    }
+    if let Some(v) = body.show_coords {
+        state
+            .db
+            .set_setting("show_coords", if v { "true" } else { "false" })?;
     }
     if let Some(v) = body.threads {
         state.db.set_setting("threads", &v.to_string())?;

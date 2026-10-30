@@ -16,6 +16,7 @@ fn palette(theme: Theme) -> [&'static str; 2] {
         Theme::Brown => ["#f0d9b5", "#b58863"],
         Theme::Blue => ["#e8eef7", "#6387ae"],
         Theme::Green => ["#eeeed2", "#769656"],
+        Theme::Custom => ["#eeeed2", "#769656"],
     }
 }
 
