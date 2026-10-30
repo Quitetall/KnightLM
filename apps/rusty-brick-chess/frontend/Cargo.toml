@@ -21,7 +21,8 @@ crate-type = ["cdylib", "rlib"]
 leptos = { version = "0.8", features = ["csr"] }
 console_error_panic_hook = "0.1"
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["PointerEvent", "MouseEvent", "Window", "Navigator", "Clipboard", "Element", "HtmlElement", "HtmlDivElement", "DomRect", "CssStyleDeclaration", "EventTarget", "Document", "HtmlAudioElement", "HtmlMediaElement", "File", "FileList", "FileReader", "HtmlInputElement", "Blob"] }
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["PointerEvent", "MouseEvent", "Window", "Navigator", "Clipboard", "Element", "HtmlElement", "HtmlDivElement", "DomRect", "CssStyleDeclaration", "EventTarget", "Document", "HtmlAudioElement", "HtmlMediaElement", "File", "FileList", "FileReader", "HtmlInputElement", "Blob", "Storage", "CustomEvent", "Event"] }
 gloo-net = "0.6"
 gloo-timers = { version = "0.3", features = ["futures"] }
 serde = { version = "1", features = ["derive"] }

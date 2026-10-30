@@ -31,13 +31,37 @@ cargo run --release
 
 Then open <http://127.0.0.1:8090/>.
 
+## Install (desktop launcher)
+
+```bash
+./install.sh
+```
+
+The wizard builds the release binary, installs `rustybrickchess` under
+`~/.local/bin`, copies the icon and writes a **RustyBrickChess** entry to your
+application menu. Clicking it (or running `rustybrickchess --open`) starts the
+server if needed and opens the app in your default browser; a second click
+reuses the running instance.
+
+```bash
+./install.sh --yes                 # accept defaults, no prompts
+./install.sh --prefix /usr/local   # install elsewhere
+./install.sh --port 8095           # different default port
+./install.sh --no-desktop          # binary only
+./install.sh --uninstall           # remove launcher, keep your games
+./install.sh --uninstall --purge   # remove launcher and data
+```
+
+By default the database lives in `$XDG_DATA_HOME/rustybrickchess`
+(`~/.local/share/rustybrickchess`), so the launcher works from any directory.
+
 Environment:
 
 | var | meaning |
 |---|---|
 | `STOCKFISH_PATH` | UCI engine binary; no auto-download |
 | `MODEL_URL` | AI chat endpoint (the fine-tuned model server) |
-| `RBC_DB` | SQLite path (default `rusty-brick-chess.db`) |
+| `RBC_DB` | SQLite path (default `$XDG_DATA_HOME/rustybrickchess/rusty-brick-chess.db`) |
 | `RBC_ADDR` | bind address (default `127.0.0.1:8090`) |
 | `RBC_DEPTH` | default analysis depth (15) |
 | `RBC_DATA` | data directory for the vision model and uploaded sounds (default `db_dir/data`) |
@@ -156,7 +180,13 @@ The report returns, per move, both a **Lichess-style** label and a
   circle; Shift/Alt/Ctrl pick red/blue/yellow), stored and reloaded with the
   game; the editor follows the tree
 - **Game tags**: edit Event/Site/Date/Round/players/result/Elo/TimeControl
+- **Workspaces**: every analysed game opens as a tab in the workspace strip;
+  switching tabs restores that game's board, ply and annotations, and the
+  session is restored after a reload. "+ New analysis" starts an empty board;
+  closing a tab falls back to its neighbour.
 - **Board feel**: a piece follows the cursor at its own size while dragging,
+  with pointer samples coalesced into one compositor transform per animation
+  frame (no per-event layout or shadow work),
   its source square is hidden, and legal targets stay highlighted for both
   drag and click-to-move; illegal drops snap back. Movement is **instant by
   default**; **Settings → Move animation** sets a slide time (0–400 ms) used
@@ -222,6 +252,38 @@ cd frontend && ./deploy.sh
 ```
 
 The server serves `frontend/public` at `/`.
+
+## Desktop (Tauri)
+
+`src-tauri/` is a thin native shell around the same server and frontend:
+
+- starts the axum server in-process on `RBC_PORT` (default `8090`), waits for
+  `/api/health`, then opens a native window at that URL — the browser build and
+  the desktop build run identical code;
+- native menu: **File → Open PGN…** imports a PGN through the file picker,
+  **File → Open database…** copies a `.db`/`.sqlite` file into the database
+  directory and switches to it, **View → Reload** reloads the page;
+- imported files refresh the UI through a `rbc-imported` DOM event, so the
+  desktop shell needs no separate frontend bundle;
+- shares `RBC_DB`, `RBC_DATA`, `STOCKFISH_PATH`, `MODEL_URL`, `RBC_DEPTH` and
+  `RBC_PORT` with the server binary.
+
+```bash
+# needs webkit2gtk-4.1 + gtk3 development packages
+cd src-tauri
+cargo run              # dev window
+cargo install tauri-cli --version "^2"
+cargo tauri build      # .AppImage/.deb/.rpm, .dmg, .msi
+```
+
+Icons live in `src-tauri/icons/icon.png`; add the platform-specific sizes
+before shipping installers.
+
+## Session persistence
+
+Open analysis boards (workspaces) survive a reload or app restart: tabs,
+their game, side to move, history ply and the active sidebar tab are stored in
+`localStorage` under `rbc.session.v1` and restored on startup.
 
 ## Backend status & En Croissant
 

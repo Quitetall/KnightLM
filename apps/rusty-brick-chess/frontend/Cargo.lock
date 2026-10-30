@@ -1260,6 +1260,7 @@ dependencies = [
  "console_error_panic_hook",
  "gloo-net",
  "gloo-timers",
+ "js-sys",
  "leptos",
  "serde",
  "serde_json",

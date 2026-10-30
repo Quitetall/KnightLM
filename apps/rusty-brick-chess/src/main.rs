@@ -1,106 +1,92 @@
-//! RustyBrickChess — the full app server.
+//! RustyBrickChess — browser/server binary.
 //!
-//! Leptos/BrickChess frontend (static WASM) + an En-Croissant-shaped backend
-//! (games database, engine analysis, classification) + AI chat.
+//! Runs the local server. `rustybrickchess --open` also opens the app in the
+//! default browser (and reuses an instance that is already running), which is
+//! what the desktop launcher uses.
 
-mod api;
-mod vision;
+const HELP: &str = "\
+RustyBrickChess — chess database, analysis and training.
 
-use axum::{
-    Router,
-    routing::{get, post},
-};
-use tower_http::services::{ServeDir, ServeFile};
-use tower_http::trace::TraceLayer;
+Usage:
+  rustybrickchess            serve on RBC_ADDR (default 127.0.0.1:8090)
+  rustybrickchess --open     serve, then open the app in the default browser
+  rustybrickchess --version  print the version
+  rustybrickchess --help     show this message
 
-const STATIC_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/frontend/public");
+Environment:
+  RBC_DB        SQLite database path (default: $XDG_DATA_HOME/rustybrickchess)
+  RBC_DATA      data directory for models and sounds
+  RBC_ADDR      bind address (default 127.0.0.1:8090)
+  RBC_DEPTH     default analysis depth (default 15)
+  STOCKFISH_PATH path to a UCI engine
+  MODEL_URL     AI chat endpoint
+";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let db_path = std::env::var("RBC_DB").unwrap_or_else(|_| "rusty-brick-chess.db".into());
-    let db = rbc_db::Db::open(&db_path)?;
-    let db_dir = std::path::Path::new(&db_path)
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-
-    let data_dir = std::env::var("RBC_DATA")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| db_dir.join("data"));
-    std::fs::create_dir_all(&data_dir)?;
-    let state = api::AppState {
-        db,
-        db_dir,
-        data_dir,
-        engine_path: std::env::var("STOCKFISH_PATH").ok(),
-        model_url: std::env::var("MODEL_URL").ok(),
-        default_depth: std::env::var("RBC_DEPTH")
-            .ok()
-            .and_then(|d| d.parse().ok())
-            .unwrap_or(15),
-    };
-
-    let index = format!("{STATIC_DIR}/index.html");
-    let app = Router::new()
-        .route("/api/health", get(api::health))
-        .route("/api/stats", get(api::stats))
-        .route("/api/repertoires", get(api::repertoires).post(api::create_repertoire))
-        .route("/api/repertoires/{id}", axum::routing::delete(api::delete_repertoire))
-        .route("/api/repertoires/{id}/import", post(api::import_repertoire))
-        .route("/api/repertoires/{id}/import-game/{game_id}", post(api::import_repertoire_game))
-        .route("/api/repertoires/{id}/next", get(api::next_repertoire_card))
-        .route("/api/repertoires/review", post(api::review_repertoire_card))
-        .route("/api/databases", get(api::databases).post(api::create_database))
-        .route("/api/databases/switch", post(api::switch_database))
-        .route("/api/sounds/custom/{name}", get(api::custom_sound).post(api::upload_sound))
-        .route("/api/vision", get(api::get_vision))
-        .route("/api/vision/download", post(api::download_vision))
-        .route("/api/vision/recognize", post(api::recognize_image))
-        .route("/api/settings", get(api::get_settings).put(api::put_settings))
-        .route("/api/analyze/lines", get(api::analyze_lines))
-        .route("/api/games", get(api::list_games).post(api::import_game))
-        .route("/api/profile", get(api::profile))
-        .route("/api/import/lichess", post(api::import_lichess))
-        .route("/api/import/chesscom", post(api::import_chesscom))
-        .route("/api/analyze/engines", get(api::analyze_engines))
-        .route("/api/games/{id}", get(api::get_game).patch(api::update_game).delete(api::delete_game))
-        .route("/api/games/{id}/moves", axum::routing::post(api::update_moves))
-        .route("/api/games/{id}/moves/truncate", post(api::truncate_moves))
-        .route("/api/games/{id}/tree", axum::routing::put(api::update_tree))
-        .route("/api/games/{id}/tree/delete", post(api::delete_tree_node))
-        .route("/api/games/{id}/tree/promote", post(api::promote_variation))
-        .route("/api/games/{id}/tree/add", post(api::add_tree_move))
-        .route("/api/games/{id}/pgn", get(api::game_pgn))
-        .route("/api/games/{id}/evals", get(api::game_evals))
-        .route("/api/games/{id}/annotations", get(api::annotations).post(api::add_annotation))
-        .route("/api/collections", get(api::collections).post(api::create_collection))
-        .route("/api/collections/{id}", axum::routing::patch(api::rename_collection).delete(api::delete_collection))
-        .route("/api/collections/{id}/games/{game_id}", post(api::add_to_collection))
-        .route("/api/players", get(api::players))
-        .route("/api/events", get(api::events))
-        .route("/api/positions", get(api::positions))
-        .route("/api/openings", get(api::openings))
-        .route("/api/tablebase", get(api::tablebase))
-        .route("/api/puzzles/next", get(api::next_puzzle))
-        .route("/api/puzzles/themes", get(api::puzzle_themes))
-        .route("/api/puzzles/{id}", get(api::get_puzzle))
-        .route("/api/puzzles/attempts", get(api::puzzle_attempts))
-        .route("/api/puzzles/attempt", post(api::puzzle_attempt))
-        .route("/api/puzzles/import", post(api::import_puzzles))
-        .route("/api/games/{id}/report", get(api::game_report))
-        .route("/api/analyze", post(api::analyze))
-        .route("/api/report", post(api::report))
-        .route("/api/chat", post(api::chat))
-        .fallback_service(ServeDir::new(STATIC_DIR).fallback(ServeFile::new(index)))
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let mut open = false;
+    for argument in std::env::args().skip(1) {
+        match argument.as_str() {
+            "--open" | "open" => open = true,
+            "--help" | "-h" => {
+                println!("{HELP}");
+                return Ok(());
+            }
+            "--version" | "-V" => {
+                println!("rustybrickchess {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            other => {
+                eprintln!("unknown argument: {other}\n\n{HELP}");
+                std::process::exit(2);
+            }
+        }
+    }
 
     let addr = std::env::var("RBC_ADDR").unwrap_or_else(|_| "127.0.0.1:8090".into());
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    println!("RustyBrickChess on http://{addr}  (db: {db_path})");
-    println!("  STOCKFISH_PATH: {:?}", std::env::var("STOCKFISH_PATH").ok());
-    println!("  MODEL_URL: {:?}", std::env::var("MODEL_URL").ok());
-    axum::serve(listener, app).await?;
-    Ok(())
+
+    if open {
+        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
+            println!("RustyBrickChess is already running on http://{addr}");
+            open_browser(&addr);
+            return Ok(());
+        }
+        let wait_addr = addr.clone();
+        tokio::spawn(async move {
+            for _ in 0..150 {
+                if tokio::net::TcpStream::connect(&wait_addr).await.is_ok() {
+                    open_browser(&wait_addr);
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            eprintln!("RustyBrickChess: server did not start; open http://{wait_addr} manually");
+        });
+    }
+
+    rusty_brick_chess::serve_from_env().await
+}
+
+fn open_browser(addr: &str) {
+    let url = format!("http://{addr}/");
+    println!("opening {url}");
+    let result = {
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open").arg(&url).spawn()
+        }
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "", &url])
+                .spawn()
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            std::process::Command::new("xdg-open").arg(&url).spawn()
+        }
+    };
+    if let Err(error) = result {
+        eprintln!("could not open a browser ({error}); visit {url}");
+    }
 }

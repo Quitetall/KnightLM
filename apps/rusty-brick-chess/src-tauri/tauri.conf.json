@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "RustyBrickChess",
+  "version": "0.1.0",
+  "identifier": "org.knightlm.rustybrickchess",
+  "build": {
+    "frontendDist": "../frontend/public"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "resources": { "../frontend/public/": "frontend/" },
+    "shortDescription": "Chess database and analysis",
+    "longDescription": "RustyBrickChess: local chess database, analysis board, openings, puzzles and repertoire training."
+  }
+}

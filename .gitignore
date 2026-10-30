@@ -11,3 +11,4 @@ __pycache__/
 # build outputs
 target/
 **/public/pkg/
+**/src-tauri/gen/

@@ -24,7 +24,7 @@ enum Tab {
     Settings,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Workspace {
     key: u32,
     game_id: Option<i64>,
@@ -34,6 +34,58 @@ struct Workspace {
     variant: String,
     preview_only: bool,
     moves: Vec<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct Session {
+    workspaces: Vec<Workspace>,
+    active: u32,
+    seq: u32,
+    tab: String,
+}
+
+const SESSION_KEY: &str = "rbc.session.v1";
+
+fn tab_name(tab: Tab) -> &'static str {
+    match tab {
+        Tab::Home => "home",
+        Tab::Database => "database",
+        Tab::Analysis => "analysis",
+        Tab::Openings => "openings",
+        Tab::Puzzles => "puzzles",
+        Tab::Stats => "stats",
+        Tab::Settings => "settings",
+    }
+}
+
+fn tab_from_name(name: &str) -> Option<Tab> {
+    Some(match name {
+        "home" => Tab::Home,
+        "database" => Tab::Database,
+        "analysis" => Tab::Analysis,
+        "openings" => Tab::Openings,
+        "puzzles" => Tab::Puzzles,
+        "stats" => Tab::Stats,
+        "settings" => Tab::Settings,
+        _ => return None,
+    })
+}
+
+fn read_session() -> Option<Session> {
+    let storage = web_sys::window()?.local_storage().ok().flatten()?;
+    let raw = storage.get_item(SESSION_KEY).ok().flatten()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn write_session(session: &Session) {
+    let Some(storage) = web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+    else {
+        return;
+    };
+    if let Ok(raw) = serde_json::to_string(session) {
+        let _ = storage.set_item(SESSION_KEY, &raw);
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -298,6 +350,7 @@ pub fn App() -> impl IntoView {
     let workspaces = RwSignal::new(Vec::<Workspace>::new());
     let active_ws = RwSignal::new(0u32);
     let ws_seq = RwSignal::new(1u32);
+    let session_restored = RwSignal::new(false);
     let profile_name = RwSignal::new("Player".to_string());
     let profile_player = RwSignal::new(String::new());
     let profile = RwSignal::new(None::<api::Profile>);
@@ -887,6 +940,101 @@ pub fn App() -> impl IntoView {
         }
         tab.set(next);
     };
+
+    // Persist the workspace session (tabs, active tab, current ply) and restore
+    // it on the next load, so reopening the app returns to the same boards.
+    Effect::new(move |_| {
+        let mut list = workspaces.get();
+        let active = active_ws.get();
+        let tab_now = tab.get();
+        let ply = tree_ply.get();
+        if let Some(ws) = list.iter_mut().find(|w| w.key == active) {
+            ws.ply = ply;
+            let pgn = selected_pgn.get();
+            if !pgn.is_empty() {
+                ws.pgn = pgn;
+            }
+        }
+        let session = Session {
+            workspaces: list,
+            active,
+            seq: ws_seq.get(),
+            tab: tab_name(tab_now).to_owned(),
+        };
+        spawn_local(async move {
+            TimeoutFuture::new(350).await;
+            write_session(&session);
+        });
+    });
+
+    Effect::new(move |_| {
+        if session_restored.get_untracked() {
+            return;
+        }
+        session_restored.set(true);
+        let Some(session) = read_session() else {
+            return;
+        };
+        if session.workspaces.is_empty() {
+            return;
+        }
+        let seq = session.seq.max(
+            session
+                .workspaces
+                .iter()
+                .map(|w| w.key + 1)
+                .max()
+                .unwrap_or(1),
+        );
+        ws_seq.set(seq);
+        workspaces.set(session.workspaces.clone());
+        let active = session
+            .workspaces
+            .iter()
+            .find(|w| w.key == session.active)
+            .map(|w| w.key)
+            .unwrap_or_else(|| session.workspaces[0].key);
+        let resume_analysis = tab_from_name(&session.tab) == Some(Tab::Analysis);
+        if resume_analysis {
+            activate_workspace(active);
+        } else {
+            active_ws.set(active);
+            if let Some(ws) = session.workspaces.iter().find(|w| w.key == active) {
+                selected_pgn.set(ws.pgn.clone());
+                selected_title.set(ws.title.clone());
+                selected_game_id.set(ws.game_id);
+                selected_moves.set(ws.moves.clone());
+                board_variant.set(ws.variant.clone());
+                variant_only.set(ws.preview_only);
+                tree_ply.set(ws.ply);
+                goto_sig.set(Some((goto_seq.get_untracked() + 1, ws.ply)));
+            }
+            if let Some(t) = tab_from_name(&session.tab) {
+                tab.set(t);
+            }
+        }
+    });
+
+    // The desktop shell (Tauri) dispatches this after a native File > Open…
+    {
+        let on_import = Closure::<dyn FnMut(web_sys::Event)>::new(move |event: web_sys::Event| {
+            let message = event
+                .dyn_ref::<web_sys::CustomEvent>()
+                .and_then(|custom| custom.detail().as_string())
+                .unwrap_or_default();
+            reload();
+            if !message.is_empty() {
+                status.set(message);
+            }
+        });
+        if let Some(window) = web_sys::window() {
+            let _ = window.add_event_listener_with_callback(
+                "rbc-imported",
+                on_import.as_ref().unchecked_ref(),
+            );
+        }
+        on_import.forget();
+    }
 
     let open_game = move |g: api::GameSummary| {
         save_workspace();

@@ -6,7 +6,10 @@ use crate::sound::{self, SoundEvent};
 use gloo_timers::callback::Timeout;
 use leptos::html::Div;
 use leptos::prelude::*;
+use std::cell::Cell;
+use std::rc::Rc;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
 
 #[derive(Clone, Copy)]
 struct Drag {
@@ -17,18 +20,18 @@ struct Drag {
     start_y: f64,
 }
 
-fn set_ghost_style(ghost: &web_sys::HtmlElement, size: f64, x: f64, y: f64, transition: Option<u32>) {
+fn place_ghost(ghost: &web_sys::HtmlElement, size: f64) {
     let style = web_sys::HtmlElement::style(ghost);
     let _ = style.set_property("display", "block");
     let _ = style.set_property("width", &format!("{size}px"));
     let _ = style.set_property("height", &format!("{size}px"));
-    let _ = style.set_property(
-        "transition",
-        &transition
-            .map(|ms| format!("transform {ms}ms ease-out"))
-            .unwrap_or_else(|| "none".to_owned()),
-    );
-    let _ = style.set_property(
+    let _ = style.set_property("transition", "none");
+}
+
+/// The hot path during a drag: one compositor-friendly transform write.
+#[inline]
+fn move_ghost(ghost: &web_sys::HtmlElement, size: f64, x: f64, y: f64) {
+    let _ = web_sys::HtmlElement::style(ghost).set_property(
         "transform",
         &format!(
             "translate3d({}px,{}px,0)",
@@ -36,6 +39,18 @@ fn set_ghost_style(ghost: &web_sys::HtmlElement, size: f64, x: f64, y: f64, tran
             y - size / 2.0
         ),
     );
+}
+
+fn set_ghost_style(ghost: &web_sys::HtmlElement, size: f64, x: f64, y: f64, transition: Option<u32>) {
+    place_ghost(ghost, size);
+    let style = web_sys::HtmlElement::style(ghost);
+    let _ = style.set_property(
+        "transition",
+        &transition
+            .map(|ms| format!("transform {ms}ms ease-out"))
+            .unwrap_or_else(|| "none".to_owned()),
+    );
+    move_ghost(ghost, size, x, y);
 }
 
 fn ghost_element(node: &NodeRef<Div>) -> Option<web_sys::HtmlElement> {
@@ -541,6 +556,43 @@ pub fn Board(
         }
     };
 
+    // Coalesce pointer samples into one transform write per animation frame.
+    // Browsers can deliver pointermove faster than the compositor paints, so
+    // writing style on every event wastes frames and shows up as jitter.
+    let pending_xy: Rc<Cell<Option<(f64, f64)>>> = Rc::new(Cell::new(None));
+    let frame_scheduled: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+    let frame_cb: Rc<Closure<dyn FnMut()>> = {
+        let pending = Rc::clone(&pending_xy);
+        let scheduled = Rc::clone(&frame_scheduled);
+        Rc::new(Closure::<dyn FnMut()>::new(move || {
+            scheduled.set(false);
+            let Some((x, y)) = pending.take() else {
+                return;
+            };
+            let Some(d) = drag.get_untracked() else {
+                return;
+            };
+            if let Some(ghost) = ghost_element(&ghost_ref) {
+                move_ghost(&ghost, d.size, x, y);
+            }
+        }))
+    };
+    let schedule_ghost = {
+        let pending = Rc::clone(&pending_xy);
+        let scheduled = Rc::clone(&frame_scheduled);
+        let callback = Rc::clone(&frame_cb);
+        move |x: f64, y: f64| {
+            pending.set(Some((x, y)));
+            if !scheduled.replace(true) {
+                if let Some(window) = web_sys::window() {
+                    let function: &wasm_bindgen::JsValue = (*callback).as_ref();
+                    let function: &js_sys::Function = function.unchecked_ref();
+                    let _ = window.request_animation_frame(function);
+                }
+            }
+        }
+    };
+
     let on_board_move = move |ev: leptos::ev::PointerEvent| {
         let Some(d) = drag.get() else { return };
         let dx = ev.client_x() as f64 - d.start_x;
@@ -549,15 +601,7 @@ pub fn Board(
             dragged.set(true);
         }
         if dragged.get() {
-            if let Some(ghost) = ghost_element(&ghost_ref) {
-                set_ghost_style(
-                    &ghost,
-                    d.size,
-                    ev.client_x() as f64,
-                    ev.client_y() as f64,
-                    Some(0),
-                );
-            }
+            schedule_ghost(ev.client_x() as f64, ev.client_y() as f64);
         }
     };
 
