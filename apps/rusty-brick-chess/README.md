@@ -295,9 +295,9 @@ The report returns, per move, both a **Lichess-style** label and a
   `data_dir/pieces` and served read-only; the size slider adjusts the board per
   session.
 - **Language**: English and Spanish for the navigation, Database, Analysis,
-  Practice and Settings controls and the board's own labels, switchable in
-  Settings and persisted. Long-tail strings (some dialogs and rare actions)
-  still fall back to English. The board exposes an accessible group
+  Practice, Openings, Puzzles and Settings controls, dialogs, placeholders and
+  the board's own labels, switchable in Settings and persisted. Transient
+  status/error messages stay English. The board exposes an accessible group
   with a label per square ("e4, white pawn"), a skip link, aria labels on
   icon-only controls and live status announcements.
 - **Settings**: engine binary, model URL, analysis depth, board theme, piece

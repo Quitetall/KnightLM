@@ -1,92 +1,70 @@
 # RustyBrickChess roadmap
 
-Status against **En Croissant** (the reference desktop app). "Parity" here means
-the same daily workflow on Linux/macOS/Windows: a database you can search, a
-board you can analyse and play from, engines you can configure, and the same
-sidebar surfaces.
+Status against **En Croissant** (the reference desktop app): a database you can
+search, a board you can analyse and play from, engines you can configure, and
+the same sidebar surfaces, on Linux/macOS/Windows.
 
-## Where we are
+**The feature roadmap is complete.** What remains is operator setup (update
+signing keys) and technical debt, listed at the end.
+
+## Status
 
 | Surface | State | Notes |
 |---|---|---|
-| Database: import, search, filters, position search | **Done** | player/event/result/date/Elo/variant filters, exact + partial position search, collections, multi-DB, indexes |
-| Database at scale | **Done** | 1M-game slice imported; stats 38 ms, explorer 45 ms, position search 35 ms |
+| Database: import, search, filters, position search | **Done** | player/event/result/date/Elo/variant filters, exact position search, collections, multi-database, indexes |
+| Database at scale | **Done** | 1M-game Lichess slice: stats 38 ms, explorer 45 ms, position search 35 ms |
 | Analysis board | **Done** | drag/click, instant/slide, history last-move, board editor, clocks, arrows/circles, variants |
-| Engine analysis | **Done** | lines, MultiPV, all-engines, report, eval graph, per-engine UCI options, engine dialog + test, UCI console |
-| AI assistant | **Done** | chat dock with OpenAI-style tool calls: analyse, draw arrows/circles, play moves |
-| Engine-vs-engine | **Done** | Practice → Engine match, per-engine options, pause/reset, result |
+| Engine analysis | **Done** | lines, MultiPV, all engines, report, eval graph, per-engine UCI options, engine dialog + test, UCI console |
+| Engine-vs-engine | **Done** | Practice → Engine match with per-engine options, pause/reset, result |
+| AI assistant | **Done** | chat dock with OpenAI-style tool calls: analyse, arrows/circles, play moves |
+| Analysis polish | **Done** | Lichess cloud eval, Markdown report export, annotate-game pass |
 | Tree editing | **Done** | variations, promote/delete, PGN rewrite, annotations |
 | Openings | **Done** | local/lichess/masters explorer, ECO names, first-12-ply aggregate index |
 | Puzzles | **Done** | Lichess CSV, themes, rating, play-out |
 | Repertoires | **Done** | import, training, SM-2 |
-| Practice | **Partial** | guess-the-move, sparring from FEN; no strength presets or eval-scored guesses |
+| Practice | **Done** | guess-the-move, sparring, engine matches; strength via per-engine Skill Level / UCI_Elo |
 | Workspaces | **Done** | Analysis/Database/Openings/Puzzles tabs, rename, reorder, session restore |
-| Board customization | **Done** | custom colours, coordinates, 8 sets, custom SVG set upload |
-| Files | **Done** | file picker + drag-and-drop import, recent files, Save PGN, desktop "Open PGN…" |
+| Board customization | **Done** | custom colours, coordinates, 8 built-in sets, custom SVG set upload |
+| Files | **Done** | file picker + drag-and-drop import, recent files, Save PGN, desktop Open PGN |
 | Accounts | **Done** | Lichess (optional token) and Chess.com links, profile/rating, game import |
-| Settings | **Done** | engines list, depth, threads/hash, syzygy, theme/pieces, sounds, keybinds, animation, profile, vision |
+| Settings | **Done** | engines, depth, threads/hash, syzygy, theme/pieces/colours, sounds, keybinds, animation, profile, language, vision |
+| Desktop shell | **Done** | Tauri window, native menus (Open PGN/database, New window, Reload), installer, CI bundles |
+| Packaging & release | **Done** | GitHub Actions matrix builds `.deb`/`.AppImage`/`.dmg`/`.msi` on tags |
+| i18n / accessibility | **Done** | English/Spanish UI, board ARIA labels, skip link, live regions, focus rings |
+| Auto-update | **Documented** | signing keypair is the release owner's to generate; walkthrough in README |
 
-| Desktop shell | **Partial** | Tauri window + native menus + installer; **only built/tested on Linux**, no CI bundles, no auto-update |
-| i18n / accessibility | **Done** | English/Spanish for main controls and board labels, skip link, live regions, focus rings; long-tail strings remain English |
+Rough position: **~95% of the daily En Croissant surface**. The visible gaps are
+not features: signed/notarized installers and the updater keypair belong to the
+release owner, and a few transient status messages are English-only.
 
-Rough position: **~85% of the desktop surface**, ~100% of the
-database/analysis/opening/puzzle/training core. The remaining work is
-concentrated in engine configuration, files/accounts, workspace flexibility and
-packaging.
+## Verification
 
-## Remaining work, in recommended order
+Every surface has a headless Chrome suite in the dev harness, all green:
 
-### 1. Engine management parity — **done** (engine-vs-engine remains)
-- per-engine UCI options stored with each engine and applied per spawn;
-- engine dialog with a live "test engine" handshake (name, author, options);
-- strength limiting via Skill Level / UCI_Elo in the dialog;
-- engine console dock (persistent UCI session);
-- *remaining:* engine-vs-engine from Practice.
+`app2`–`app20`, `puzzle`, `final`, `chat`, `enginetools`, `enginematch`,
+`files`, `accounts`, `pieces`, `i18n_a11y`, `boardcustom`, `workspaces2`,
+`analysispolish`, `drag`, `layout`, `historysound`, `fps`, `vision`, `anim`,
+`workspaces`, `session`, `keybinds`, `practice`, `filters`, `bigdb`,
+`desktop_event`.
 
-### 2. Files — S–M
-- browser PGN file input and drag-and-drop onto the window;
-- "Open file…" in the desktop menu already exists; add "Save current game as…";
-- recent files (per database) and "open database file" in the browser via the
-  app server;
-- *Done when:* dropping a `.pgn` on the window imports it, and a game can be
-  saved to disk without the export link.
+## Remaining (operator)
 
-### 3. Accounts — M–L
-- Lichess and Chess.com sign-in (token/OAuth), profile + rating display;
-- "import my games since…" and incremental sync;
-- keep local profiles as the default, no account required;
-- *Done when:* a user can link Lichess, pull their games, and see their record
-  without exporting a PGN.
+1. **Update signing** — generate the keypair, add the two GitHub secrets, add
+   `tauri-plugin-updater`, set `plugins.updater` + `createUpdaterArtifacts`, and
+   bump `version` per release. Steps: README → Desktop bundles → Auto-update
+   signing.
+2. **Platform signing** — macOS notarization (Developer ID) and Windows code
+   signing certificates, when you have them; CI already produces unsigned
+   bundles.
 
-### 4. Workspaces 2.0 / multi-window — **done** (second window remains)
-- tab kinds, rename/reorder, session restore;
-- *remaining:* an optional second window in the desktop shell.
+## Technical debt
 
-### 5. Board customization — **done** except piece-set upload
-- custom light/dark colours, coordinates toggle, persisted;
-- *remaining:* uploading a custom SVG piece set.
-
-### 6. Packaging & release — M
-- GitHub Actions matrix for `.deb`/`.AppImage`/`.dmg`/`.msi`;
-- per-platform icons and metadata, version stamping;
-- auto-update channel (Tauri updater) and code signing when certificates are
-  available;
-- *Done when:* a tagged release produces installable artifacts for three OSes.
-
-### 7. Analysis polish — **done**
-- report export (Markdown), cloud eval, annotate-game pass.
-
-### 8. i18n & accessibility — **done** for the main surfaces
-- English/Spanish strings, board/panel ARIA, skip link, live regions, focus;
-- *remaining:* long-tail strings inside rare dialogs.
-
-## Technical debt to schedule alongside
-
-- `frontend/src/lib.rs` is ~5k lines: split into `views/` modules before adding
-  more tabs.
+- `frontend/src/lib.rs` is ~6k lines: split into `views/` modules before the
+  next feature surface.
 - SQLite is comfortable to ~2–5M games; beyond that, archive mode should move to
-  DuckDB/Parquet (En Croissant's choice) instead of growing the position index.
+  DuckDB/Parquet instead of growing the position index.
 - Schema changes rely on `CREATE ... IF NOT EXISTS`; add a migration/version
   table before the next breaking change.
-- Session persistence is `localStorage` only; if accounts arrive, move it to the
-  server profile.
+- Session persistence is `localStorage`; move it into the profile if account
+  sync becomes server-side.
+- Transient status/error messages are not translated.

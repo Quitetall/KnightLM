@@ -1184,8 +1184,8 @@ pub fn Board(
         };
         view! {
             <div class="captured">
-                <div class="cap-row"><span class="cap-side">"White lost"</span><span inner_html=white_html></span></div>
-                <div class="cap-row"><span class="cap-side">"Black lost"</span><span inner_html=black_html></span></div>
+                <div class="cap-row"><span class="cap-side">{move || crate::i18n::t(&lang(), "board.white_lost")}</span><span inner_html=white_html></span></div>
+                <div class="cap-row"><span class="cap-side">{move || crate::i18n::t(&lang(), "board.black_lost")}</span><span inner_html=black_html></span></div>
                 <div class="cap-adv">"Material: " <b>{adv}</b></div>
             </div>
         }
@@ -1474,7 +1474,7 @@ pub fn Board(
                 <div class="load">
                     <input
                         type="text"
-                        placeholder="Load FEN…"
+                        placeholder=move || crate::i18n::t(&lang(), "board.load_fen_ph")
                         prop:value=move || fen_input.get()
                         on:input=move |ev| fen_input.set(event_target_value(&ev))
                     />
@@ -1492,7 +1492,7 @@ pub fn Board(
                 {move || show_pgn.get().then(|| view! {
                     <div class="pgn-box">
                         <textarea
-                            placeholder="Paste a PGN game…"
+                            placeholder=move || crate::i18n::t(&lang(), "board.paste_pgn_ph")
                             prop:value=move || pgn_input.get()
                             on:input=move |ev| pgn_input.set(event_target_value(&ev))
                         ></textarea>

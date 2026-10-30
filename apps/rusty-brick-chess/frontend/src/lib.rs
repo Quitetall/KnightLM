@@ -757,7 +757,7 @@ pub fn App() -> impl IntoView {
             return;
         }
         let confirmed = web_sys::window()
-            .and_then(|w| w.confirm_with_message("Delete this collection?").ok())
+            .and_then(|w| w.confirm_with_message(i18n::t(&language.get(), "db.delete_collection")).ok())
             .unwrap_or(false);
         if !confirmed {
             return;
@@ -1073,7 +1073,7 @@ pub fn App() -> impl IntoView {
                 key,
                 kind: "analysis".into(),
                 game_id: None,
-                title: "New analysis".into(),
+                title: i18n::t(&language.get(), "practice.new_analysis_tab").into(),
                 pgn: start.clone(),
                 ply: 0,
                 variant: "standard".into(),
@@ -1083,7 +1083,7 @@ pub fn App() -> impl IntoView {
         });
         active_ws.set(key);
         selected_pgn.set(start);
-        selected_title.set("New analysis".into());
+        selected_title.set(i18n::t(&language.get(), "practice.new_analysis_tab").into());
         selected_game_id.set(None);
         selected_moves.set(Vec::new());
         game_detail.set(None);
@@ -1115,10 +1115,10 @@ pub fn App() -> impl IntoView {
                 let key = ws_seq.get_untracked();
                 ws_seq.set(key + 1);
                 let title = match kind {
-                    "database" => "Database",
-                    "openings" => "Openings",
-                    "puzzles" => "Puzzles",
-                    _ => "Analysis",
+                    "database" => i18n::t(&language.get(), "db.database"),
+                    "openings" => i18n::t(&language.get(), "nav.openings"),
+                    "puzzles" => i18n::t(&language.get(), "nav.puzzles"),
+                    _ => i18n::t(&language.get(), "nav.analysis"),
                 };
                 workspaces.update(|list| {
                     list.push(Workspace {
@@ -1806,7 +1806,7 @@ pub fn App() -> impl IntoView {
             return;
         };
         let confirmed = web_sys::window()
-            .and_then(|w| w.confirm_with_message("Delete this game?").ok())
+            .and_then(|w| w.confirm_with_message(i18n::t(&language.get(), "db.delete_game")).ok())
             .unwrap_or(false);
         if !confirmed {
             return;
@@ -2448,23 +2448,23 @@ pub fn App() -> impl IntoView {
         view! {
             <section class="panel">
                 <div class="panel-head">
-                    <h2>"Statistics"</h2>
+                    <h2>{move || i18n::t(&language.get(), "db.statistics")}</h2>
                     <span class="muted">{move || db_list.get().into_iter().find(|d| d.current).map(|d| d.name).unwrap_or_default()}</span>
                 </div>
                 <div class="stat-grid">
-                    {card("Games", s.games)}
-                    {card("White wins", s.white_wins)}
-                    {card("Draws", s.draws)}
-                    {card("Black wins", s.black_wins)}
-                    {card("Unfinished", s.unfinished)}
-                    {card("Players", s.players)}
-                    {card("Events", s.events)}
-                    {card("Collections", s.collections)}
-                    {card("Puzzles", s.puzzles)}
+                    {card(i18n::t(&language.get(), "db.games"), s.games)}
+                    {card(i18n::t(&language.get(), "db.white_wins"), s.white_wins)}
+                    {card(i18n::t(&language.get(), "db.draws"), s.draws)}
+                    {card(i18n::t(&language.get(), "db.black_wins"), s.black_wins)}
+                    {card(i18n::t(&language.get(), "db.unfinished"), s.unfinished)}
+                    {card(i18n::t(&language.get(), "db.players"), s.players)}
+                    {card(i18n::t(&language.get(), "db.events"), s.events)}
+                    {card(i18n::t(&language.get(), "db.collections"), s.collections)}
+                    {card(i18n::t(&language.get(), "nav.puzzles"), s.puzzles)}
                 </div>
                 <div class="catalog-row">
                     <div class="catalog">
-                        <div class="panel-sub">"Most active players"</div>
+                        <div class="panel-sub">{move || i18n::t(&language.get(), "db.most_active")}</div>
                         {move || {
                             stats
                                 .get()
@@ -2486,7 +2486,7 @@ pub fn App() -> impl IntoView {
                         }}
                     </div>
                     <div class="catalog">
-                        <div class="panel-sub">"Events"</div>
+                        <div class="panel-sub">{move || i18n::t(&language.get(), "db.events")}</div>
                         {move || {
                             stats
                                 .get()
@@ -2665,9 +2665,9 @@ pub fn App() -> impl IntoView {
                                 prop:value=move || settings_theme.get()
                                 on:change=move |ev| settings_theme.set(event_target_value(&ev))
                             >
-                                <option value="green">"Green"</option>
-                                <option value="brown">"Brown"</option>
-                                <option value="blue">"Blue"</option>
+                                <option value="green">{move || i18n::t(&language.get(), "theme.green")}</option>
+                                <option value="brown">{move || i18n::t(&language.get(), "theme.brown")}</option>
+                                <option value="blue">{move || i18n::t(&language.get(), "theme.blue")}</option>
                                 <option value="custom">"Custom"</option>
                             </select>
                         </label>
@@ -2727,7 +2727,7 @@ pub fn App() -> impl IntoView {
                             {move || i18n::t(&language.get(), "settings.coordinates")}
                         </label>
                     </div>
-                    <div class="panel-sub">"Custom piece sets"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "settings.custom_pieces")}</div>
                     <div class="piece-upload">
                         <input
                             type="text"
@@ -2797,7 +2797,7 @@ pub fn App() -> impl IntoView {
                         })
                     }}
                     <div class="row-btns">
-                        <button on:click=move |_| persist_settings()>"Save"</button>
+                        <button on:click=move |_| persist_settings()>{move || i18n::t(&language.get(), "common.save")}</button>
                         <span class="status">{move || settings_status.get()}</span>
                     </div>
                     <div class="settings-row">
@@ -2870,7 +2870,7 @@ pub fn App() -> impl IntoView {
                                     <button on:click=move |_| {
                                         engine_dialog.set(None);
                                         engine_test.set(None);
-                                    }>"Close"</button>
+                                    }>{move || i18n::t(&language.get(), "common.close")}</button>
                                 </div>
                                 <div class="engine-fields">
                                     <label>
@@ -2905,9 +2905,9 @@ pub fn App() -> impl IntoView {
                                     </label>
                                 </div>
                                 <div class="engine-fields">
-                                    {option("Hash", "Hash (MB)", true)}
-                                    {option("Threads", "Threads", true)}
-                                    {option("MultiPV", "MultiPV", true)}
+                                    {option(i18n::t(&language.get(), "settings.hash_label"), i18n::t(&language.get(), "settings.hash_mb"), true)}
+                                    {option(i18n::t(&language.get(), "settings.threads_label"), i18n::t(&language.get(), "settings.threads_label"), true)}
+                                    {option(i18n::t(&language.get(), "settings.multipv"), i18n::t(&language.get(), "settings.multipv"), true)}
                                     {option("Skill Level", "Skill level", true)}
                                     {option("UCI_Elo", "UCI Elo", true)}
                                     {option("SyzygyPath", "Syzygy path", false)}
@@ -2917,12 +2917,16 @@ pub fn App() -> impl IntoView {
                                 </div>
                                 <div class="row-btns">
                                     <button on:click=run_engine_test disabled=move || engine_test_busy.get()>
-                                        {move || if engine_test_busy.get() { "Testing…" } else { "Test engine" }}
+                                        {move || if engine_test_busy.get() {
+                                        i18n::t(&language.get(), "settings.testing")
+                                    } else {
+                                        i18n::t(&language.get(), "settings.test_engine")
+                                    }}
                                     </button>
                                     <button on:click=move |_| {
                                         persist_settings();
                                         settings_status.set("engine saved".into());
-                                    }>"Save"</button>
+                                    }>{move || i18n::t(&language.get(), "common.save")}</button>
                                     <span class="status">{move || settings_status.get()}</span>
                                 </div>
                                 {test.map(|info| view! {
@@ -2951,7 +2955,7 @@ pub fn App() -> impl IntoView {
                             on:input=move |ev| settings_variant_engine.set(event_target_value(&ev))
                         />
                     </label>
-                    <div class="panel-sub">"Vision model (optional)"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "settings.vision_model")}</div>
                     {move || {
                         vision
                             .get()
@@ -2991,7 +2995,7 @@ pub fn App() -> impl IntoView {
                                 }
                             })
                     }}
-                    <div class="panel-sub">"Engines"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "settings.engines")}</div>
                     <div class="engine-list">
                         {move || {
                             engines
@@ -3020,7 +3024,11 @@ pub fn App() -> impl IntoView {
                                                     persist_settings();
                                                 }
                                             >
-                                                {if active { "Active" } else { "Use" }}
+                                                {if active {
+                                                    i18n::t(&language.get(), "common.active")
+                                                } else {
+                                                    i18n::t(&language.get(), "common.use")
+                                                }}
                                             </button>
                                             <button
                                                 on:click=move |_| {
@@ -3043,7 +3051,7 @@ pub fn App() -> impl IntoView {
                     <div class="row-btns">
                         <input
                             type="text"
-                            placeholder="Engine name"
+                            placeholder={move || i18n::t(&language.get(), "settings.engine_name")}
                             style="max-width:9rem"
                             prop:value=move || new_engine_name.get()
                             on:input=move |ev| new_engine_name.set(event_target_value(&ev))
@@ -3054,7 +3062,7 @@ pub fn App() -> impl IntoView {
                             prop:value=move || new_engine_path.get()
                             on:input=move |ev| new_engine_path.set(event_target_value(&ev))
                         />
-                        <button on:click=add_engine>"Add engine"</button>
+                        <button on:click=add_engine>{move || i18n::t(&language.get(), "settings.add_engine")}</button>
                     </div>
                     <label class="checkline">
                         <input
@@ -3117,7 +3125,7 @@ pub fn App() -> impl IntoView {
                         />
                     </label>
                     <div class="muted">{move || sound_msg.get()}</div>
-                    <div class="panel-sub">"Keybinds"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "settings.keybinds")}</div>
                     <div class="keybinds">
                         <label>
                             {move || i18n::t(&language.get(), "settings.previous")}
@@ -3179,10 +3187,10 @@ pub fn App() -> impl IntoView {
                         {move || i18n::t(&language.get(), "settings.keybind_hint")}
                     </div>
                     <div class="row-btns">
-                        <button on:click=move |_| persist_settings()>"Save"</button>
+                        <button on:click=move |_| persist_settings()>{move || i18n::t(&language.get(), "common.save")}</button>
                         <button on:click=move |_| {
                             keybinds.set(Keybinds::default());
-                        }>"Reset keybinds"</button>
+                        }>{move || i18n::t(&language.get(), "settings.reset_keybinds")}</button>
                         <span class="status">{move || settings_status.get()}</span>
                     </div>
                 </div>
@@ -3195,7 +3203,7 @@ pub fn App() -> impl IntoView {
         view! {
             <section class="panel">
                 <div class="panel-head">
-                    <h2>"Database"</h2>
+                    <h2>{move || i18n::t(&language.get(), "db.database")}</h2>
                     <span class="muted">{move || format!("{} games", total.get())}</span>
                 </div>
                 <div class="dbs">
@@ -3226,11 +3234,11 @@ pub fn App() -> impl IntoView {
                     </label>
                     <input
                         type="text"
-                        placeholder="New database…"
+                        placeholder=move || i18n::t(&language.get(), "db.new_database")
                         prop:value=move || new_database.get()
                         on:input=move |ev| new_database.set(event_target_value(&ev))
                     />
-                    <button on:click=create_db>"Create"</button>
+                    <button on:click=create_db>{move || i18n::t(&language.get(), "common.create")}</button>
                 </div>
                 <div class="import">
                     <textarea
@@ -3239,7 +3247,7 @@ pub fn App() -> impl IntoView {
                         on:input=move |ev| import_text.set(event_target_value(&ev))
                     ></textarea>
                     <div class="import-actions">
-                        <button on:click=import>"Import"</button>
+                        <button on:click=import>{move || i18n::t(&language.get(), "common.import")}</button>
                         <label class="file-button">
                             {move || i18n::t(&language.get(), "db.import_file")}
                             <input
@@ -3256,7 +3264,7 @@ pub fn App() -> impl IntoView {
                     (!files.is_empty()).then(|| {
                         view! {
                             <div class="recent-files">
-                                <span class="panel-sub">"Recent files"</span>
+                                <span class="panel-sub">{move || i18n::t(&language.get(), "db.recent_files")}</span>
                                 {files
                                     .into_iter()
                                     .map(|(name, games)| {
@@ -3305,11 +3313,11 @@ pub fn App() -> impl IntoView {
                     }}
                     <input
                         type="text"
-                        placeholder="New collection…"
+                        placeholder=move || i18n::t(&language.get(), "db.new_collection")
                         prop:value=move || new_collection.get()
                         on:input=move |ev| new_collection.set(event_target_value(&ev))
                     />
-                    <button on:click=add_collection_clicked>"Create"</button>
+                    <button on:click=add_collection_clicked>{move || i18n::t(&language.get(), "common.create")}</button>
                 </div>
                 <div class="dbs">
                     <select
@@ -3318,7 +3326,7 @@ pub fn App() -> impl IntoView {
                             manage_collection.set(event_target_value(&ev).parse().unwrap_or(0))
                         }
                     >
-                        <option value="0">"Manage collection…"</option>
+                        <option value="0">{move || i18n::t(&language.get(), "db.manage")}</option>
                         {move || {
                             collections
                                 .get()
@@ -3331,17 +3339,17 @@ pub fn App() -> impl IntoView {
                     </select>
                     <input
                         type="text"
-                        placeholder="New name…"
+                        placeholder=move || i18n::t(&language.get(), "db.new_name")
                         prop:value=move || collection_name.get()
                         on:input=move |ev| collection_name.set(event_target_value(&ev))
                     />
-                    <button on:click=rename_collection>"Rename"</button>
-                    <button on:click=delete_collection>"Delete"</button>
+                    <button on:click=rename_collection>{move || i18n::t(&language.get(), "common.rename")}</button>
+                    <button on:click=delete_collection>{move || i18n::t(&language.get(), "common.delete")}</button>
                 </div>
                 <div class="load">
                     <input
                         type="text"
-                        placeholder="Search by position (FEN)…"
+                        placeholder=move || i18n::t(&language.get(), "db.position_ph")
                         prop:value=move || position_fen.get()
                         on:input=move |ev| position_fen.set(event_target_value(&ev))
                     />
@@ -3410,10 +3418,10 @@ pub fn App() -> impl IntoView {
                             on:change=move |ev| filter_result.set(event_target_value(&ev))
                         >
                             <option value="">"Any"</option>
-                            <option value="1-0">"White wins"</option>
-                            <option value="0-1">"Black wins"</option>
-                            <option value="1/2-1/2">"Draw"</option>
-                            <option value="*">"Unfinished"</option>
+                            <option value="1-0">{move || i18n::t(&language.get(), "db.white_wins")}</option>
+                            <option value="0-1">{move || i18n::t(&language.get(), "db.black_wins")}</option>
+                            <option value="1/2-1/2">{move || i18n::t(&language.get(), "db.draw")}</option>
+                            <option value="*">{move || i18n::t(&language.get(), "db.unfinished")}</option>
                         </select>
                     </label>
                     <label>
@@ -3460,11 +3468,11 @@ pub fn App() -> impl IntoView {
                             on:change=move |ev| sort_by.set(event_target_value(&ev))
                         >
                             <option value="newest">"Newest"</option>
-                            <option value="oldest">"Oldest"</option>
-                            <option value="date">"Game date"</option>
+                            <option value="oldest">{move || i18n::t(&language.get(), "db.sort_oldest")}</option>
+                            <option value="date">{move || i18n::t(&language.get(), "db.sort_date")}</option>
                             <option value="white">"White"</option>
                             <option value="black">"Black"</option>
-                            <option value="length">"Longest"</option>
+                            <option value="length">{move || i18n::t(&language.get(), "db.sort_longest")}</option>
                         </select>
                     </label>
                     <button on:click=move |_| reload()>
@@ -3501,7 +3509,7 @@ pub fn App() -> impl IntoView {
                     </select>
                     <input
                         type="text"
-                        placeholder="Username"
+                        placeholder=move || i18n::t(&language.get(), "db.username")
                         prop:value=move || online_user.get()
                         on:input=move |ev| online_user.set(event_target_value(&ev))
                     />
@@ -3513,12 +3521,12 @@ pub fn App() -> impl IntoView {
                         prop:value=move || online_max.get().to_string()
                         on:input=move |ev| online_max.set(event_target_value(&ev).parse().unwrap_or(30))
                     />
-                    <button on:click=import_online>"Import online"</button>
+                    <button on:click=import_online>{move || i18n::t(&language.get(), "db.import_online")}</button>
                 </div>
                 <div class="table">
                     <div class="row head">
                         <span>"#"</span><span>"White"</span><span>"Black"</span>
-                        <span>"Result"</span><span>"Event"</span>
+                        <span>"Result"</span><span>{move || i18n::t(&language.get(), "db.event")}</span>
                     </div>
                     {move || {
                         games
@@ -3541,7 +3549,7 @@ pub fn App() -> impl IntoView {
                 </div>
                 <div class="catalog-row">
                     <div class="catalog">
-                        <div class="panel-sub">"Players"</div>
+                        <div class="panel-sub">{move || i18n::t(&language.get(), "db.players")}</div>
                         {move || {
                             players
                                 .get()
@@ -3565,7 +3573,7 @@ pub fn App() -> impl IntoView {
                         }}
                     </div>
                     <div class="catalog">
-                        <div class="panel-sub">"Events"</div>
+                        <div class="panel-sub">{move || i18n::t(&language.get(), "db.events")}</div>
                         {move || {
                             events
                                 .get()
@@ -3722,9 +3730,9 @@ pub fn App() -> impl IntoView {
                 });
                 if flagged {
                     status.set(if black {
-                        "Black flag fell".to_owned()
+                        i18n::t(&language.get(), "clock.black_flag").to_owned()
                     } else {
-                        "White flag fell".to_owned()
+                        i18n::t(&language.get(), "clock.white_flag").to_owned()
                     });
                     clock_active.set(false);
                     break;
@@ -3985,7 +3993,7 @@ pub fn App() -> impl IntoView {
             <section class="home">
                 <div class="panel home-hero">
                     <div>
-                        <div class="panel-sub">"Local account"</div>
+                        <div class="panel-sub">{move || i18n::t(&language.get(), "home.local_account")}</div>
                         <h2 class="home-greeting">
                             {move || format!("Welcome back, {}", profile_name.get())}
                         </h2>
@@ -3996,19 +4004,19 @@ pub fn App() -> impl IntoView {
                     <div class="home-hero-actions">
                         <input
                             type="text"
-                            placeholder="Display name"
+                            placeholder=move || i18n::t(&language.get(), "home.display_name")
                             prop:value=move || profile_name.get()
                             on:input=move |ev| profile_name.set(event_target_value(&ev))
                         />
                         <button on:click=move |_| {
                             persist_settings();
                             status.set("profile saved".into());
-                        }>"Save profile"</button>
+                        }>{move || i18n::t(&language.get(), "home.save_profile")}</button>
                     </div>
                 </div>
 
                 <div class="panel accounts">
-                    <div class="panel-head"><h2>"Accounts"</h2></div>
+                    <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.accounts")}</h2></div>
                     <div class="account-grid">
                         {move || {
                             let list = accounts.get();
@@ -4040,7 +4048,7 @@ pub fn App() -> impl IntoView {
                                             >
                                                 {move || i18n::t(&language.get(), "home.import_games")}
                                             </button>
-                                            <button on:click=move |_| unlink_account("lichess")>"Unlink"</button>
+                                            <button on:click=move |_| unlink_account("lichess")>{move || i18n::t(&language.get(), "home.unlink")}</button>
                                         </div>
                                     </div>
                                 }
@@ -4054,13 +4062,13 @@ pub fn App() -> impl IntoView {
                                         <div class="account-form">
                                             <input
                                                 type="text"
-                                                placeholder="Lichess username"
+                                                placeholder=move || i18n::t(&language.get(), "home.lichess_user")
                                                 prop:value=move || lichess_user_input.get()
                                                 on:input=move |ev| lichess_user_input.set(event_target_value(&ev))
                                             />
                                             <input
                                                 type="password"
-                                                placeholder="Personal API token (optional)"
+                                                placeholder=move || i18n::t(&language.get(), "home.token")
                                                 prop:value=move || lichess_token_input.get()
                                                 on:input=move |ev| lichess_token_input.set(event_target_value(&ev))
                                             />
@@ -4109,7 +4117,7 @@ pub fn App() -> impl IntoView {
                                             >
                                                 {move || i18n::t(&language.get(), "home.import_month")}
                                             </button>
-                                            <button on:click=move |_| unlink_account("chesscom")>"Unlink"</button>
+                                            <button on:click=move |_| unlink_account("chesscom")>{move || i18n::t(&language.get(), "home.unlink")}</button>
                                         </div>
                                     </div>
                                 }
@@ -4123,7 +4131,7 @@ pub fn App() -> impl IntoView {
                                         <div class="account-form">
                                             <input
                                                 type="text"
-                                                placeholder="Chess.com username"
+                                                placeholder=move || i18n::t(&language.get(), "home.chesscom_user")
                                                 prop:value=move || chesscom_user_input.get()
                                                 on:input=move |ev| chesscom_user_input.set(event_target_value(&ev))
                                             />
@@ -4170,11 +4178,11 @@ pub fn App() -> impl IntoView {
 
                 <div class="home-grid">
                     <div class="panel">
-                        <div class="panel-head"><h2>"Recent games"</h2></div>
+                        <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.recent")}</h2></div>
                         <div class="table">
                             <div class="row head">
                                 <span>"ID"</span><span>"White"</span><span>"Black"</span>
-                                <span>"Result"</span><span>"Event"</span>
+                                <span>"Result"</span><span>{move || i18n::t(&language.get(), "db.event")}</span>
                             </div>
                             {move || {
                                 home_recent
@@ -4216,12 +4224,12 @@ pub fn App() -> impl IntoView {
                     </div>
 
                     <div class="panel">
-                        <div class="panel-head"><h2>"Player profile"</h2></div>
+                        <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.profile")}</h2></div>
                         <select
                             prop:value=move || profile_player.get()
                             on:change=move |ev| profile_player.set(event_target_value(&ev))
                         >
-                            <option value="">"Choose a player…"</option>
+                            <option value="">{move || i18n::t(&language.get(), "home.choose_player")}</option>
                             {move || {
                                 players
                                     .get()
@@ -4262,7 +4270,7 @@ pub fn App() -> impl IntoView {
                                 persist_settings();
                                 profile_player.set(profile_player.get_untracked());
                                 status.set("player profile saved".into());
-                            }>"Use as my account"</button>
+                            }>{move || i18n::t(&language.get(), "home.use_account")}</button>
                         </div>
                         <div class="muted">
                             {move || {
@@ -4277,13 +4285,13 @@ pub fn App() -> impl IntoView {
                 </div>
 
                 <div class="panel">
-                    <div class="panel-head"><h2>"Quick actions"</h2></div>
+                    <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.quick")}</h2></div>
                     <div class="row-btns">
-                        <button on:click=move |_| switch_tab(Tab::Database)>"Import / browse games"</button>
-                        <button on:click=move |_| new_workspace()>"New analysis board"</button>
-                        <button on:click=move |_| switch_tab(Tab::Puzzles)>"Solve a puzzle"</button>
-                        <button on:click=move |_| switch_tab(Tab::Openings)>"Train a repertoire"</button>
-                        <button on:click=move |_| switch_tab(Tab::Settings)>"Settings"</button>
+                        <button on:click=move |_| switch_tab(Tab::Database)>{move || i18n::t(&language.get(), "home.import")}</button>
+                        <button on:click=move |_| new_workspace()>{move || i18n::t(&language.get(), "home.new_analysis")}</button>
+                        <button on:click=move |_| switch_tab(Tab::Puzzles)>{move || i18n::t(&language.get(), "home.solve")}</button>
+                        <button on:click=move |_| switch_tab(Tab::Openings)>{move || i18n::t(&language.get(), "home.train")}</button>
+                        <button on:click=move |_| switch_tab(Tab::Settings)>{move || i18n::t(&language.get(), "nav.settings")}</button>
                     </div>
                 </div>
             </section>
@@ -4331,10 +4339,18 @@ pub fn App() -> impl IntoView {
                                 view! {
                                     <div class="clocks">
                                         <div class=white_cls>
-                                            {format!("White {}", format_clock(white))}
+                                            {format!(
+                                                "{} {}",
+                                                i18n::t(&language.get(), "common.white"),
+                                                format_clock(white),
+                                            )}
                                         </div>
                                         <div class=black_cls>
-                                            {format!("Black {}", format_clock(black))}
+                                            {format!(
+                                                "{} {}",
+                                                i18n::t(&language.get(), "common.black"),
+                                                format_clock(black),
+                                            )}
                                         </div>
                                     </div>
                                     <div class="clock-controls">
@@ -4348,7 +4364,11 @@ pub fn App() -> impl IntoView {
                                                 }
                                             }
                                         >
-                                            {move || if clock_active.get() { "Pause" } else { "Start" }}
+                                            {move || if clock_active.get() {
+                                            i18n::t(&language.get(), "common.pause")
+                                        } else {
+                                            i18n::t(&language.get(), "common.start")
+                                        }}
                                         </button>
                                         <button on:click=move |_| {
                                             let base = clock_base_input.get_untracked() as i64;
@@ -4357,12 +4377,12 @@ pub fn App() -> impl IntoView {
                                             clock_inc.set(inc);
                                             clock_active.set(false);
                                             clock_epoch.update(|e| *e += 1);
-                                        }>"Reset"</button>
+                                        }>{move || i18n::t(&language.get(), "common.reset")}</button>
                                         <input
                                             type="number"
                                             min="0"
                                             max="86400"
-                                            title="Base seconds"
+                                            title=move || i18n::t(&language.get(), "clock.base")
                                             prop:value=move || clock_base_input.get().to_string()
                                             on:input=move |ev| {
                                                 clock_base_input.set(event_target_value(&ev).parse().unwrap_or(180))
@@ -4372,7 +4392,7 @@ pub fn App() -> impl IntoView {
                                             type="number"
                                             min="0"
                                             max="300"
-                                            title="Increment seconds"
+                                            title=move || i18n::t(&language.get(), "clock.increment")
                                             prop:value=move || clock_inc_input.get().to_string()
                                             on:input=move |ev| {
                                                 clock_inc_input.set(event_target_value(&ev).parse().unwrap_or(0))
@@ -4512,7 +4532,7 @@ pub fn App() -> impl IntoView {
                     </div>
                 </div>
                 <aside class="engine-pane">
-                    <div class="panel-head"><h2>"Engine"</h2></div>
+                    <div class="panel-head"><h2>{move || i18n::t(&language.get(), "settings.engine")}</h2></div>
                     <div class="row-btns">
                         <label class="checkline">
                             <input
@@ -4526,10 +4546,18 @@ pub fn App() -> impl IntoView {
                             prop:value=move || play_as.get()
                             on:change=choose_side
                         >
-                            <option value="white">"You are White"</option>
-                            <option value="black">"You are Black"</option>
+                            <option value="white">
+                                {move || i18n::t(&language.get(), "analysis.you_white")}
+                            </option>
+                            <option value="black">
+                                {move || i18n::t(&language.get(), "analysis.you_black")}
+                            </option>
                         </select>
-                        {move || thinking.get().then(|| view! { <span class="muted">"engine thinking…"</span> })}
+                        {move || thinking.get().then(|| view! {
+                            <span class="muted">
+                                {i18n::t(&language.get(), "analysis.engine_thinking")}
+                            </span>
+                        })}
                     </div>
                     <div class="eval-card">
                         {move || {
@@ -4543,7 +4571,7 @@ pub fn App() -> impl IntoView {
                                     .into_any()
                                 })
                                 .unwrap_or_else(|| {
-                                    view! { <div class="muted">"no analysis yet"</div> }.into_any()
+                                    view! { <div class="muted">{i18n::t(&language.get(), "analysis.no_analysis")}</div> }.into_any()
                                 })
                         }}
                     </div>
@@ -4689,9 +4717,9 @@ pub fn App() -> impl IntoView {
                                 }
                             })
                     }}
-                    <div class="panel-sub">"Tablebase"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.tablebase")}</div>
                     <div class="row-btns">
-                        <button on:click=probe_tablebase>"Probe"</button>
+                        <button on:click=probe_tablebase>{move || i18n::t(&language.get(), "tb.probe")}</button>
                         <span class="muted">{move || tb_status.get()}</span>
                     </div>
                     {move || {
@@ -4699,11 +4727,11 @@ pub fn App() -> impl IntoView {
                             .get()
                             .map(|t| {
                                 let wdl = match t.wdl.as_str() {
-                                    "win" => "Win",
-                                    "cursed-win" => "Cursed win (50-move)",
-                                    "draw" => "Draw",
-                                    "blessed-loss" => "Blessed loss (50-move)",
-                                    "loss" => "Loss",
+                                    "win" => i18n::t(&language.get(), "tb.win"),
+                                    "cursed-win" => i18n::t(&language.get(), "tb.cursed"),
+                                    "draw" => i18n::t(&language.get(), "db.draw"),
+                                    "blessed-loss" => i18n::t(&language.get(), "tb.blessed"),
+                                    "loss" => i18n::t(&language.get(), "tb.loss"),
                                     other => other,
                                 };
                                 view! {
@@ -4717,7 +4745,7 @@ pub fn App() -> impl IntoView {
                                 }
                             })
                     }}
-                    <div class="panel-sub">"Move classification"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.move_classification")}</div>
                     <div class="row-btns">
                         <button on:click=export_report disabled=move || report.get().is_none()>
                             {move || i18n::t(&language.get(), "analysis.export_report")}
@@ -4752,7 +4780,7 @@ pub fn App() -> impl IntoView {
                         >
                             {move || i18n::t(&language.get(), "db.save_pgn")}
                         </a>
-                        <button on:click=delete_current>"Delete"</button>
+                        <button on:click=delete_current>{move || i18n::t(&language.get(), "common.delete")}</button>
                     </div>
                     <div class="row-btns">
                         <select
@@ -4761,7 +4789,7 @@ pub fn App() -> impl IntoView {
                                 add_collection.set(event_target_value(&ev).parse().unwrap_or(0))
                             }
                         >
-                            <option value="0">"Add to collection…"</option>
+                            <option value="0">{move || i18n::t(&language.get(), "db.add_to_collection")}</option>
                             {move || {
                                 collections
                                     .get()
@@ -4774,7 +4802,7 @@ pub fn App() -> impl IntoView {
                                     .collect_view()
                             }}
                         </select>
-                        <button on:click=add_game_to_collection>"Add"</button>
+                        <button on:click=add_game_to_collection>{move || i18n::t(&language.get(), "common.add")}</button>
                     </div>
                     {move || {
                         report
@@ -4835,7 +4863,7 @@ pub fn App() -> impl IntoView {
                                 }
                             })
                     }}
-                    <div class="panel-sub">"Analysis tree"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.tree")}</div>
                     {tree_nodes}
                     <div class="row-btns">
                         <button on:click=delete_tree_from_here>
@@ -4853,18 +4881,24 @@ pub fn App() -> impl IntoView {
                             {move || i18n::t(&language.get(), "analysis.record_moves")}
                         </label>
                     </div>
-                    <div class="panel-sub">"Assistant"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.assistant")}</div>
                     <div class="row-btns">
-                        <button on:click=move |_| dock.set("ai".into())>"AI chat"</button>
-                        <button on:click=move |_| dock.set("console".into())>"Engine console"</button>
+                        <button on:click=move |_| dock.set("ai".into())>{move || i18n::t(&language.get(), "analysis.ai_chat")}</button>
+                        <button on:click=move |_| dock.set("console".into())>{move || i18n::t(&language.get(), "analysis.engine_console")}</button>
                     </div>
                     <div class="muted">
                         {move || i18n::t(&language.get(), "analysis.assistant_hint")}
                     </div>
-                    <div class="panel-sub">"Game tags"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.game_tags")}</div>
                     <div class="row-btns">
                         <button on:click=move |_| show_tags.update(|v| *v = !*v)>
-                            {move || if show_tags.get() { "Hide tags" } else { "Edit tags" }}
+                            {move || {
+                                if show_tags.get() {
+                                    i18n::t(&language.get(), "db.hide_tags")
+                                } else {
+                                    i18n::t(&language.get(), "db.edit_tags")
+                                }
+                            }}
                         </button>
                         <span class="muted">{move || game_detail.get().map(|d| d.event.unwrap_or_default()).unwrap_or_default()}</span>
                     </div>
@@ -4874,9 +4908,9 @@ pub fn App() -> impl IntoView {
                             .then(|| {
                                 view! {
                                     <div class="tag-form">
-                                        <label>"Event"<input type="text" prop:value=move || tag_event.get() on:input=move |ev| tag_event.set(event_target_value(&ev))/></label>
+                                        <label>{move || i18n::t(&language.get(), "db.event")}<input type="text" prop:value=move || tag_event.get() on:input=move |ev| tag_event.set(event_target_value(&ev))/></label>
                                         <label>"Site"<input type="text" prop:value=move || tag_site.get() on:input=move |ev| tag_site.set(event_target_value(&ev))/></label>
-                                        <label>"Date"<input type="text" placeholder="YYYY.MM.DD" prop:value=move || tag_date.get() on:input=move |ev| tag_date.set(event_target_value(&ev))/></label>
+                                        <label>{move || i18n::t(&language.get(), "db.date")}<input type="text" placeholder="YYYY.MM.DD" prop:value=move || tag_date.get() on:input=move |ev| tag_date.set(event_target_value(&ev))/></label>
                                         <label>"Round"<input type="text" prop:value=move || tag_round.get() on:input=move |ev| tag_round.set(event_target_value(&ev))/></label>
                                         <label>"White"<input type="text" prop:value=move || tag_white.get() on:input=move |ev| tag_white.set(event_target_value(&ev))/></label>
                                         <label>"Black"<input type="text" prop:value=move || tag_black.get() on:input=move |ev| tag_black.set(event_target_value(&ev))/></label>
@@ -4884,15 +4918,19 @@ pub fn App() -> impl IntoView {
                                         <label>"WhiteElo"<input type="text" prop:value=move || tag_white_elo.get() on:input=move |ev| tag_white_elo.set(event_target_value(&ev))/></label>
                                         <label>"BlackElo"<input type="text" prop:value=move || tag_black_elo.get() on:input=move |ev| tag_black_elo.set(event_target_value(&ev))/></label>
                                         <label>"TimeControl"<input type="text" prop:value=move || tag_time_control.get() on:input=move |ev| tag_time_control.set(event_target_value(&ev))/></label>
-                                        <button on:click=save_tags>"Save tags"</button>
+                                        <button on:click=save_tags>{move || i18n::t(&language.get(), "db.save_tags")}</button>
                                     </div>
                                 }
                             })
                     }}
-                    <div class="panel-sub">"Board editor"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.board_editor")}</div>
                     <div class="row-btns">
                         <button on:click=open_editor>
-                            {move || if editor_open.get() { "Close editor" } else { "Edit position" }}
+                            {move || if editor_open.get() {
+                                i18n::t(&language.get(), "editor.close")
+                            } else {
+                                i18n::t(&language.get(), "analysis.edit_position")
+                            }}
                         </button>
                     </div>
                     {move || {
@@ -4957,8 +4995,8 @@ pub fn App() -> impl IntoView {
                                         </div>
                                         <div class="editor-fields">
                                             <label>"Turn"<input type="text" prop:value=move || editor_turn.get() on:input=move |ev| editor_turn.set(event_target_value(&ev))/></label>
-                                            <label>"Castling"<input type="text" prop:value=move || editor_castling.get() on:input=move |ev| editor_castling.set(event_target_value(&ev))/></label>
-                                            <label>"En passant"<input type="text" prop:value=move || editor_ep.get() on:input=move |ev| editor_ep.set(event_target_value(&ev))/></label>
+                                            <label>{move || i18n::t(&language.get(), "editor.castling")}<input type="text" prop:value=move || editor_castling.get() on:input=move |ev| editor_castling.set(event_target_value(&ev))/></label>
+                                            <label>{move || i18n::t(&language.get(), "editor.en_passant")}<input type="text" prop:value=move || editor_ep.get() on:input=move |ev| editor_ep.set(event_target_value(&ev))/></label>
                                             <label class="checkline">
                                                 {move || i18n::t(&language.get(), "settings.scan_image")}
                                                 <input
@@ -4994,7 +5032,7 @@ pub fn App() -> impl IntoView {
                                                         }
                                                     }
                                                 });
-                                            }>"Flip ranks"</button>
+                                            }>{move || i18n::t(&language.get(), "editor.flip_ranks")}</button>
                                             <button on:click=move |_| {
                                                 editor_pieces.update(|pieces| {
                                                     for rank in 0..8 {
@@ -5003,20 +5041,20 @@ pub fn App() -> impl IntoView {
                                                         }
                                                     }
                                                 });
-                                            }>"Flip files"</button>
+                                            }>{move || i18n::t(&language.get(), "editor.flip_files")}</button>
                                             <button on:click=move |_| {
                                                 editor_pieces.update(|pieces| {
                                                     pieces.reverse();
                                                 });
-                                            }>"Rotate 180°"</button>
+                                            }>{move || i18n::t(&language.get(), "editor.rotate")}</button>
                                         </div>
-                                        <button on:click=apply_editor>"Use position"</button>
+                                        <button on:click=apply_editor>{move || i18n::t(&language.get(), "editor.use_position")}</button>
                                         <div class="muted">{move || vision_msg.get()}</div>
                                     </div>
                                 }
                             })
                     }}
-                    <div class="panel-sub">"Edit moves"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.edit_moves")}</div>
                     <div class="row-btns">
                         <button
                             on:click=move |_| {
@@ -5032,9 +5070,13 @@ pub fn App() -> impl IntoView {
                                 edit_moves_open.update(|v| *v = !*v);
                             }
                         >
-                            {move || if edit_moves_open.get() { "Close editor" } else { "Edit moves" }}
+                            {move || if edit_moves_open.get() {
+                                i18n::t(&language.get(), "editor.close")
+                            } else {
+                                i18n::t(&language.get(), "analysis.edit_moves")
+                            }}
                         </button>
-                        <button on:click=truncate_moves>"Keep up to current move"</button>
+                        <button on:click=truncate_moves>{move || i18n::t(&language.get(), "analysis.keep_up")}</button>
                     </div>
                     {move || {
                         edit_moves_open
@@ -5047,12 +5089,12 @@ pub fn App() -> impl IntoView {
                                             prop:value=move || moves_text.get()
                                             on:input=move |ev| moves_text.set(event_target_value(&ev))
                                         ></textarea>
-                                        <button on:click=apply_moves>"Save moves"</button>
+                                        <button on:click=apply_moves>{move || i18n::t(&language.get(), "analysis.save_moves")}</button>
                                     </div>
                                 }
                             })
                     }}
-                    <div class="panel-sub">"Repertoire"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "openings.repertoire")}</div>
                     <div class="row-btns">
                         <select
                             prop:value=move || analysis_rep.get().to_string()
@@ -5060,7 +5102,7 @@ pub fn App() -> impl IntoView {
                                 analysis_rep.set(event_target_value(&ev).parse().unwrap_or(0))
                             }
                         >
-                            <option value="0">"Add line to…"</option>
+                            <option value="0">{move || i18n::t(&language.get(), "analysis.add_line_to")}</option>
                             {move || {
                                 reps
                                     .get()
@@ -5082,11 +5124,11 @@ pub fn App() -> impl IntoView {
                             {move || i18n::t(&language.get(), "analysis.add_game")}
                         </button>
                     </div>
-                    <div class="panel-sub">"Annotation"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.annotation")}</div>
                     <div class="ann-editor">
                         <input
                             type="text"
-                            placeholder="Comment for this ply…"
+                            placeholder=move || i18n::t(&language.get(), "analysis.comment_ph")
                             prop:value=move || ann_text.get()
                             on:input=move |ev| ann_text.set(event_target_value(&ev))
                         />
@@ -5102,7 +5144,7 @@ pub fn App() -> impl IntoView {
                             <option value="5">"!?"</option>
                             <option value="6">"?!"</option>
                         </select>
-                        <button on:click=save_annotation>"Save"</button>
+                        <button on:click=save_annotation>{move || i18n::t(&language.get(), "common.save")}</button>
                     </div>
                 </aside>
                 {move || {
@@ -5138,14 +5180,14 @@ pub fn App() -> impl IntoView {
                             }}
                             <div class="row-btns">
                                 <button on:click=move |_| {
-                                    chat_text.set("Analyse this position.".into());
+                                    chat_text.set(i18n::t(&language.get(), "analysis.prompt_analyse").into());
                                     send_chat();
-                                }>"Analyse"</button>
+                                }>{move || i18n::t(&language.get(), "analysis.analyse")}</button>
                                 <button on:click=move |_| {
-                                    chat_text.set("Explain the plan and draw the key idea with arrows.".into());
+                                    chat_text.set(i18n::t(&language.get(), "analysis.prompt_plan").into());
                                     send_chat();
-                                }>"Explain plan"</button>
-                                <button on:click=move |_| ai_shapes.set(Vec::new())>"Clear arrows"</button>
+                                }>{move || i18n::t(&language.get(), "analysis.explain")}</button>
+                                <button on:click=move |_| ai_shapes.set(Vec::new())>{move || i18n::t(&language.get(), "analysis.clear_arrows")}</button>
                             </div>
                             <div class="chat-input">
                                 <textarea
@@ -5153,7 +5195,7 @@ pub fn App() -> impl IntoView {
                                     prop:value=move || chat_text.get()
                                     on:input=move |ev| chat_text.set(event_target_value(&ev))
                                 ></textarea>
-                                <button on:click=move |_| send_chat()>"Send"</button>
+                                <button on:click=move |_| send_chat()>{move || i18n::t(&language.get(), "analysis.send")}</button>
                             </div>
                         </div>
                     }
@@ -5208,7 +5250,7 @@ pub fn App() -> impl IntoView {
                                     prop:value=move || console_cmd.get()
                                     on:input=move |ev| console_cmd.set(event_target_value(&ev))
                                     on:keydown=move |ev| {
-                                        if ev.key() == "Enter" {
+                                        if ev.key() == i18n::t(&language.get(), "common.enter") {
                                             console_send();
                                         }
                                     }
@@ -5239,7 +5281,7 @@ pub fn App() -> impl IntoView {
                                 </div>
                                 <button
                                     class="dock-close"
-                                    aria-label="Close panel"
+                                    aria-label={move || i18n::t(&language.get(), "analysis.close_panel")}
                                     on:click=move |_| dock.set(String::new())
                                 >
                                     "×"
@@ -5350,7 +5392,7 @@ pub fn App() -> impl IntoView {
     let on_spar_move = move |(_uci, _san, fen_after): (String, String, String)| {
         let engine_white = spar_color.get_untracked() == "black";
         let turn_white = fen_after.split_whitespace().nth(1) != Some("b");
-        spar_status.set("Engine thinking…".into());
+        spar_status.set(i18n::t(&language.get(), "analysis.engine_thinking_caps").into());
         if turn_white == engine_white {
             spar_thinking.set(true);
             let depth = settings_depth.get_untracked();
@@ -5366,7 +5408,7 @@ pub fn App() -> impl IntoView {
                 spar_thinking.set(false);
             });
         } else {
-            spar_status.set("Your move.".into());
+            spar_status.set(i18n::t(&language.get(), "practice.your_move").into());
         }
     };
 
@@ -5528,7 +5570,7 @@ pub fn App() -> impl IntoView {
                                 <div class="practice-row">
                                     <input
                                         type="text"
-                                        placeholder="Filter games by player or event…"
+                                        placeholder=move || i18n::t(&language.get(), "practice.filter")
                                         prop:value=move || practice_query.get()
                                         on:input=move |ev| practice_query.set(event_target_value(&ev))
                                     />
@@ -5539,7 +5581,7 @@ pub fn App() -> impl IntoView {
                                                 .set(event_target_value(&ev).parse().unwrap_or(0))
                                         }
                                     >
-                                        <option value="0">"Choose a game…"</option>
+                                        <option value="0">{move || i18n::t(&language.get(), "practice.choose_game")}</option>
                                         {move || {
                                             practice_games
                                                 .get()
@@ -5575,7 +5617,7 @@ pub fn App() -> impl IntoView {
                                 <div class="practice-row">
                                     <input
                                         type="text"
-                                        placeholder="Starting FEN (empty = start position)"
+                                        placeholder=move || i18n::t(&language.get(), "practice.start_fen_long")
                                         prop:value=move || spar_fen.get()
                                         on:input=move |ev| spar_fen.set(event_target_value(&ev))
                                     />
@@ -5583,10 +5625,10 @@ pub fn App() -> impl IntoView {
                                         prop:value=move || spar_color.get()
                                         on:change=move |ev| spar_color.set(event_target_value(&ev))
                                     >
-                                        <option value="white">"Play White"</option>
-                                        <option value="black">"Play Black"</option>
+                                        <option value="white">{move || i18n::t(&language.get(), "practice.play_white")}</option>
+                                        <option value="black">{move || i18n::t(&language.get(), "practice.play_black")}</option>
                                     </select>
-                                    <button on:click=start_spar>"Start"</button>
+                                    <button on:click=start_spar>{move || i18n::t(&language.get(), "common.start")}</button>
                                 </div>
                             }
                                 .into_any()
@@ -5639,7 +5681,7 @@ pub fn App() -> impl IntoView {
                                         type="number"
                                         min="1"
                                         max="30"
-                                        title="Depth"
+                                        title=move || i18n::t(&language.get(), "settings.depth_label")
                                         style="max-width:6rem"
                                         prop:value=move || match_depth.get().to_string()
                                         on:input=move |ev| {
@@ -5649,13 +5691,13 @@ pub fn App() -> impl IntoView {
                                     />
                                     <input
                                         type="text"
-                                        placeholder="Start FEN (empty = start)"
+                                        placeholder=move || i18n::t(&language.get(), "practice.start_fen")
                                         prop:value=move || match_start_fen.get()
                                         on:input=move |ev| match_start_fen.set(event_target_value(&ev))
                                     />
-                                    <button on:click=start_match>"Start"</button>
-                                    <button on:click=pause_match>"Pause"</button>
-                                    <button on:click=reset_match>"Reset"</button>
+                                    <button on:click=start_match>{move || i18n::t(&language.get(), "common.start")}</button>
+                                    <button on:click=pause_match>{move || i18n::t(&language.get(), "common.pause")}</button>
+                                    <button on:click=reset_match>{move || i18n::t(&language.get(), "common.reset")}</button>
                                 </div>
                             }
                                 .into_any()
@@ -5670,7 +5712,7 @@ pub fn App() -> impl IntoView {
                                 let side = practice_game
                                     .get()
                                     .map(|g| format!("{} vs {}", g.white, g.black))
-                                    .unwrap_or_else(|| "Guess the move".into());
+                                    .unwrap_or_else(|| i18n::t(&language.get(), "practice.guess").into());
                                 view! {
                                     <Board
                                         pgn=practice_pgn
@@ -5692,13 +5734,13 @@ pub fn App() -> impl IntoView {
                                 view! {
                                     <Board
                                         pgn=spar_pgn
-                                        title=Signal::derive(move || "Sparring".to_string())
+                                        title=Signal::derive(move || i18n::t(&language.get(), "practice.spar").to_string())
                                         orientation=Signal::derive(move || spar_color.get())
                                         play=Signal::derive(move || spar_play.get())
                                         on_move=Callback::new(on_spar_move)
                                         on_position=Callback::new(move |f: String| fen.set(f))
                                         on_play=Callback::new(move |_: (String, String, String)| {
-                                            spar_status.set("Your move.".into());
+                                            spar_status.set(i18n::t(&language.get(), "practice.your_move").into());
                                         })
                                         keybinds=Signal::derive(move || keybinds.get())
                                         theme=Signal::derive(move || settings_theme.get())
@@ -5714,7 +5756,7 @@ pub fn App() -> impl IntoView {
                                 view! {
                                     <Board
                                         pgn=match_pgn
-                                        title=Signal::derive(move || "Engine match".to_string())
+                                        title=Signal::derive(move || i18n::t(&language.get(), "practice.match").to_string())
                                         play=Signal::derive(move || match_play.get())
                                         on_play=Callback::new(on_match_play)
                                         on_position=Callback::new(move |f: String| fen.set(f))
@@ -5733,7 +5775,7 @@ pub fn App() -> impl IntoView {
                         }}
                     </div>
                     <aside class="engine-pane">
-                        <div class="panel-head"><h2>"Practice"</h2></div>
+                        <div class="panel-head"><h2>{move || i18n::t(&language.get(), "nav.practice")}</h2></div>
                         {move || {
                             if practice_mode.get() == "guess" {
                                 let total = practice_sans.get().len();
@@ -5781,7 +5823,7 @@ pub fn App() -> impl IntoView {
                                                     practice_feedback
                                                         .set(format!("The game move is {next}"));
                                                 }
-                                            }>"Reveal"</button>
+                                            }>{move || i18n::t(&language.get(), "practice.reveal")}</button>
                                         </div>
                                     </div>
                                 }
@@ -5800,7 +5842,7 @@ pub fn App() -> impl IntoView {
                                             }}
                                         </div>
                                         <div class="row-btns">
-                                            <button on:click=start_spar>"New game"</button>
+                                            <button on:click=start_spar>{move || i18n::t(&language.get(), "practice.new_game")}</button>
                                         </div>
                                     </div>
                                 }
@@ -5840,8 +5882,8 @@ pub fn App() -> impl IntoView {
                                             <button on:click=start_match disabled=move || match_running.get()>
                                                 {move || i18n::t(&language.get(), "common.start")}
                                             </button>
-                                            <button on:click=pause_match>"Pause"</button>
-                                            <button on:click=reset_match>"Reset"</button>
+                                            <button on:click=pause_match>{move || i18n::t(&language.get(), "common.pause")}</button>
+                                            <button on:click=reset_match>{move || i18n::t(&language.get(), "common.reset")}</button>
                                         </div>
                                     </div>
                                 }
@@ -5875,13 +5917,13 @@ pub fn App() -> impl IntoView {
                 <div class="load">
                     <input
                         type="text"
-                        placeholder="FEN…"
+                        placeholder=move || i18n::t(&language.get(), "openings.fen_ph")
                         prop:value=move || opening_fen.get()
                         on:input=move |ev| opening_fen.set(event_target_value(&ev))
                     />
-                    <button on:click=explore>"Explore"</button>
+                    <button on:click=explore>{move || i18n::t(&language.get(), "openings.explore")}</button>
                     <button
-                        title="Use the position currently on the analysis board"
+                        title=move || i18n::t(&language.get(), "openings.use_current")
                         on:click=move |_| {
                             let current = fen.get();
                             if !current.is_empty() {
@@ -5914,8 +5956,8 @@ pub fn App() -> impl IntoView {
                                     <div class="opening-name">{title}</div>
                                     <div class="table open">
                                         <div class="row head">
-                                            <span>"Move"</span><span>"Games"</span>
-                                            <span>"White"</span><span>"Draw"</span><span>"Black"</span>
+                                            <span>{move || i18n::t(&language.get(), "db.move")}</span><span>{move || i18n::t(&language.get(), "db.games")}</span>
+                                            <span>"White"</span><span>{move || i18n::t(&language.get(), "db.draw")}</span><span>"Black"</span>
                                         </div>
                                         {o
                                             .continuations
@@ -5952,7 +5994,7 @@ pub fn App() -> impl IntoView {
                     }
                     Ok(None) => {
                         rep_card.set(None);
-                        rep_feedback.set("No cards due right now.".into());
+                        rep_feedback.set(i18n::t(&language.get(), "openings.no_due").into());
                     }
                     Err(e) => rep_feedback.set(e),
                 }
@@ -6059,7 +6101,7 @@ pub fn App() -> impl IntoView {
                                     <div class="board-pane">
                                         <Board
                                             pgn=rep_board
-                                            title=Signal::derive(move || "Repertoire training".to_string())
+                                            title=Signal::derive(move || i18n::t(&language.get(), "openings.rep_training").to_string())
                                             orientation=Signal::derive(move || {
                                                 reps
                                                     .get()
@@ -6078,7 +6120,7 @@ pub fn App() -> impl IntoView {
                                         />
                                     </div>
                                     <aside class="engine-pane">
-                                        <div class="panel-head"><h2>"Repertoire"</h2></div>
+                                        <div class="panel-head"><h2>{move || i18n::t(&language.get(), "openings.repertoire")}</h2></div>
                                         <div class="best">
                                             {format!(
                                                 "Play {}'s move",
@@ -6091,7 +6133,7 @@ pub fn App() -> impl IntoView {
                                         </div>
                                         <div class="muted">{move || rep_feedback.get()}</div>
                                         <div class="row-btns">
-                                            <button on:click=next_card>"Next card"</button>
+                                            <button on:click=next_card>{move || i18n::t(&language.get(), "practice.next_card")}</button>
                                         </div>
                                     </aside>
                                 </section>
@@ -6100,7 +6142,7 @@ pub fn App() -> impl IntoView {
                 }}
                 <section class="panel">
                     <div class="panel-head">
-                        <h2>"Openings"</h2>
+                        <h2>{move || i18n::t(&language.get(), "nav.openings")}</h2>
                         <div class="row-btns">
                             <button
                                 class=move || if opening_mode.get() == "explorer" { "chip active" } else { "chip" }
@@ -6124,9 +6166,9 @@ pub fn App() -> impl IntoView {
                                         prop:value=move || opening_source.get()
                                         on:change=move |ev| opening_source.set(event_target_value(&ev))
                                     >
-                                        <option value="local">"Local games"</option>
-                                        <option value="lichess">"Lichess (online)"</option>
-                                        <option value="masters">"Masters (online)"</option>
+                                        <option value="local">{move || i18n::t(&language.get(), "openings.local")}</option>
+                                        <option value="lichess">{move || i18n::t(&language.get(), "openings.lichess")}</option>
+                                        <option value="masters">{move || i18n::t(&language.get(), "openings.masters")}</option>
                                     </select>
                                 </div>
                                 {explorer()}
@@ -6137,7 +6179,7 @@ pub fn App() -> impl IntoView {
                                 <div class="dbs">
                                     <input
                                         type="text"
-                                        placeholder="Repertoire name…"
+                                        placeholder=move || i18n::t(&language.get(), "openings.rep_name")
                                         prop:value=move || rep_name.get()
                                         on:input=move |ev| rep_name.set(event_target_value(&ev))
                                     />
@@ -6148,7 +6190,7 @@ pub fn App() -> impl IntoView {
                                         <option value="white">"White"</option>
                                         <option value="black">"Black"</option>
                                     </select>
-                                    <button on:click=create_rep>"Create"</button>
+                                    <button on:click=create_rep>{move || i18n::t(&language.get(), "common.create")}</button>
                                 </div>
                                 <div class="rep-list">
                                     {move || {
@@ -6190,7 +6232,7 @@ pub fn App() -> impl IntoView {
                                             view! {
                                                 <div class="pgn-box">
                                                     <textarea
-                                                        placeholder="Paste a repertoire PGN (mainline and variations)…"
+                                                        placeholder=move || i18n::t(&language.get(), "openings.rep_paste")
                                                         prop:value=move || rep_pgn_input.get()
                                                         on:input=move |ev| rep_pgn_input.set(event_target_value(&ev))
                                                     ></textarea>
@@ -6201,12 +6243,12 @@ pub fn App() -> impl IntoView {
                                             }
                                         })
                                 }}
-                                <div class="panel-sub">"Training"</div>
+                                <div class="panel-sub">{move || i18n::t(&language.get(), "openings.training")}</div>
                                 <div class="muted">
                                     {move || rep_feedback.get()}
                                 </div>
                                 <div class="row-btns">
-                                    <button on:click=next_card>"Next card"</button>
+                                    <button on:click=next_card>{move || i18n::t(&language.get(), "practice.next_card")}</button>
                                     {move || {
                                         rep_card
                                             .get()
@@ -6337,14 +6379,14 @@ pub fn App() -> impl IntoView {
         };
 
         let feedback = move || match puzzle_state.get().as_str() {
-            "correct" => "Correct — keep going.".to_owned(),
+            "correct" => i18n::t(&language.get(), "puzzles.correct").to_owned(),
             "wrong" => format!(
                 "Not the puzzle move. Solution: {}",
                 puzzle_san.get().join(" ")
             ),
             "solved" => match puzzle_delta.get() {
                 Some((before, after)) => format!("Solved! Rating {before} → {after}"),
-                None => "Solved!".to_owned(),
+                None => i18n::t(&language.get(), "puzzles.solved").to_owned(),
             },
             _ => String::new(),
         };
@@ -6371,13 +6413,13 @@ pub fn App() -> impl IntoView {
                     />
                 </div>
                 <aside class="engine-pane">
-                    <div class="panel-head"><h2>"Puzzles"</h2></div>
+                    <div class="panel-head"><h2>{move || i18n::t(&language.get(), "nav.puzzles")}</h2></div>
                     <div class="row-btns">
                         <select
                             prop:value=move || puzzle_theme.get()
                             on:change=move |ev| puzzle_theme.set(event_target_value(&ev))
                         >
-                            <option value="">"Any theme"</option>
+                            <option value="">{move || i18n::t(&language.get(), "puzzles.any_theme")}</option>
                             {move || {
                                 puzzle_themes
                                     .get()
@@ -6402,7 +6444,7 @@ pub fn App() -> impl IntoView {
                                 puzzle_rating.set(event_target_value(&ev).parse().unwrap_or(1500))
                             }
                         />
-                        <button on:click=load>"Next puzzle"</button>
+                        <button on:click=load>{move || i18n::t(&language.get(), "puzzles.next")}</button>
                     </div>
                     {move || {
                         puzzle
@@ -6421,9 +6463,15 @@ pub fn App() -> impl IntoView {
                                         <div class="muted">{format!("Puzzle {} · Lichess rating {}", p.id, p.rating)}</div>
                                         <div class="row-btns">
                                             <button on:click=move |_| show_solution.update(|v| *v = !*v)>
-                                                {move || if show_solution.get() { "Hide solution" } else { "Show solution" }}
+                                                {move || {
+                                                    if show_solution.get() {
+                                                        i18n::t(&language.get(), "puzzles.hide_solution")
+                                                    } else {
+                                                        i18n::t(&language.get(), "puzzles.show_solution")
+                                                    }
+                                                }}
                                             </button>
-                                            <button on:click=retry>"Retry"</button>
+                                            <button on:click=retry>{move || i18n::t(&language.get(), "puzzles.retry")}</button>
                                         </div>
                                         {move || {
                                             show_solution
@@ -6443,7 +6491,7 @@ pub fn App() -> impl IntoView {
                                 }
                             })
                     }}
-                    <div class="panel-sub">"Recent attempts"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "puzzles.recent")}</div>
                     {move || {
                         attempts
                             .get()
@@ -6463,7 +6511,7 @@ pub fn App() -> impl IntoView {
                             })
                             .collect_view()
                     }}
-                    <div class="panel-sub">"Import puzzles (Lichess CSV)"</div>
+                    <div class="panel-sub">{move || i18n::t(&language.get(), "puzzles.import")}</div>
                     <textarea
                         class="import-csv"
                         placeholder="PuzzleId,FEN,Moves,Rating,…"
@@ -6487,7 +6535,7 @@ pub fn App() -> impl IntoView {
                                 Err(e) => status.set(e),
                             }
                         });
-                    }>"Import CSV"</button>
+                    }>{move || i18n::t(&language.get(), "puzzles.import_csv")}</button>
                 </aside>
             </section>
         }
@@ -6495,7 +6543,7 @@ pub fn App() -> impl IntoView {
     };
 
     view! {
-        <a class="skip-link" href="#app-main">"Skip to content"</a>
+        <a class="skip-link" href="#app-main">{move || i18n::t(&language.get(), "a11y.skip")}</a>
         <div class="app">
             <aside class="sidebar">
                 <div class="brand">"RustyBrickChess"</div>
@@ -6533,7 +6581,7 @@ pub fn App() -> impl IntoView {
                         prop:value=move || query.get()
                         on:input=move |ev| query.set(event_target_value(&ev))
                         on:keydown=move |ev| {
-                            if ev.key() == "Enter" { reload(); }
+                            if ev.key() == i18n::t(&language.get(), "common.enter") { reload(); }
                         }
                     />
                     <button on:click=move |_| reload()>
@@ -6542,7 +6590,7 @@ pub fn App() -> impl IntoView {
                     <span class="status" aria-live="polite">{move || status.get()}</span>
                 </header>
                 <div class="workspaces">
-                    <span class="ws-label">"Workspaces"</span>
+                    <span class="ws-label">{move || i18n::t(&language.get(), "ws.label")}</span>
                     <For
                         each=move || workspaces.get()
                         key=|ws| (ws.key, ws.title.clone())
@@ -6574,7 +6622,7 @@ pub fn App() -> impl IntoView {
                                                     on:input=move |ev| rename_text.set(event_target_value(&ev))
                                                     on:change=move |_| commit_rename()
                                                     on:keydown=move |ev| {
-                                                        if ev.key() == "Enter" {
+                                                        if ev.key() == i18n::t(&language.get(), "common.enter") {
                                                             commit_rename();
                                                         }
                                                     }
@@ -6600,7 +6648,7 @@ pub fn App() -> impl IntoView {
                                     }}
                                     <button
                                         class="ws-icon"
-                                        title="Rename"
+                                        title={move || i18n::t(&language.get(), "common.rename")}
                                         aria-label="Rename workspace"
                                         on:click=move |_| {
                                             rename_text.set(title_shared.get_value());
@@ -6611,7 +6659,7 @@ pub fn App() -> impl IntoView {
                                     </button>
                                     <button
                                         class="ws-icon"
-                                        title="Move left"
+                                        title={move || i18n::t(&language.get(), "ws.move_left")}
                                         aria-label="Move workspace left"
                                         on:click=move |_| move_workspace(key, -1)
                                     >
@@ -6619,7 +6667,7 @@ pub fn App() -> impl IntoView {
                                     </button>
                                     <button
                                         class="ws-icon"
-                                        title="Move right"
+                                        title={move || i18n::t(&language.get(), "ws.move_right")}
                                         aria-label="Move workspace right"
                                         on:click=move |_| move_workspace(key, 1)
                                     >
@@ -6627,8 +6675,8 @@ pub fn App() -> impl IntoView {
                                     </button>
                                     <button
                                         class="ws-close"
-                                        title="Close workspace"
-                                        aria-label="Close workspace"
+                                        title={move || i18n::t(&language.get(), "ws.close")}
+                                        aria-label={move || i18n::t(&language.get(), "ws.close")}
                                         on:click=move |_| close_workspace(key)
                                     >
                                         "×"
@@ -6653,8 +6701,8 @@ pub fn App() -> impl IntoView {
                         <option value="">"+ New tab"</option>
                         <option value="analysis">"Analysis"</option>
                         <option value="database">"Database"</option>
-                        <option value="openings">"Openings"</option>
-                        <option value="puzzles">"Puzzles"</option>
+                        <option value="openings">{move || i18n::t(&language.get(), "nav.openings")}</option>
+                        <option value="puzzles">{move || i18n::t(&language.get(), "nav.puzzles")}</option>
                     </select>
                 </div>
                 {move || match tab.get() {
