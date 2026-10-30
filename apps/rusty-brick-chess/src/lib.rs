@@ -4,6 +4,7 @@
 //! (games database, engine analysis, classification) + AI chat.
 
 pub mod api;
+pub mod importer;
 pub mod vision;
 
 use axum::{

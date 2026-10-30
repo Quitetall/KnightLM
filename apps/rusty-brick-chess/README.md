@@ -291,6 +291,42 @@ cargo tauri build      # .AppImage/.deb/.rpm, .dmg, .msi
 Icons live in `src-tauri/icons/icon.png`; add the platform-specific sizes
 before shipping installers.
 
+## Importing Lichess monthly dumps
+
+Lichess publishes a monthly PGN dump of every rated standard game
+(`lichess_db_standard_rated_YYYY-MM.pgn.zst`, tens of GB). The importer streams
+it — decompress, split, filter on the tags, import — without unpacking it:
+
+```bash
+rustybrickchess import-dump \
+  --file data/lichess_db_standard_rated_2026-09.pgn.zst \
+  --db ~/.local/share/rustybrickchess/lichess-2026-09-slice.db \
+  --max 1000000 \
+  --index-positions
+```
+
+Options:
+
+| flag | meaning |
+|---|---|
+| `--file` | the `.pgn.zst` dump |
+| `--db` | output database (created if missing) |
+| `--max N` | stop after importing N games |
+| `--player NAME` | only games with that White/Black |
+| `--date-from`, `--date-to` | `YYYY-MM-DD` range |
+| `--min-elo`, `--max-elo` | either side's rating |
+| `--result` | `1-0`, `0-1`, `1/2-1/2` or `*` |
+| `--time-control` | exact value, e.g. `120+1` |
+| `--index-positions` | keep the per-ply position index (position search) |
+| `--batch N` | commit every N games (default 2000) |
+
+The index costs roughly 2× the time and size: without it a game is ~8 KB,
+with it ~19 KB (about 19 GB for a million games). Drop the flag for a
+browse/search-only archive. A player filter is nearly free once the file has
+been read, so `--player` plus `--max 0` imports one account's month in a single
+pass. Progress is printed every few seconds; the output database appears in
+the app's database switcher.
+
 ## Session persistence
 
 Open analysis boards (workspaces) survive a reload or app restart: tabs,

@@ -307,7 +307,7 @@ impl Db {
         }
         let mut ids = Vec::new();
         for game in games {
-            ids.push(self.import_one(game, collection)?);
+            ids.push(self.import_one(game, collection, true)?);
         }
         Ok(ids)
     }
@@ -319,11 +319,22 @@ impl Db {
         pgn: &str,
         collection: Option<i64>,
     ) -> Result<(Vec<i64>, usize)> {
+        self.import_pgn_lenient_opts(pgn, collection, true)
+    }
+
+    /// Like [`Self::import_pgn_lenient`], optionally skipping the per-ply
+    /// position index (bulk imports of large archives can turn it off).
+    pub fn import_pgn_lenient_opts(
+        &self,
+        pgn: &str,
+        collection: Option<i64>,
+        index_positions: bool,
+    ) -> Result<(Vec<i64>, usize)> {
         let games = knightlm_notation::pgn::parse_all(pgn.as_bytes())?;
         let mut ids = Vec::new();
         let mut skipped = 0usize;
         for game in games {
-            match self.import_one(game, collection) {
+            match self.import_one(game, collection, index_positions) {
                 Ok(id) => ids.push(id),
                 Err(_) => skipped += 1,
             }
@@ -331,10 +342,27 @@ impl Db {
         Ok((ids, skipped))
     }
 
+    /// Open a transaction around many imports (bulk loading).
+    pub fn begin_bulk(&self) -> Result<()> {
+        self.conn.lock().expect("db lock").execute_batch("BEGIN")?;
+        Ok(())
+    }
+
+    pub fn commit_bulk(&self) -> Result<()> {
+        self.conn.lock().expect("db lock").execute_batch("COMMIT")?;
+        Ok(())
+    }
+
+    pub fn rollback_bulk(&self) -> Result<()> {
+        self.conn.lock().expect("db lock").execute_batch("ROLLBACK")?;
+        Ok(())
+    }
+
     fn import_one(
         &self,
         game: knightlm_notation::pgn::PgnGame,
         collection: Option<i64>,
+        index_positions_wanted: bool,
     ) -> Result<i64> {
         let tags = &game.tags;
         let variant = normalize_variant(tags.get("Variant").map(String::as_str));
@@ -416,8 +444,10 @@ impl Db {
         )
         .context("insert game")?;
         let id = conn.last_insert_rowid();
-        if let Some(record) = &record {
-            index_positions(&conn, id, &record.initial_fen, &record.moves, &variant)?;
+        if index_positions_wanted {
+            if let Some(record) = &record {
+                index_positions(&conn, id, &record.initial_fen, &record.moves, &variant)?;
+            }
         }
         if let Some(cid) = collection {
             conn.execute(
@@ -611,7 +641,7 @@ impl Db {
                  UNION ALL
                  SELECT black AS name, black_elo AS elo FROM games
              ) WHERE name IS NOT NULL
-             GROUP BY name ORDER BY name",
+             GROUP BY name ORDER BY COUNT(*) DESC LIMIT 500",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(PlayerRow {
@@ -627,7 +657,7 @@ impl Db {
         let conn = self.conn.lock().expect("db lock");
         let mut stmt = conn.prepare(
             "SELECT event, COUNT(*) FROM games WHERE event IS NOT NULL
-             GROUP BY event ORDER BY COUNT(*) DESC",
+             GROUP BY event ORDER BY COUNT(*) DESC LIMIT 300",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(EventRow {

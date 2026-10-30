@@ -23,6 +23,7 @@ shakmaty = "=0.30.2"
 shakmaty-syzygy = "0.28"
 knightlm-core = { path = "../../crates/core" }
 base64 = "0.22"
+zstd = "0.13"
 tract-onnx = "0.23"
 sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
