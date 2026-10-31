@@ -352,10 +352,64 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("status.m30", "variant preview: board navigation is unavailable", "vista previa de variante: la navegación del tablero no está disponible"),
     ("status.m31", "variation promoted", "variante promovida"),
     ("status.m32", "writing annotations…", "escribiendo anotaciones…"),
+    ("status.d01", "collection '{name}' created", "colección '{name}' creada"),
+    ("status.d02", "database: {name}", "base de datos: {name}"),
+    ("status.d03", "database '{name}' ready", "base de datos '{name}' lista"),
+    ("status.d04", "variant {variant}: imported, preview only", "variante {variant}: importada, solo vista previa"),
+    ("status.d05", "imported {n} game(s)", "{n} partida(s) importada(s)"),
+    ("status.d06", "{name} is empty", "{name} está vacío"),
+    ("status.d07", "imported {n} game(s) from {name}", "{n} partida(s) importada(s) desde {name}"),
+    ("status.d08", "{name}: {error}", "{name}: {error}"),
+    ("status.d09", "imported {n} game(s) from {provider}, skipped {skipped} unsupported", "{n} partida(s) importada(s) desde {provider}, {skipped} no compatibles omitidas"),
+    ("status.d10", "imported {n} game(s) from {provider}", "{n} partida(s) importada(s) desde {provider}"),
+    ("status.d11", "added {n} card(s) to the repertoire", "{n} tarjeta(s) añadida(s) al repertorio"),
+    ("status.d12", "kept {ply} move(s)", "{ply} jugada(s) conservada(s)"),
+    ("status.d13", "added {n} card(s) from the whole game", "{n} tarjeta(s) añadida(s) de toda la partida"),
+    ("status.d14", "cloud eval at depth {depth}", "evaluación en la nube a profundidad {depth}"),
+    ("status.d15", "annotated {written} move(s)", "{written} jugada(s) anotada(s)"),
+    ("status.d16", "repertoire '{name}' created", "repertorio '{name}' creado"),
+    ("status.d17", "imported {n} repertoire card(s)", "{n} tarjeta(s) de repertorio importada(s)"),
+    ("status.d18", "imported {n} puzzles", "{n} puzzles importados"),
+    ("status.d19", "linking {provider}…", "vinculando {provider}…"),
+    ("status.d20", "linked {provider}", "{provider} vinculado"),
+    ("status.d21", "unlinked {provider}", "{provider} desvinculado"),
+    ("status.d22", "importing from {provider}…", "importando desde {provider}…"),
+    ("status.d23", "imported {count} game(s) from {provider}", "{count} partida(s) importada(s) desde {provider}"),
+    ("status.d24", "{name} thinking…", "{name} pensando…"),
+    ("status.d25", "finished — {result} ({over})", "terminado — {result} ({over})"),
+    ("status.d26", "{turn} to move", "{turn} juega"),
+    ("status.d27", "Finished — {hits} of {total} moves matched", "Terminado — {hits} de {total} jugadas acertadas"),
+    ("status.d28", "Correct — {remaining} moves to go", "Correcto — quedan {remaining} jugadas"),
+    ("status.d29", "The game move is {next}", "La jugada de la partida es {next}"),
+    ("status.d30", "You are {color}. Play a move.", "Juegas con {color}. Haz una jugada."),
+    ("status.d31", "uploaded {name}", "{name} subido"),
+    ("status.d32", "downloading model (about 100 MB)…", "descargando modelo (unos 100 MB)…"),
+    ("status.d33", "vision model installed", "modelo de visión instalado"),
+    ("status.d34", "recognizing board…", "reconociendo el tablero…"),
+    ("status.d35", "{n} pieces detected · confidence {pct}%", "{n} piezas detectadas · confianza {pct}%"),
+    ("status.d36", "name the set first", "ponle nombre al conjunto primero"),
+    ("status.d37", "reading {total} file(s)…", "leyendo {total} archivo(s)…"),
+    ("status.d38", "missing pieces: {list}", "piezas faltantes: {list}"),
+    ("status.d39", "deleted {name}", "{name} eliminado"),
+    ("status.d40", "Play the game's move — {n} to go", "Juega la jugada de la partida — quedan {n}"),
+    ("status.d41", "Not the game move — the game played {mv}", "No es la jugada de la partida — se jugó {mv}"),
+    ("account.enter_user", "enter a username first", "introduce un nombre de usuario primero"),
+    ("practice.choose_game_first", "choose a game first", "elige una partida primero"),
+    ("practice.no_moves", "that game has no moves", "esa partida no tiene jugadas"),
 ];
 
 
 
+
+/// Like [`t`], but substitutes `{name}` placeholders. Used for messages that
+/// carry counts or names so the sentence can be translated as a whole.
+pub fn tf(lang: &str, key: &str, args: &[(&str, String)]) -> String {
+    let mut text = t(lang, key).to_string();
+    for (name, value) in args {
+        text = text.replace(&format!("{{{name}}}"), value);
+    }
+    text
+}
 
 pub fn t(lang: &str, key: &str) -> &'static str {
     let row = STRINGS.iter().find(|(k, _, _)| *k == key);

@@ -6,14 +6,13 @@ pub mod i18n;
 mod views;
 pub mod sound;
 
-use brick_chess::scene::index_to_name;
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 
-use board::{Board, Keybinds};
+use board::Keybinds;
 
 mod model;
 use model::*;
@@ -305,7 +304,7 @@ pub fn App() -> impl IntoView {
             match api::create_collection(name.trim()).await {
                 Ok(c) => {
                     new_collection.set(String::new());
-                    status.set(format!("collection '{}' created", c.name));
+                    status.set(i18n::tf(&language.get(), "status.d01", &[("name", c.name.clone())]));
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -327,7 +326,7 @@ pub fn App() -> impl IntoView {
                     selected_game_id.set(None);
                     selected_pgn.set(String::new());
                     game_detail.set(None);
-                    status.set(format!("database: {name}"));
+                    status.set(i18n::tf(&language.get(), "status.d02", &[("name", name.clone())]));
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -349,7 +348,7 @@ pub fn App() -> impl IntoView {
                     selected_game_id.set(None);
                     selected_pgn.set(String::new());
                     game_detail.set(None);
-                    status.set(format!("database '{}' ready", name.trim()));
+                    status.set(i18n::tf(&language.get(), "status.d03", &[("name", name.trim().to_string())]));
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -728,7 +727,7 @@ pub fn App() -> impl IntoView {
         tab.set(Tab::Analysis);
     };
 
-    let open_page_tab = move |kind: &str| {
+    let open_page_tab = move |kind: String| {
         save_workspace();
         let existing = workspaces.with_untracked(|list| {
             list.iter().find(|w| w.kind == kind).map(|w| w.key)
@@ -738,7 +737,7 @@ pub fn App() -> impl IntoView {
             None => {
                 let key = ws_seq.get_untracked();
                 ws_seq.set(key + 1);
-                let title = match kind {
+                let title = match kind.as_str() {
                     "database" => i18n::t(&language.get(), "db.database"),
                     "openings" => i18n::t(&language.get(), "nav.openings"),
                     "puzzles" => i18n::t(&language.get(), "nav.puzzles"),
@@ -747,7 +746,7 @@ pub fn App() -> impl IntoView {
                 workspaces.update(|list| {
                     list.push(Workspace {
                         key,
-                        kind: kind.to_owned(),
+                        kind: kind.clone(),
                         game_id: None,
                         title: title.into(),
                         pgn: String::new(),
@@ -761,7 +760,7 @@ pub fn App() -> impl IntoView {
             }
         };
         active_ws.set(key);
-        tab.set(match kind {
+        tab.set(match kind.as_str() {
             "database" => Tab::Database,
             "openings" => Tab::Openings,
             "puzzles" => Tab::Puzzles,
@@ -1003,9 +1002,10 @@ pub fn App() -> impl IntoView {
         variant_only.set(preview_only);
         if preview_only {
             selected_pgn.set(line_pgn(&g.fen, &[], &variant_name));
-            status.set(format!(
-                "variant {}: imported, preview only",
-                g.variant.clone().unwrap_or_default()
+            status.set(i18n::tf(
+                &language.get(),
+                "status.d04",
+                &[("variant", g.variant.clone().unwrap_or_default())],
             ));
         } else {
             selected_pgn.set(line_pgn(&g.fen, &sans, &variant_name));
@@ -1061,7 +1061,7 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             match api::import_pgn(&text).await {
                 Ok(n) => {
-                    status.set(format!("imported {n} game(s)"));
+                    status.set(i18n::tf(&language.get(), "status.d05", &[("n", n.to_string())]));
                     import_text.set(String::new());
                     reload();
                 }
@@ -1072,13 +1072,13 @@ pub fn App() -> impl IntoView {
 
     let import_file = move |name: String, text: String| {
         if text.trim().is_empty() {
-            status.set(format!("{name} is empty"));
+            status.set(i18n::tf(&language.get(), "status.d06", &[("name", name.clone())]));
             return;
         }
         spawn_local(async move {
             match api::import_pgn(&text).await {
                 Ok(n) => {
-                    status.set(format!("imported {n} game(s) from {name}"));
+                    status.set(i18n::tf(&language.get(), "status.d07", &[("n", n.to_string()), ("name", name.clone())]));
                     recent_files.update(|list| {
                         list.retain(|(existing, _)| existing != &name);
                         list.insert(0, (name.clone(), n));
@@ -1087,7 +1087,7 @@ pub fn App() -> impl IntoView {
                     write_recent_files(&recent_files.get_untracked());
                     reload();
                 }
-                Err(error) => status.set(format!("{name}: {error}")),
+                Err(error) => status.set(i18n::tf(&language.get(), "status.d08", &[("name", name.clone()), ("error", error.to_string())])),
             }
         });
     };
@@ -1177,9 +1177,21 @@ pub fn App() -> impl IntoView {
             match result {
                 Ok((n, skipped)) => {
                     status.set(if skipped > 0 {
-                        format!("imported {n} game(s) from {provider}, skipped {skipped} unsupported")
+                        i18n::tf(
+                            &language.get(),
+                            "status.d09",
+                            &[
+                                ("n", n.to_string()),
+                                ("provider", provider.clone()),
+                                ("skipped", skipped.to_string()),
+                            ],
+                        )
                     } else {
-                        format!("imported {n} game(s) from {provider}")
+                        i18n::tf(
+                            &language.get(),
+                            "status.d10",
+                            &[("n", n.to_string()), ("provider", provider.clone())],
+                        )
                     });
                     reload();
                 }
@@ -1316,7 +1328,7 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             match api::import_repertoire_pgn(repertoire, &pgn).await {
                 Ok(n) => {
-                    status.set(format!("added {n} card(s) to the repertoire"));
+                    status.set(i18n::tf(&language.get(), "status.d11", &[("n", n.to_string())]));
                     if let Ok(list) = api::repertoires().await {
                         reps.set(list);
                     }
@@ -1413,7 +1425,7 @@ pub fn App() -> impl IntoView {
             match api::truncate_moves(id, ply).await {
                 Ok(d) => {
                     adopt_detail(d);
-                    status.set(format!("kept {ply} move(s)"));
+                    status.set(i18n::tf(&language.get(), "status.d12", &[("ply", ply.to_string())]));
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -1432,7 +1444,7 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             match api::import_repertoire_game(repertoire, game).await {
                 Ok(n) => {
-                    status.set(format!("added {n} card(s) from the whole game"));
+                    status.set(i18n::tf(&language.get(), "status.d13", &[("n", n.to_string())]));
                     if let Ok(list) = api::repertoires().await {
                         reps.set(list);
                     }
@@ -1715,6 +1727,7 @@ pub fn App() -> impl IntoView {
                 {rows}
             </div>
         }
+        .into_any()
     };
 
     let persist_settings = move || {
@@ -1922,7 +1935,7 @@ pub fn App() -> impl IntoView {
         };
         let name = piece_set_name.get_untracked().trim().to_lowercase();
         if name.is_empty() {
-            piece_set_msg.set("name the set first".into());
+            piece_set_msg.set(i18n::t(&language.get(), "status.d36").into());
             return;
         }
         let Some(files) = input.files() else {
@@ -1937,7 +1950,7 @@ pub fn App() -> impl IntoView {
         ));
         let pending = std::rc::Rc::new(std::cell::RefCell::new(total));
         piece_upload_busy.set(true);
-        piece_set_msg.set(format!("reading {total} file(s)…"));
+        piece_set_msg.set(i18n::tf(&language.get(), "status.d37", &[("total", total.to_string())]));
         for index in 0..total {
             let Some(file) = files.get(index) else {
                 continue;
@@ -1992,7 +2005,7 @@ pub fn App() -> impl IntoView {
                     .filter(|code| !files.contains_key(*code))
                     .collect();
                 if !missing.is_empty() {
-                    piece_set_msg.set(format!("missing pieces: {}", missing.join(", ")));
+                    piece_set_msg.set(i18n::tf(&language.get(), "status.d38", &[("list", missing.join(", "))]));
                     piece_upload_busy.set(false);
                     return;
                 }
@@ -2003,7 +2016,7 @@ pub fn App() -> impl IntoView {
                             custom_sets.set(list);
                             settings_pieces.set(format!("custom:{upload_name}"));
                             persist_settings();
-                            piece_set_msg.set(format!("uploaded {upload_name}"));
+                            piece_set_msg.set(i18n::tf(&language.get(), "status.d31", &[("name", upload_name.clone())]));
                         }
                         Err(error) => piece_set_msg.set(error),
                     }
@@ -2086,12 +2099,12 @@ pub fn App() -> impl IntoView {
 
     let download_vision = move |_| {
         vision_busy.set(true);
-        vision_msg.set("downloading model (about 100 MB)…".into());
+        vision_msg.set(i18n::t(&language.get(), "status.d32").into());
         spawn_local(async move {
             match api::download_vision().await {
                 Ok(status) => {
                     vision.set(Some(status));
-                    vision_msg.set("vision model installed".into());
+                    vision_msg.set(i18n::t(&language.get(), "status.d33").into());
                 }
                 Err(e) => vision_msg.set(e),
             }
@@ -2120,7 +2133,7 @@ pub fn App() -> impl IntoView {
             let Some(url) = result.as_string() else {
                 return;
             };
-            vision_msg.set("recognizing board…".into());
+            vision_msg.set(i18n::t(&language.get(), "status.d34").into());
             spawn_local(async move {
                 match api::recognize_image(&url).await {
                     Ok(found) => {
@@ -2131,10 +2144,13 @@ pub fn App() -> impl IntoView {
                         editor_ep.set("-".into());
                         editor_variant.set(board_variant.get_untracked());
                         editor_open.set(true);
-                        vision_msg.set(format!(
-                            "{} pieces detected · confidence {:.0}%",
-                            found.detections,
-                            found.confidence * 100.0
+                        vision_msg.set(i18n::tf(
+                            &language.get(),
+                            "status.d35",
+                            &[
+                                ("n", found.detections.to_string()),
+                                ("pct", format!("{:.0}", found.confidence * 100.0)),
+                            ],
                         ));
                     }
                     Err(e) => vision_msg.set(e),
@@ -2173,7 +2189,7 @@ pub fn App() -> impl IntoView {
             spawn_local(async move {
                 match api::upload_sound(&stem, &url).await {
                     Ok(()) => {
-                        sound_msg.set(format!("uploaded {stem}"));
+                        sound_msg.set(i18n::tf(&language.get(), "status.d31", &[("name", stem.clone())]));
                         sound_theme.set("custom".into());
                     }
                     Err(e) => sound_msg.set(e),
@@ -2184,1006 +2200,7 @@ pub fn App() -> impl IntoView {
         let _ = reader.read_as_data_url(&file);
         onload.forget();
     };
-    let settings_view = move || {
-        view! {
-            <section class="panel">
-                <div class="panel-head">
-                    <h2>{move || i18n::t(&language.get(), "settings.title")}</h2>
-                    <span class="muted">{move || format!("Puzzle rating {}", puzzle_rating.get())}</span>
-                </div>
-                <div class="settings-form">
-                    <label>
-                        {move || i18n::t(&language.get(), "settings.language")}
-                        <select
-                            prop:value=move || language.get()
-                            on:change=move |ev| {
-                                language.set(event_target_value(&ev));
-                                persist_settings();
-                            }
-                        >
-                            {i18n::LANGS
-                                .into_iter()
-                                .map(|(code, name)| {
-                                    view! { <option value=code>{name}</option> }
-                                })
-                                .collect_view()}
-                        </select>
-                    </label>
-                    <label>
-                        {move || i18n::t(&language.get(), "settings.engine_binary")}
-                        <input
-                            type="text"
-                            placeholder="/path/to/stockfish"
-                            prop:value=move || settings_engine.get()
-                            on:input=move |ev| settings_engine.set(event_target_value(&ev))
-                        />
-                    </label>
-                    <label>
-                        {move || i18n::t(&language.get(), "settings.model_url")}
-                        <input
-                            type="text"
-                            placeholder="http://127.0.0.1:8000/v1/chat"
-                            prop:value=move || settings_model.get()
-                            on:input=move |ev| settings_model.set(event_target_value(&ev))
-                        />
-                    </label>
-                    <label>
-                        {move || i18n::t(&language.get(), "settings.depth")}
-                        <input
-                            type="number"
-                            min="1"
-                            max="30"
-                            prop:value=move || settings_depth.get().to_string()
-                            on:input=move |ev| {
-                                settings_depth.set(event_target_value(&ev).parse().unwrap_or(15))
-                            }
-                        />
-                    </label>
-                    <div class="settings-row">
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.board_theme")}
-                            <select
-                                prop:value=move || settings_theme.get()
-                                on:change=move |ev| settings_theme.set(event_target_value(&ev))
-                            >
-                                <option value="green">{move || i18n::t(&language.get(), "theme.green")}</option>
-                                <option value="brown">{move || i18n::t(&language.get(), "theme.brown")}</option>
-                                <option value="blue">{move || i18n::t(&language.get(), "theme.blue")}</option>
-                                <option value="custom">"Custom"</option>
-                            </select>
-                        </label>
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.piece_set")}
-                            <select
-                                prop:value=move || settings_pieces.get()
-                                on:change=move |ev| settings_pieces.set(event_target_value(&ev))
-                            >
-                                {brick_chess::pieces::PieceSet::ALL
-                                    .into_iter()
-                                    .map(|s| view! { <option value=s.slug()>{s.label()}</option> })
-                                    .collect_view()}
-                                {move || {
-                                    custom_sets
-                                        .get()
-                                        .into_iter()
-                                        .map(|set| {
-                                            view! {
-                                                <option value=format!("custom:{}", set.name)>
-                                                    {format!("{} (custom)", set.name)}
-                                                </option>
-                                            }
-                                        })
-                                        .collect_view()
-                                }}
-                            </select>
-                        </label>
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.light")}
-                            <input
-                                type="color"
-                                prop:value=move || settings_light.get()
-                                on:input=move |ev| {
-                                    settings_light.set(event_target_value(&ev));
-                                    settings_theme.set("custom".into());
-                                }
-                            />
-                        </label>
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.dark")}
-                            <input
-                                type="color"
-                                prop:value=move || settings_dark.get()
-                                on:input=move |ev| {
-                                    settings_dark.set(event_target_value(&ev));
-                                    settings_theme.set("custom".into());
-                                }
-                            />
-                        </label>
-                        <label class="checkline">
-                            <input
-                                type="checkbox"
-                                prop:checked=move || settings_coords.get()
-                                on:change=move |ev| settings_coords.set(event_target_checked(&ev))
-                            />
-                            {move || i18n::t(&language.get(), "settings.coordinates")}
-                        </label>
-                    </div>
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "settings.custom_pieces")}</div>
-                    <div class="piece-upload">
-                        <input
-                            type="text"
-                            placeholder="set name (a-z, 0-9, -)"
-                            prop:value=move || piece_set_name.get()
-                            on:input=move |ev| piece_set_name.set(event_target_value(&ev))
-                        />
-                        <label class="file-button">
-                            {move || i18n::t(&language.get(), "settings.upload_pieces")}
-                            <input
-                                type="file"
-                                multiple
-                                accept=".svg,image/svg+xml"
-                                on:change=upload_piece_set
-                            />
-                        </label>
-                        <span class="muted">{move || piece_set_msg.get()}</span>
-                        <span class="status">
-                            {move || if piece_upload_busy.get() { "uploading…" } else { "" }}
-                        </span>
-                    </div>
-                    <div class="muted">
-                        {move || i18n::t(&language.get(), "settings.piece_files_hint")}
-                    </div>
-                    {move || {
-                        let sets = custom_sets.get();
-                        (!sets.is_empty()).then(|| {
-                            view! {
-                                <div class="custom-sets">
-                                    {sets
-                                        .into_iter()
-                                        .map(|set| {
-                                            let name_for_delete = set.name.clone();
-                                            view! {
-                                                <div class="custom-set">
-                                                    <span>{format!("{} · {} pieces", set.name, set.pieces)}</span>
-                                                    <button
-                                                        class="link"
-                                                        on:click=move |_| {
-                                                            let name = name_for_delete.clone();
-                                                            spawn_local(async move {
-                                                                match api::delete_piece_set(&name).await {
-                                                                    Ok(list) => {
-                                                                        custom_sets.set(list);
-                                                                        if settings_pieces
-                                                                            .get_untracked()
-                                                                            .starts_with(&format!("custom:{name}"))
-                                                                        {
-                                                                            settings_pieces.set("cburnett".into());
-                                                                            persist_settings();
-                                                                        }
-                                                                        piece_set_msg.set(format!("deleted {name}"));
-                                                                    }
-                                                                    Err(error) => piece_set_msg.set(error),
-                                                                }
-                                                            });
-                                                        }
-                                                    >
-                                                        {move || i18n::t(&language.get(), "db.delete")}
-                                                    </button>
-                                                </div>
-                                            }
-                                        })
-                                        .collect_view()}
-                                </div>
-                            }
-                        })
-                    }}
-                    <div class="row-btns">
-                        <button on:click=move |_| persist_settings()>{move || i18n::t(&language.get(), "common.save")}</button>
-                        <span class="status">{move || settings_status.get()}</span>
-                    </div>
-                    <div class="settings-row">
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.threads")}
-                            <input
-                                type="number"
-                                min="0"
-                                max="256"
-                                prop:value=move || settings_threads.get().to_string()
-                                on:input=move |ev| {
-                                    settings_threads.set(event_target_value(&ev).parse().unwrap_or(0))
-                                }
-                            />
-                        </label>
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.hash")}
-                            <input
-                                type="number"
-                                min="0"
-                                max="65536"
-                                prop:value=move || settings_hash.get().to_string()
-                                on:input=move |ev| {
-                                    settings_hash.set(event_target_value(&ev).parse().unwrap_or(0))
-                                }
-                            />
-                        </label>
-                    </div>
-                    <label>
-                        {move || i18n::t(&language.get(), "settings.syzygy")}
-                        <input
-                            type="text"
-                            placeholder="/path/to/syzygy"
-                            prop:value=move || settings_syzygy.get()
-                            on:input=move |ev| settings_syzygy.set(event_target_value(&ev))
-                        />
-                    </label>
-                    {move || {
-                        let index = engine_dialog.get()?;
-                        let entry = engines.get().get(index).cloned()?;
-                        let option = |key: &'static str, label: &'static str, numeric: bool| {
-                            let stored = entry.options.get(key).cloned().unwrap_or_default();
-                            let value = if stored.is_empty() {
-                                match key {
-                                    "MultiPV" => "1".to_owned(),
-                                    "Hash" | "Threads" => "0".to_owned(),
-                                    _ => String::new(),
-                                }
-                            } else {
-                                stored
-                            };
-                            view! {
-                                <label>
-                                    {label}
-                                    <input
-                                        type=if numeric { "number" } else { "text" }
-                                        prop:value=value
-                                        on:change=move |ev| {
-                                            set_engine_option(index, key, event_target_value(&ev))
-                                        }
-                                    />
-                                </label>
-                            }
-                        };
-                        let test = engine_test.get();
-                        Some(view! {
-                            <div class="engine-dialog">
-                                <div class="panel-head">
-                                    <h2>{format!("Engine: {}", entry.name)}</h2>
-                                    <button on:click=move |_| {
-                                        engine_dialog.set(None);
-                                        engine_test.set(None);
-                                    }>{move || i18n::t(&language.get(), "common.close")}</button>
-                                </div>
-                                <div class="engine-fields">
-                                    <label>
-                                        {move || i18n::t(&language.get(), "settings.name")}
-                                        <input
-                                            type="text"
-                                            prop:value=entry.name.clone()
-                                            on:change=move |ev| {
-                                                let value = event_target_value(&ev);
-                                                engines.update(|list| {
-                                                    if let Some(item) = list.get_mut(index) {
-                                                        item.name = value;
-                                                    }
-                                                });
-                                            }
-                                        />
-                                    </label>
-                                    <label>
-                                        {move || i18n::t(&language.get(), "settings.path")}
-                                        <input
-                                            type="text"
-                                            prop:value=entry.path.clone()
-                                            on:change=move |ev| {
-                                                let value = event_target_value(&ev);
-                                                engines.update(|list| {
-                                                    if let Some(item) = list.get_mut(index) {
-                                                        item.path = value;
-                                                    }
-                                                });
-                                            }
-                                        />
-                                    </label>
-                                </div>
-                                <div class="engine-fields">
-                                    {option(i18n::t(&language.get(), "settings.hash_label"), i18n::t(&language.get(), "settings.hash_mb"), true)}
-                                    {option(i18n::t(&language.get(), "settings.threads_label"), i18n::t(&language.get(), "settings.threads_label"), true)}
-                                    {option(i18n::t(&language.get(), "settings.multipv"), i18n::t(&language.get(), "settings.multipv"), true)}
-                                    {option("Skill Level", "Skill level", true)}
-                                    {option("UCI_Elo", "UCI Elo", true)}
-                                    {option("SyzygyPath", "Syzygy path", false)}
-                                </div>
-                                <div class="muted">
-                                    {move || i18n::t(&language.get(), "settings.engine_options_hint")}
-                                </div>
-                                <div class="row-btns">
-                                    <button on:click=run_engine_test disabled=move || engine_test_busy.get()>
-                                        {move || if engine_test_busy.get() {
-                                        i18n::t(&language.get(), "settings.testing")
-                                    } else {
-                                        i18n::t(&language.get(), "settings.test_engine")
-                                    }}
-                                    </button>
-                                    <button on:click=move |_| {
-                                        persist_settings();
-                                        settings_status.set(i18n::t(&language.get(), "status.m08").into());
-                                    }>{move || i18n::t(&language.get(), "common.save")}</button>
-                                    <span class="status">{move || settings_status.get()}</span>
-                                </div>
-                                {test.map(|info| view! {
-                                    <div class="engine-test">
-                                        <div class=if info.ok { "best" } else { "error" }>
-                                            {if info.ok {
-                                                format!("{} — {}", info.name, info.author)
-                                            } else {
-                                                format!("could not start engine: {}", info.error.unwrap_or_default())
-                                            }}
-                                        </div>
-                                        <div class="muted">
-                                            {format!("{} UCI option(s)", info.options.len())}
-                                        </div>
-                                    </div>
-                                })}
-                            </div>
-                        })
-                    }}
-                    <label>
-                        {move || i18n::t(&language.get(), "settings.variant_engine")}
-                        <input
-                            type="text"
-                            placeholder="/path/to/fairy-stockfish"
-                            prop:value=move || settings_variant_engine.get()
-                            on:input=move |ev| settings_variant_engine.set(event_target_value(&ev))
-                        />
-                    </label>
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "settings.vision_model")}</div>
-                    {move || {
-                        vision
-                            .get()
-                            .map(|v| {
-                                let size = v.size as f64 / 1_048_576.0;
-                                view! {
-                                    <div class="engine-body">
-                                        <div class="muted">
-                                            {format!("{} · {} · {:.0} MB", v.name, v.license, size)}
-                                        </div>
-                                        <div class="muted">{v.sha256.clone()}</div>
-                                        <div class="row-btns">
-                                            <button
-                                                on:click=download_vision
-                                                disabled=move || vision_busy.get()
-                                            >
-                                                {move || {
-                                                    if vision.get().map(|v| v.installed).unwrap_or(false) {
-                                                        i18n::t(&language.get(), "settings.redownload_model")
-                                                    } else {
-                                                        i18n::t(&language.get(), "settings.download_model")
-                                                    }
-                                                }}
-                                            </button>
-                                            <span class="status">
-                                                {move || {
-                                                    if vision.get().map(|v| v.installed).unwrap_or(false) {
-                                                        "installed".to_owned()
-                                                    } else {
-                                                        "not installed".to_owned()
-                                                    }
-                                                }}
-                                            </span>
-                                        </div>
-                                        <div class="muted">{move || vision_msg.get()}</div>
-                                    </div>
-                                }
-                            })
-                    }}
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "settings.engines")}</div>
-                    <div class="engine-list">
-                        {move || {
-                            engines
-                                .get()
-                                .into_iter()
-                                .enumerate()
-                                .map(|(i, e)| {
-                                    let active = settings_engine.get() == e.path;
-                                    let path = e.path.clone();
-                                    view! {
-                                        <div class="engine-row">
-                                            <span class=if active { "engine-name active" } else { "engine-name" }>
-                                                {format!("{} — {}", e.name, e.path)}
-                                            </span>
-                                            <button
-                                                on:click=move |_| {
-                                                    engine_test.set(None);
-                                                    engine_dialog.set(Some(i));
-                                                }
-                                            >
-                                                {move || i18n::t(&language.get(), "settings.configure")}
-                                            </button>
-                                            <button
-                                                on:click=move |_| {
-                                                    settings_engine.set(path.clone());
-                                                    persist_settings();
-                                                }
-                                            >
-                                                {if active {
-                                                    i18n::t(&language.get(), "common.active")
-                                                } else {
-                                                    i18n::t(&language.get(), "common.use")
-                                                }}
-                                            </button>
-                                            <button
-                                                on:click=move |_| {
-                                                    engines.update(|v| {
-                                                        if i < v.len() {
-                                                            v.remove(i);
-                                                        }
-                                                    });
-                                                    persist_settings();
-                                                }
-                                            >
-                                                {move || i18n::t(&language.get(), "settings.remove")}
-                                            </button>
-                                        </div>
-                                    }
-                                })
-                                .collect_view()
-                        }}
-                    </div>
-                    <div class="row-btns">
-                        <input
-                            type="text"
-                            placeholder={move || i18n::t(&language.get(), "settings.engine_name")}
-                            style="max-width:9rem"
-                            prop:value=move || new_engine_name.get()
-                            on:input=move |ev| new_engine_name.set(event_target_value(&ev))
-                        />
-                        <input
-                            type="text"
-                            placeholder="/path/to/engine"
-                            prop:value=move || new_engine_path.get()
-                            on:input=move |ev| new_engine_path.set(event_target_value(&ev))
-                        />
-                        <button on:click=add_engine>{move || i18n::t(&language.get(), "settings.add_engine")}</button>
-                    </div>
-                    <label class="checkline">
-                        <input
-                            type="checkbox"
-                            prop:checked=move || animate_last_move.get()
-                            on:change=move |ev| animate_last_move.set(event_target_checked(&ev))
-                        />
-                        {move || i18n::t(&language.get(), "settings.animate_last")}
-                    </label>
-                    <div class="settings-row">
-                        <label class="checkline">
-                            <input
-                                type="checkbox"
-                                prop:checked=move || sound_enabled.get()
-                                on:change=move |ev| sound_enabled.set(event_target_checked(&ev))
-                            />
-                            {move || i18n::t(&language.get(), "settings.sounds")}
-                        </label>
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.sound_theme")}
-                            <select
-                                prop:value=move || sound_theme.get()
-                                on:change=move |ev| sound_theme.set(event_target_value(&ev))
-                            >
-                                <option value="sfx">"SFX"</option>
-                                <option value="piano">"Piano"</option>
-                                <option value="nes">"NES"</option>
-                                <option value="futuristic">"Futuristic"</option>
-                                <option value="custom">"Custom"</option>
-                            </select>
-                        </label>
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.volume")}
-                            <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                prop:value=move || sound_volume.get().to_string()
-                                on:input=move |ev| sound_volume.set(event_target_value(&ev).parse().unwrap_or(70))
-                            />
-                        </label>
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.animation")}
-                            <input
-                                type="range"
-                                min="0"
-                                max="400"
-                                step="10"
-                                prop:value=move || piece_animation_ms.get().to_string()
-                                on:input=move |ev| piece_animation_ms.set(event_target_value(&ev).parse().unwrap_or(0))
-                            />
-                        </label>
-                    </div>
-                    <label class="checkline">
-                        {move || i18n::t(&language.get(), "settings.custom_sound_hint")}
-                        <input
-                            type="file"
-                            accept=".ogg,.mp3,.wav,audio/*"
-                            on:change=upload_sound
-                        />
-                    </label>
-                    <div class="muted">{move || sound_msg.get()}</div>
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "settings.keybinds")}</div>
-                    <div class="keybinds">
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.previous")}
-                            <input
-                                type="text"
-                                prop:value=move || keybinds.get().previous
-                                on:change=move |ev| {
-                                    let v = event_target_value(&ev);
-                                    keybinds.update(|k| k.previous = v);
-                                }
-                            />
-                        </label>
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.next")}
-                            <input
-                                type="text"
-                                prop:value=move || keybinds.get().next
-                                on:change=move |ev| {
-                                    let v = event_target_value(&ev);
-                                    keybinds.update(|k| k.next = v);
-                                }
-                            />
-                        </label>
-                        <label>
-                            {move || i18n::t(&language.get(), "common.start")}
-                            <input
-                                type="text"
-                                prop:value=move || keybinds.get().start
-                                on:change=move |ev| {
-                                    let v = event_target_value(&ev);
-                                    keybinds.update(|k| k.start = v);
-                                }
-                            />
-                        </label>
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.end")}
-                            <input
-                                type="text"
-                                prop:value=move || keybinds.get().end
-                                on:change=move |ev| {
-                                    let v = event_target_value(&ev);
-                                    keybinds.update(|k| k.end = v);
-                                }
-                            />
-                        </label>
-                        <label>
-                            {move || i18n::t(&language.get(), "settings.flip")}
-                            <input
-                                type="text"
-                                prop:value=move || keybinds.get().flip
-                                on:change=move |ev| {
-                                    let v = event_target_value(&ev);
-                                    keybinds.update(|k| k.flip = v);
-                                }
-                            />
-                        </label>
-                    </div>
-                    <div class="muted">
-                        {move || i18n::t(&language.get(), "settings.keybind_hint")}
-                    </div>
-                    <div class="row-btns">
-                        <button on:click=move |_| persist_settings()>{move || i18n::t(&language.get(), "common.save")}</button>
-                        <button on:click=move |_| {
-                            keybinds.set(Keybinds::default());
-                        }>{move || i18n::t(&language.get(), "settings.reset_keybinds")}</button>
-                        <span class="status">{move || settings_status.get()}</span>
-                    </div>
-                </div>
-            </section>
-        }
-        .into_any()
-    };
 
-    let database_view = move || {
-        view! {
-            <section class="panel">
-                <div class="panel-head">
-                    <h2>{move || i18n::t(&language.get(), "db.database")}</h2>
-                    <span class="muted">{move || format!("{} games", total.get())}</span>
-                </div>
-                <div class="dbs">
-                    <label>
-                        {move || i18n::t(&language.get(), "db.database")}
-                        <select
-                            prop:value=move || {
-                                db_list
-                                    .get()
-                                    .into_iter()
-                                    .find(|d| d.current)
-                                    .map(|d| d.name)
-                                    .unwrap_or_default()
-                            }
-                            on:change=switch_db
-                        >
-                            {move || {
-                                db_list
-                                    .get()
-                                    .into_iter()
-                                    .map(|d| {
-                                        let name = d.name;
-                                        view! { <option value=name.clone()>{name.clone()}</option> }
-                                    })
-                                    .collect_view()
-                            }}
-                        </select>
-                    </label>
-                    <input
-                        type="text"
-                        placeholder=move || i18n::t(&language.get(), "db.new_database")
-                        prop:value=move || new_database.get()
-                        on:input=move |ev| new_database.set(event_target_value(&ev))
-                    />
-                    <button on:click=create_db>{move || i18n::t(&language.get(), "common.create")}</button>
-                </div>
-                <div class="import">
-                    <textarea
-                        placeholder=move || i18n::t(&language.get(), "db.paste_hint")
-                        prop:value=move || import_text.get()
-                        on:input=move |ev| import_text.set(event_target_value(&ev))
-                    ></textarea>
-                    <div class="import-actions">
-                        <button on:click=import>{move || i18n::t(&language.get(), "common.import")}</button>
-                        <label class="file-button">
-                            {move || i18n::t(&language.get(), "db.import_file")}
-                            <input
-                                type="file"
-                                accept=".pgn,application/x-chess-pgn,text/plain"
-                                multiple
-                                on:change=on_file_pick
-                            />
-                        </label>
-                    </div>
-                </div>
-                {move || {
-                    let files = recent_files.get();
-                    (!files.is_empty()).then(|| {
-                        view! {
-                            <div class="recent-files">
-                                <span class="panel-sub">{move || i18n::t(&language.get(), "db.recent_files")}</span>
-                                {files
-                                    .into_iter()
-                                    .map(|(name, games)| {
-                                        view! {
-                                            <div class="muted">
-                                                {format!("{name} · {games} game(s)")}
-                                            </div>
-                                        }
-                                    })
-                                    .collect_view()}
-                            </div>
-                        }
-                    })
-                }}
-                <div class="collections">
-                    <button
-                        class=move || if active_collection.get().is_none() { "chip active" } else { "chip" }
-                        on:click=move |_| {
-                            active_collection.set(None);
-                            reload();
-                        }
-                    >
-                        {move || i18n::t(&language.get(), "db.all_games")}
-                    </button>
-                    {move || {
-                        collections
-                            .get()
-                            .into_iter()
-                            .map(|c| {
-                                let id = c.id;
-                                view! {
-                                    <button
-                                        class=move || {
-                                            if active_collection.get() == Some(id) { "chip active" } else { "chip" }
-                                        }
-                                        on:click=move |_| {
-                                            active_collection.set(Some(id));
-                                            reload();
-                                        }
-                                    >
-                                        {format!("{} ({})", c.name, c.games)}
-                                    </button>
-                                }
-                            })
-                            .collect_view()
-                    }}
-                    <input
-                        type="text"
-                        placeholder=move || i18n::t(&language.get(), "db.new_collection")
-                        prop:value=move || new_collection.get()
-                        on:input=move |ev| new_collection.set(event_target_value(&ev))
-                    />
-                    <button on:click=add_collection_clicked>{move || i18n::t(&language.get(), "common.create")}</button>
-                </div>
-                <div class="dbs">
-                    <select
-                        prop:value=move || manage_collection.get().to_string()
-                        on:change=move |ev| {
-                            manage_collection.set(event_target_value(&ev).parse().unwrap_or(0))
-                        }
-                    >
-                        <option value="0">{move || i18n::t(&language.get(), "db.manage")}</option>
-                        {move || {
-                            collections
-                                .get()
-                                .into_iter()
-                                .map(|c| {
-                                    view! { <option value=c.id.to_string()>{c.name.clone()}</option> }
-                                })
-                                .collect_view()
-                        }}
-                    </select>
-                    <input
-                        type="text"
-                        placeholder=move || i18n::t(&language.get(), "db.new_name")
-                        prop:value=move || collection_name.get()
-                        on:input=move |ev| collection_name.set(event_target_value(&ev))
-                    />
-                    <button on:click=rename_collection>{move || i18n::t(&language.get(), "common.rename")}</button>
-                    <button on:click=delete_collection>{move || i18n::t(&language.get(), "common.delete")}</button>
-                </div>
-                <div class="load">
-                    <input
-                        type="text"
-                        placeholder=move || i18n::t(&language.get(), "db.position_ph")
-                        prop:value=move || position_fen.get()
-                        on:input=move |ev| position_fen.set(event_target_value(&ev))
-                    />
-                    <select
-                        prop:value=move || position_variant.get()
-                        on:change=move |ev| position_variant.set(event_target_value(&ev))
-                    >
-                        <option value="standard">"Standard"</option>
-                        <option value="chess960">"Chess960"</option>
-                        <option value="atomic">"Atomic"</option>
-                        <option value="antichess">"Antichess"</option>
-                        <option value="kingofthehill">"King of the Hill"</option>
-                        <option value="3check">"Three-check"</option>
-                        <option value="crazyhouse">"Crazyhouse"</option>
-                        <option value="racingkings">"Racing Kings"</option>
-                        <option value="horde">"Horde"</option>
-                    </select>
-                    <label class="checkline">
-                        <input
-                            type="checkbox"
-                            prop:checked=move || partial_search.get()
-                            on:change=move |ev| partial_search.set(event_target_checked(&ev))
-                        />
-                        {move || i18n::t(&language.get(), "db.partial")}
-                    </label>
-                    <button on:click=search_position>
-                        {move || i18n::t(&language.get(), "db.find_position")}
-                    </button>
-                    <button on:click=move |_| {
-                        position_fen.set(String::new());
-                        event_filter.set(None);
-                        query.set(String::new());
-                        filter_date_from.set(String::new());
-                        filter_date_to.set(String::new());
-                        filter_result.set(String::new());
-                        filter_elo_min.set(String::new());
-                        filter_elo_max.set(String::new());
-                        filter_variant.set("any".into());
-                        sort_by.set("newest".into());
-                        reload();
-                    }>
-                        {move || i18n::t(&language.get(), "db.clear_filters")}
-                    </button>
-                </div>
-                <div class="filters">
-                    <label>
-                        {move || i18n::t(&language.get(), "db.from")}
-                        <input
-                            type="date"
-                            prop:value=move || filter_date_from.get()
-                            on:change=move |ev| filter_date_from.set(event_target_value(&ev))
-                        />
-                    </label>
-                    <label>
-                        {move || i18n::t(&language.get(), "db.to")}
-                        <input
-                            type="date"
-                            prop:value=move || filter_date_to.get()
-                            on:change=move |ev| filter_date_to.set(event_target_value(&ev))
-                        />
-                    </label>
-                    <label>
-                        {move || i18n::t(&language.get(), "db.result")}
-                        <select
-                            prop:value=move || filter_result.get()
-                            on:change=move |ev| filter_result.set(event_target_value(&ev))
-                        >
-                            <option value="">"Any"</option>
-                            <option value="1-0">{move || i18n::t(&language.get(), "db.white_wins")}</option>
-                            <option value="0-1">{move || i18n::t(&language.get(), "db.black_wins")}</option>
-                            <option value="1/2-1/2">{move || i18n::t(&language.get(), "db.draw")}</option>
-                            <option value="*">{move || i18n::t(&language.get(), "db.unfinished")}</option>
-                        </select>
-                    </label>
-                    <label>
-                        {move || i18n::t(&language.get(), "db.elo")}
-                        <input
-                            type="number"
-                            placeholder="min"
-                            min="0"
-                            max="4000"
-                            prop:value=move || filter_elo_min.get()
-                            on:input=move |ev| filter_elo_min.set(event_target_value(&ev))
-                        />
-                        <input
-                            type="number"
-                            placeholder="max"
-                            min="0"
-                            max="4000"
-                            prop:value=move || filter_elo_max.get()
-                            on:input=move |ev| filter_elo_max.set(event_target_value(&ev))
-                        />
-                    </label>
-                    <label>
-                        {move || i18n::t(&language.get(), "db.variant")}
-                        <select
-                            prop:value=move || filter_variant.get()
-                            on:change=move |ev| filter_variant.set(event_target_value(&ev))
-                        >
-                            <option value="any">"Any"</option>
-                            <option value="standard">"Standard"</option>
-                            <option value="chess960">"Chess960"</option>
-                            <option value="atomic">"Atomic"</option>
-                            <option value="antichess">"Antichess"</option>
-                            <option value="kingofthehill">"King of the Hill"</option>
-                            <option value="3check">"Three-check"</option>
-                            <option value="crazyhouse">"Crazyhouse"</option>
-                            <option value="racingkings">"Racing Kings"</option>
-                            <option value="horde">"Horde"</option>
-                        </select>
-                    </label>
-                    <label>
-                        {move || i18n::t(&language.get(), "db.sort")}
-                        <select
-                            prop:value=move || sort_by.get()
-                            on:change=move |ev| sort_by.set(event_target_value(&ev))
-                        >
-                            <option value="newest">"Newest"</option>
-                            <option value="oldest">{move || i18n::t(&language.get(), "db.sort_oldest")}</option>
-                            <option value="date">{move || i18n::t(&language.get(), "db.sort_date")}</option>
-                            <option value="white">"White"</option>
-                            <option value="black">"Black"</option>
-                            <option value="length">{move || i18n::t(&language.get(), "db.sort_longest")}</option>
-                        </select>
-                    </label>
-                    <button on:click=move |_| reload()>
-                        {move || i18n::t(&language.get(), "db.apply_filters")}
-                    </button>
-                </div>
-                {move || {
-                    event_filter
-                        .get()
-                        .map(|e| {
-                            view! {
-                                <div class="muted">
-                                    {format!("Event: {e}")}
-                                    <button
-                                        class="link"
-                                        on:click=move |_| {
-                                            event_filter.set(None);
-                                            reload();
-                                        }
-                                    >
-                                        "clear"
-                                    </button>
-                                </div>
-                            }
-                        })
-                }}
-                <div class="dbs">
-                    <select
-                        prop:value=move || online_provider.get()
-                        on:change=move |ev| online_provider.set(event_target_value(&ev))
-                    >
-                        <option value="lichess">"Lichess"</option>
-                        <option value="chesscom">"Chess.com"</option>
-                    </select>
-                    <input
-                        type="text"
-                        placeholder=move || i18n::t(&language.get(), "db.username")
-                        prop:value=move || online_user.get()
-                        on:input=move |ev| online_user.set(event_target_value(&ev))
-                    />
-                    <input
-                        type="number"
-                        min="1"
-                        max="200"
-                        style="max-width:6rem"
-                        prop:value=move || online_max.get().to_string()
-                        on:input=move |ev| online_max.set(event_target_value(&ev).parse().unwrap_or(30))
-                    />
-                    <button on:click=import_online>{move || i18n::t(&language.get(), "db.import_online")}</button>
-                </div>
-                <div class="table">
-                    <div class="row head">
-                        <span>"#"</span><span>"White"</span><span>"Black"</span>
-                        <span>"Result"</span><span>{move || i18n::t(&language.get(), "db.event")}</span>
-                    </div>
-                    {move || {
-                        games
-                            .get()
-                            .into_iter()
-                            .map(|g| {
-                                let clicked = g.clone();
-                                view! {
-                                    <button class="row game" data-game-id=g.id.to_string() on:click=move |_| open_game(clicked.clone())>
-                                        <span>{g.id.to_string()}</span>
-                                        <span>{g.white.clone()}</span>
-                                        <span>{g.black.clone()}</span>
-                                        <span>{g.result.clone()}</span>
-                                        <span>{g.event.clone().unwrap_or_default()}</span>
-                                    </button>
-                                }
-                            })
-                            .collect_view()
-                    }}
-                </div>
-                <div class="catalog-row">
-                    <div class="catalog">
-                        <div class="panel-sub">{move || i18n::t(&language.get(), "db.players")}</div>
-                        {move || {
-                            players
-                                .get()
-                                .into_iter()
-                                .take(8)
-                                .map(|p| {
-                                    let name = p.name.clone();
-                                    view! {
-                                        <button
-                                            class="link"
-                                            on:click=move |_| {
-                                                query.set(name.clone());
-                                                reload();
-                                            }
-                                        >
-                                            {format!("{} ({})", p.name, p.games)}
-                                        </button>
-                                    }
-                                })
-                                .collect_view()
-                        }}
-                    </div>
-                    <div class="catalog">
-                        <div class="panel-sub">{move || i18n::t(&language.get(), "db.events")}</div>
-                        {move || {
-                            events
-                                .get()
-                                .into_iter()
-                                .take(8)
-                                .map(|e| {
-                                    let name = e.name.clone();
-                                    let games = e.games;
-                                    let clicked = name.clone();
-                                    view! {
-                                        <button
-                                            class="link"
-                                            on:click=move |_| {
-                                                event_filter.set(Some(clicked.clone()));
-                                                reload();
-                                            }
-                                        >
-                                            {format!("{name} ({games})")}
-                                        </button>
-                                    }
-                                })
-                                .collect_view()
-                        }}
-                    </div>
-                </div>
-            </section>
-        }
-        .into_any()
-    };
 
     let ask_engine = move |position: String| {
         thinking.set(true);
@@ -3402,16 +2419,16 @@ pub fn App() -> impl IntoView {
             _ => (chesscom_user_input.get_untracked(), None),
         };
         if username.trim().is_empty() {
-            account_msg.set("enter a username first".into());
+            account_msg.set(i18n::t(&language.get(), "account.enter_user").into());
             return;
         }
         account_busy.set(true);
-        account_msg.set(format!("linking {provider}…"));
+        account_msg.set(i18n::tf(&language.get(), "status.d19", &[("provider", provider.to_string())]));
         spawn_local(async move {
             match api::link_account(provider, username.trim(), token.as_deref()).await {
                 Ok(list) => {
                     accounts.set(list);
-                    account_msg.set(format!("linked {provider}"));
+                    account_msg.set(i18n::tf(&language.get(), "status.d20", &[("provider", provider.to_string())]));
                     lichess_user_input.set(String::new());
                     lichess_token_input.set(String::new());
                     chesscom_user_input.set(String::new());
@@ -3428,7 +2445,7 @@ pub fn App() -> impl IntoView {
             match api::unlink_account(provider).await {
                 Ok(list) => {
                     accounts.set(list);
-                    account_msg.set(format!("unlinked {provider}"));
+                    account_msg.set(i18n::tf(&language.get(), "status.d21", &[("provider", provider.to_string())]));
                 }
                 Err(error) => account_msg.set(error),
             }
@@ -3439,11 +2456,11 @@ pub fn App() -> impl IntoView {
     let import_account = move |provider: &'static str| {
         let max = account_import_max.get_untracked().clamp(1, 500);
         account_busy.set(true);
-        account_msg.set(format!("importing from {provider}…"));
+        account_msg.set(i18n::tf(&language.get(), "status.d22", &[("provider", provider.to_string())]));
         spawn_local(async move {
             match api::import_account(provider, max).await {
                 Ok(count) => {
-                    account_msg.set(format!("imported {count} game(s) from {provider}"));
+                    account_msg.set(i18n::tf(&language.get(), "status.d23", &[("count", count.to_string()), ("provider", provider.to_string())]));
                     reload();
                 }
                 Err(error) => account_msg.set(error),
@@ -3463,9 +2480,10 @@ pub fn App() -> impl IntoView {
             match api::cloud_eval(&position).await {
                 Ok(result) => {
                     if result.available {
-                        status.set(format!(
-                            "cloud eval at depth {}",
-                            result.depth.unwrap_or(0)
+                        status.set(i18n::tf(
+                            &language.get(),
+                            "status.d14",
+                            &[("depth", result.depth.unwrap_or(0).to_string())],
                         ));
                     } else {
                         status.set(i18n::t(&language.get(), "status.m13").into());
@@ -3556,1326 +2574,12 @@ pub fn App() -> impl IntoView {
             if let Ok(list) = api::annotations(game_id).await {
                 annotations.set(list);
             }
-            status.set(format!("annotated {written} move(s)"));
+            status.set(i18n::tf(&language.get(), "status.d15", &[("written", written.to_string())]));
             annotating.set(false);
         });
     };
 
-    let home_view = move || {
-        let stat = move |value: i64, label: &'static str| {
-            view! {
-                <div class="home-stat">
-                    <div class="home-stat-value">{value}</div>
-                    <div class="muted">{label}</div>
-                </div>
-            }
-        };
-        view! {
-            <section class="home">
-                <div class="panel home-hero">
-                    <div>
-                        <div class="panel-sub">{move || i18n::t(&language.get(), "home.local_account")}</div>
-                        <h2 class="home-greeting">
-                            {move || format!("Welcome back, {}", profile_name.get())}
-                        </h2>
-                        <div class="muted">
-                            {move || i18n::t(&language.get(), "home.local_hint")}
-                        </div>
-                    </div>
-                    <div class="home-hero-actions">
-                        <input
-                            type="text"
-                            placeholder=move || i18n::t(&language.get(), "home.display_name")
-                            prop:value=move || profile_name.get()
-                            on:input=move |ev| profile_name.set(event_target_value(&ev))
-                        />
-                        <button on:click=move |_| {
-                            persist_settings();
-                            status.set(i18n::t(&language.get(), "status.m21").into());
-                        }>{move || i18n::t(&language.get(), "home.save_profile")}</button>
-                    </div>
-                </div>
 
-                <div class="panel accounts">
-                    <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.accounts")}</h2></div>
-                    <div class="account-grid">
-                        {move || {
-                            let list = accounts.get();
-                            let lichess = list.iter().find(|a| a.provider == "lichess");
-                            let profile = lichess.and_then(|a| a.profile.clone());
-                            if lichess.map(|a| a.linked).unwrap_or(false) {
-                                view! {
-                                    <div class="account-card">
-                                        <div class="account-head">
-                                            <span class="account-name">"Lichess"</span>
-                                            <span class="best">{profile.as_ref().map(|p| p.username.clone()).unwrap_or_default()}</span>
-                                        </div>
-                                        <div class="muted">
-                                            {profile
-                                                .as_ref()
-                                                .map(|p| {
-                                                    let mut parts = Vec::new();
-                                                    if let Some(name) = p.name.clone() { parts.push(name); }
-                                                    if let Some(rating) = p.rating { parts.push(format!("{rating} blitz/rapid")); }
-                                                    if let Some(games) = p.games { parts.push(format!("{games} games")); }
-                                                    parts.join(" · ")
-                                                })
-                                                .unwrap_or_default()}
-                                        </div>
-                                        <div class="row-btns">
-                                            <button
-                                                disabled=move || account_busy.get()
-                                                on:click=move |_| import_account("lichess")
-                                            >
-                                                {move || i18n::t(&language.get(), "home.import_games")}
-                                            </button>
-                                            <button on:click=move |_| unlink_account("lichess")>{move || i18n::t(&language.get(), "home.unlink")}</button>
-                                        </div>
-                                    </div>
-                                }
-                                    .into_any()
-                            } else {
-                                view! {
-                                    <div class="account-card">
-                                        <div class="account-head">
-                                            <span class="account-name">"Lichess"</span>
-                                        </div>
-                                        <div class="account-form">
-                                            <input
-                                                type="text"
-                                                placeholder=move || i18n::t(&language.get(), "home.lichess_user")
-                                                prop:value=move || lichess_user_input.get()
-                                                on:input=move |ev| lichess_user_input.set(event_target_value(&ev))
-                                            />
-                                            <input
-                                                type="password"
-                                                placeholder=move || i18n::t(&language.get(), "home.token")
-                                                prop:value=move || lichess_token_input.get()
-                                                on:input=move |ev| lichess_token_input.set(event_target_value(&ev))
-                                            />
-                                            <button
-                                                disabled=move || account_busy.get()
-                                                on:click=move |_| link_account("lichess")
-                                            >
-                                                {move || i18n::t(&language.get(), "home.link")}
-                                            </button>
-                                        </div>
-                                        <div class="muted">
-                                            {move || i18n::t(&language.get(), "home.lichess_hint")}
-                                        </div>
-                                    </div>
-                                }
-                                    .into_any()
-                            }
-                        }}
-                        {move || {
-                            let list = accounts.get();
-                            let chesscom = list.iter().find(|a| a.provider == "chesscom");
-                            let profile = chesscom.and_then(|a| a.profile.clone());
-                            if chesscom.map(|a| a.linked).unwrap_or(false) {
-                                view! {
-                                    <div class="account-card">
-                                        <div class="account-head">
-                                            <span class="account-name">"Chess.com"</span>
-                                            <span class="best">{profile.as_ref().map(|p| p.username.clone()).unwrap_or_default()}</span>
-                                        </div>
-                                        <div class="muted">
-                                            {profile
-                                                .as_ref()
-                                                .map(|p| {
-                                                    let mut parts = Vec::new();
-                                                    if let Some(name) = p.name.clone() { parts.push(name); }
-                                                    if let Some(rating) = p.rating { parts.push(format!("{rating} blitz/rapid")); }
-                                                    if let Some(status) = p.status.clone() { parts.push(status); }
-                                                    parts.join(" · ")
-                                                })
-                                                .unwrap_or_default()}
-                                        </div>
-                                        <div class="row-btns">
-                                            <button
-                                                disabled=move || account_busy.get()
-                                                on:click=move |_| import_account("chesscom")
-                                            >
-                                                {move || i18n::t(&language.get(), "home.import_month")}
-                                            </button>
-                                            <button on:click=move |_| unlink_account("chesscom")>{move || i18n::t(&language.get(), "home.unlink")}</button>
-                                        </div>
-                                    </div>
-                                }
-                                    .into_any()
-                            } else {
-                                view! {
-                                    <div class="account-card">
-                                        <div class="account-head">
-                                            <span class="account-name">"Chess.com"</span>
-                                        </div>
-                                        <div class="account-form">
-                                            <input
-                                                type="text"
-                                                placeholder=move || i18n::t(&language.get(), "home.chesscom_user")
-                                                prop:value=move || chesscom_user_input.get()
-                                                on:input=move |ev| chesscom_user_input.set(event_target_value(&ev))
-                                            />
-                                            <button
-                                                disabled=move || account_busy.get()
-                                                on:click=move |_| link_account("chesscom")
-                                            >
-                                                {move || i18n::t(&language.get(), "home.link")}
-                                            </button>
-                                        </div>
-                                        <div class="muted">
-                                            {move || i18n::t(&language.get(), "home.chesscom_hint")}
-                                        </div>
-                                    </div>
-                                }
-                                    .into_any()
-                            }
-                        }}
-                    </div>
-                    <div class="account-actions">
-                        <label>
-                            {move || i18n::t(&language.get(), "home.import_count")}
-                            <input
-                                type="number"
-                                min="1"
-                                max="500"
-                                prop:value=move || account_import_max.get().to_string()
-                                on:input=move |ev| {
-                                    account_import_max
-                                        .set(event_target_value(&ev).parse().unwrap_or(20))
-                                }
-                            />
-                        </label>
-                        <span class="muted">{move || account_msg.get()}</span>
-                    </div>
-                </div>
-
-                <div class="home-stats">
-                    {move || stat(stats.get().games, "games")}
-                    {move || stat(stats.get().players, "players")}
-                    {move || stat(stats.get().events, "events")}
-                    {move || stat(stats.get().puzzles, "puzzles")}
-                </div>
-
-                <div class="home-grid">
-                    <div class="panel">
-                        <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.recent")}</h2></div>
-                        <div class="table">
-                            <div class="row head">
-                                <span>"ID"</span><span>"White"</span><span>"Black"</span>
-                                <span>"Result"</span><span>{move || i18n::t(&language.get(), "db.event")}</span>
-                            </div>
-                            {move || {
-                                home_recent
-                                    .get()
-                                    .into_iter()
-                                    .map(|g| {
-                                        let summary = g.clone();
-                                        let title = format!("{} vs {} · {}", g.white, g.black, g.result);
-                                        view! {
-                                            <button
-                                                class="row game"
-                                                data-game-id=g.id.to_string()
-                                                on:click=move |_| {
-                                                    open_game(summary.clone());
-                                                    tab.set(Tab::Analysis);
-                                                }
-                                            >
-                                                <span>{g.id.to_string()}</span>
-                                                <span>{g.white}</span>
-                                                <span>{g.black}</span>
-                                                <span>{g.result}</span>
-                                                <span class="muted">{g.event.unwrap_or_default()}</span>
-                                                <span class="hidden-title">{title}</span>
-                                            </button>
-                                        }
-                                    })
-                                    .collect_view()
-                            }}
-                        </div>
-                        <div class="muted">
-                            {move || {
-                                if home_recent.get().is_empty() {
-                                    i18n::t(&language.get(), "home.no_games")
-                                } else {
-                                    ""
-                                }
-                            }}
-                        </div>
-                    </div>
-
-                    <div class="panel">
-                        <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.profile")}</h2></div>
-                        <select
-                            prop:value=move || profile_player.get()
-                            on:change=move |ev| profile_player.set(event_target_value(&ev))
-                        >
-                            <option value="">{move || i18n::t(&language.get(), "home.choose_player")}</option>
-                            {move || {
-                                players
-                                    .get()
-                                    .into_iter()
-                                    .map(|p| {
-                                        view! {
-                                            <option value=p.name.clone()>
-                                                {format!("{} ({} games)", p.name, p.games)}
-                                            </option>
-                                        }
-                                    })
-                                    .collect_view()
-                            }}
-                        </select>
-                        {move || {
-                            profile
-                                .get()
-                                .map(|p| {
-                                    let decided = p.wins + p.draws + p.losses;
-                                    view! {
-                                        <div class="profile-card">
-                                            <div class="profile-name">{p.name.clone()}</div>
-                                            <div class="profile-record">
-                                                {format!("{}W · {}D · {}L", p.wins, p.draws, p.losses)}
-                                            </div>
-                                            <div class="profile-score">
-                                                {format!("{:.1}% score · {} games", p.score_pct, decided)}
-                                            </div>
-                                            <div class="muted">
-                                                {format!("{} as White · {} as Black · {} unfinished", p.as_white, p.as_black, p.unfinished)}
-                                            </div>
-                                        </div>
-                                    }
-                                })
-                        }}
-                        <div class="row-btns">
-                            <button on:click=move |_| {
-                                persist_settings();
-                                profile_player.set(profile_player.get_untracked());
-                                status.set(i18n::t(&language.get(), "status.m18").into());
-                            }>{move || i18n::t(&language.get(), "home.use_account")}</button>
-                        </div>
-                        <div class="muted">
-                            {move || {
-                                if profile_player.get().trim().is_empty() {
-                                    i18n::t(&language.get(), "home.pick_player")
-                                } else {
-                                    ""
-                                }
-                            }}
-                        </div>
-                    </div>
-                </div>
-
-                <div class="panel">
-                    <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.quick")}</h2></div>
-                    <div class="row-btns">
-                        <button on:click=move |_| switch_tab(Tab::Database)>{move || i18n::t(&language.get(), "home.import")}</button>
-                        <button on:click=move |_| new_workspace()>{move || i18n::t(&language.get(), "home.new_analysis")}</button>
-                        <button on:click=move |_| switch_tab(Tab::Puzzles)>{move || i18n::t(&language.get(), "home.solve")}</button>
-                        <button on:click=move |_| switch_tab(Tab::Openings)>{move || i18n::t(&language.get(), "home.train")}</button>
-                        <button on:click=move |_| switch_tab(Tab::Settings)>{move || i18n::t(&language.get(), "nav.settings")}</button>
-                    </div>
-                </div>
-            </section>
-        }
-    };
-
-    let analysis_view = move || {
-        let score = move || {
-            analysis
-                .get()
-                .map(|a| {
-                    if let Some(m) = a.mate {
-                        format!("M{m}")
-                    } else if let Some(c) = a.score_cp {
-                        format!("{:+.2}", c as f64 / 100.0)
-                    } else {
-                        "—".to_owned()
-                    }
-                })
-                .unwrap_or_else(|| "—".to_owned())
-        };
-        view! {
-            <section class="analysis">
-                <div class="board-pane">
-                    {move || {
-                        clock
-                            .get()
-                            .map(|(white, black)| {
-                                let black_turn = fen.get().split_whitespace().nth(1) == Some("b");
-                                let running = clock_active.get();
-                                let mut white_cls = String::from("clock-chip");
-                                let mut black_cls = String::from("clock-chip");
-                                if running && !black_turn {
-                                    white_cls.push_str(" active");
-                                }
-                                if running && black_turn {
-                                    black_cls.push_str(" active");
-                                }
-                                if white < 30 {
-                                    white_cls.push_str(" low");
-                                }
-                                if black < 30 {
-                                    black_cls.push_str(" low");
-                                }
-                                view! {
-                                    <div class="clocks">
-                                        <div class=white_cls>
-                                            {format!(
-                                                "{} {}",
-                                                i18n::t(&language.get(), "common.white"),
-                                                format_clock(white),
-                                            )}
-                                        </div>
-                                        <div class=black_cls>
-                                            {format!(
-                                                "{} {}",
-                                                i18n::t(&language.get(), "common.black"),
-                                                format_clock(black),
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div class="clock-controls">
-                                        <button
-                                            on:click=move |_| {
-                                                if clock_active.get_untracked() {
-                                                    clock_active.set(false);
-                                                } else if clock.get_untracked().is_some() {
-                                                    clock_epoch.update(|e| *e += 1);
-                                                    clock_active.set(true);
-                                                }
-                                            }
-                                        >
-                                            {move || if clock_active.get() {
-                                            i18n::t(&language.get(), "common.pause")
-                                        } else {
-                                            i18n::t(&language.get(), "common.start")
-                                        }}
-                                        </button>
-                                        <button on:click=move |_| {
-                                            let base = clock_base_input.get_untracked() as i64;
-                                            let inc = clock_inc_input.get_untracked() as i64;
-                                            clock.set(Some((base, base)));
-                                            clock_inc.set(inc);
-                                            clock_active.set(false);
-                                            clock_epoch.update(|e| *e += 1);
-                                        }>{move || i18n::t(&language.get(), "common.reset")}</button>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            max="86400"
-                                            title=move || i18n::t(&language.get(), "clock.base")
-                                            prop:value=move || clock_base_input.get().to_string()
-                                            on:input=move |ev| {
-                                                clock_base_input.set(event_target_value(&ev).parse().unwrap_or(180))
-                                            }
-                                        />
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            max="300"
-                                            title=move || i18n::t(&language.get(), "clock.increment")
-                                            prop:value=move || clock_inc_input.get().to_string()
-                                            on:input=move |ev| {
-                                                clock_inc_input.set(event_target_value(&ev).parse().unwrap_or(0))
-                                            }
-                                        />
-                                    </div>
-                                }
-                            })
-                    }}
-                    <Board
-                        pgn=selected_pgn
-                        title=Signal::derive(move || selected_title.get())
-                        on_position=Callback::new(move |f: String| fen.set(f))
-                        on_ply=Callback::new(move |p: usize| tree_ply.set(p))
-                        goto=Signal::derive(move || goto_sig.get())
-                        play=Signal::derive(move || play_uci.get())
-                        load_fen=Signal::derive(move || load_fen_sig.get())
-                        on_move=Callback::new(on_board_move)
-                        on_play=Callback::new(on_engine_play)
-                        animate_last=Signal::derive(move || animate_last_move.get())
-                        animation_ms=Signal::derive(move || piece_animation_ms.get())
-                        keybinds=Signal::derive(move || keybinds.get())
-                        orientation=Signal::derive(move || {
-                            if vs_engine.get() && play_as.get() == "black" {
-                                "black".to_string()
-                            } else {
-                                "white".to_string()
-                            }
-                        })
-                        shapes=Signal::derive(move || {
-                            let mut list = shapes.get();
-                            list.extend(ai_shapes.get());
-                            list
-                        })
-                        on_shape=Callback::new(move |s: brick_chess::Shape| {
-                            shapes.update(|v| v.push(s));
-                        })
-                        theme=Signal::derive(move || settings_theme.get())
-                        pieces=Signal::derive(move || settings_pieces.get())
-                                        light_color=Signal::derive(move || settings_light.get())
-                                        dark_color=Signal::derive(move || settings_dark.get())
-                                        coords=Signal::derive(move || settings_coords.get())
-                                        lang=Signal::derive(move || language.get())
-                        on_theme=Callback::new(move |v: String| {
-                            settings_theme.set(v);
-                            persist_settings();
-                        })
-                        on_pieces=Callback::new(move |v: String| {
-                            settings_pieces.set(v);
-                            persist_settings();
-                        })
-                    />
-                    <div class="eval-graph">
-                        {move || {
-                            let rows = evals.get();
-                            if rows.is_empty() {
-                                return view! {
-                                    <div class="muted eval-empty">
-                                        {move || i18n::t(&language.get(), "analysis.classify_hint")}
-                                    </div>
-                                }
-                                .into_any();
-                            }
-                            let n = rows.len().max(2) as f64;
-                            let pts: Vec<(f64, f64)> = rows.iter().map(eval_point).collect();
-                            let poly = pts
-                                .iter()
-                                .map(|(ply, y)| {
-                                    format!("{:.2},{:.2}", ply * 100.0 / (n - 1.0), y)
-                                })
-                                .collect::<Vec<_>>()
-                                .join(" ");
-                            let hover = eval_hover.get().filter(|h| *h < rows.len());
-                            let marker = hover.map(|h| {
-                                (h as f64 * 100.0 / (n - 1.0), pts[h].1)
-                            });
-                            let readout = hover.map(|h| {
-                                let san = report
-                                    .get()
-                                    .and_then(|r| {
-                                        r.moves.iter().find(|m| m.ply == h).map(|m| m.san.clone())
-                                    })
-                                    .unwrap_or_default();
-                                format!("ply {} {} · {}", h, san, eval_text(&rows[h]))
-                            });
-                            view! {
-                                <div class="eval-readout muted">
-                                    {readout.unwrap_or_else(|| "hover the graph; click to jump".into())}
-                                </div>
-                                <svg
-                                    class="eval-svg"
-                                    viewBox="0 0 100 100"
-                                    preserveAspectRatio="none"
-                                    on:mousemove=move |ev| {
-                                        let Some(target) = ev.current_target() else { return };
-                                        let Ok(el) = target.dyn_into::<web_sys::Element>() else {
-                                            return;
-                                        };
-                                        let width = el.client_width().max(1) as f64;
-                                        let x = ev.offset_x() as f64;
-                                        let idx = ((x / width) * (n - 1.0))
-                                            .round()
-                                            .clamp(0.0, n - 1.0) as usize;
-                                        eval_hover.set(Some(idx));
-                                    }
-                                    on:mouseleave=move |_| eval_hover.set(None)
-                                    on:click=move |_| {
-                                        let Some(ply) = eval_hover.get() else { return };
-                                        if let Some(detail) = game_detail.get() {
-                                            let items = detail
-                                                .movetext
-                                                .as_deref()
-                                                .map(|json| tree_items(&api::parse_movetext(json)))
-                                                .unwrap_or_default();
-                                            if let Some(item) = items
-                                                .into_iter()
-                                                .find(|i| i.depth == 0 && i.ply == ply)
-                                            {
-                                                select_node(item);
-                                            }
-                                        }
-                                    }
-                                >
-                                    <line x1="0" y1="50" x2="100" y2="50" stroke="#31313c" stroke-width="0.5"></line>
-                                    <polyline points=poly fill="none" stroke="#7fd18a" stroke-width="1.2"></polyline>
-                                    {marker
-                                        .map(|(x, y)| {
-                                            view! {
-                                                <line x1=x y1="0" x2=x y2="100" stroke="#9a9aa8" stroke-width="0.4" stroke-dasharray="2,2"></line>
-                                                <circle cx=x cy=y r="1.6" fill="#7fd18a"></circle>
-                                            }
-                                        })}
-                                </svg>
-                            }
-                            .into_any()
-                        }}
-                    </div>
-                </div>
-                <aside class="engine-pane">
-                    <div class="panel-head"><h2>{move || i18n::t(&language.get(), "settings.engine")}</h2></div>
-                    <div class="row-btns">
-                        <label class="checkline">
-                            <input
-                                type="checkbox"
-                                prop:checked=move || vs_engine.get()
-                                on:change=toggle_vs_engine
-                            />
-                            {move || i18n::t(&language.get(), "analysis.play_engine")}
-                        </label>
-                        <select
-                            prop:value=move || play_as.get()
-                            on:change=choose_side
-                        >
-                            <option value="white">
-                                {move || i18n::t(&language.get(), "analysis.you_white")}
-                            </option>
-                            <option value="black">
-                                {move || i18n::t(&language.get(), "analysis.you_black")}
-                            </option>
-                        </select>
-                        {move || thinking.get().then(|| view! {
-                            <span class="muted">
-                                {i18n::t(&language.get(), "analysis.engine_thinking")}
-                            </span>
-                        })}
-                    </div>
-                    <div class="eval-card">
-                        {move || {
-                            analysis
-                                .get()
-                                .map(|a| {
-                                    view! {
-                                        <div class="eval-score">{score}</div>
-                                        <div class="muted">{format!("depth {}", a.depth)}</div>
-                                    }
-                                    .into_any()
-                                })
-                                .unwrap_or_else(|| {
-                                    view! { <div class="muted">{i18n::t(&language.get(), "analysis.no_analysis")}</div> }.into_any()
-                                })
-                        }}
-                    </div>
-                    {move || {
-                        cloud
-                            .get()
-                            .map(|c| {
-                                if !c.available {
-                                    return view! {
-                                        <div class="muted">
-                                            {i18n::t(&language.get(), "analysis.cloud_missing")}
-                                        </div>
-                                    }
-                                        .into_any();
-                                }
-                                let score = c
-                                    .mate
-                                    .map(|m| format!("M{m}"))
-                                    .or_else(|| c.cp.map(|cp| format!("{:+.2}", cp as f64 / 100.0)))
-                                    .unwrap_or_else(|| "—".to_owned());
-                                view! {
-                                    <div class="engine-body">
-                                        <div class="best">{format!("Cloud {score}")}</div>
-                                        <div class="muted">
-                                            {format!(
-                                                "depth {} · {} knodes",
-                                                c.depth.unwrap_or(0),
-                                                c.knodes.unwrap_or(0),
-                                            )}
-                                        </div>
-                                        <div class="pv">{c.pv.join(" ")}</div>
-                                    </div>
-                                }
-                                    .into_any()
-                            })
-                    }}
-                    <div class="row-btns">
-                        <button on:click=run_analysis disabled=move || analyzing.get() || variant_only.get()>
-                            {move || {
-                                if analyzing.get() {
-                                    i18n::t(&language.get(), "analysis.analyzing")
-                                } else {
-                                    i18n::t(&language.get(), "analysis.analyze")
-                                }
-                            }}
-                        </button>
-                        <button on:click=fetch_lines disabled=move || variant_only.get()>
-                            {move || i18n::t(&language.get(), "analysis.lines")}
-                        </button>
-                        <button on:click=fetch_engine_lines disabled=move || variant_only.get()>
-                            {move || i18n::t(&language.get(), "analysis.all_engines")}
-                        </button>
-                        <button on:click=fetch_cloud>
-                            {move || i18n::t(&language.get(), "analysis.cloud_eval")}
-                        </button>
-                    </div>
-                    {move || {
-                        let list = engine_results.get();
-                        if list.is_empty() {
-                            return None;
-                        }
-                        Some(view! {
-                            <div class="lines">
-                                {list
-                                    .into_iter()
-                                    .map(|engine| {
-                                        view! {
-                                            <div class="engine-group">
-                                                <div class="panel-sub">{engine.name.clone()}</div>
-                                                {match engine.error {
-                                                    Some(error) => view! {
-                                                        <div class="muted">{error}</div>
-                                                    }.into_any(),
-                                                    None => view! {
-                                                        {engine
-                                                            .lines
-                                                            .into_iter()
-                                                            .map(|l| {
-                                                                let score = if let Some(m) = l.mate {
-                                                                    format!("M{m}")
-                                                                } else if let Some(c) = l.score_cp {
-                                                                    format!("{:+.2}", c as f64 / 100.0)
-                                                                } else {
-                                                                    "—".to_owned()
-                                                                };
-                                                                view! {
-                                                                    <div class="line">
-                                                                        <span class="line-score">{score}</span>
-                                                                        <span class="pv">{l.pv.join(" ")}</span>
-                                                                    </div>
-                                                                }
-                                                            })
-                                                            .collect_view()}
-                                                    }.into_any(),
-                                                }}
-                                            </div>
-                                        }
-                                    })
-                                    .collect_view()}
-                            </div>
-                        })
-                    }}
-                    {move || {
-                        let ls = lines.get();
-                        if ls.is_empty() {
-                            return None;
-                        }
-                        Some(view! {
-                            <div class="lines">
-                                {ls
-                                    .into_iter()
-                                    .map(|l| {
-                                        let score = if let Some(m) = l.mate {
-                                            format!("M{m}")
-                                        } else if let Some(c) = l.score_cp {
-                                            format!("{:+.2}", c as f64 / 100.0)
-                                        } else {
-                                            "—".to_owned()
-                                        };
-                                        view! {
-                                            <div class="line">
-                                                <span class="line-score">{score}</span>
-                                                <span class="pv">{l.pv.join(" ")}</span>
-                                            </div>
-                                        }
-                                    })
-                                    .collect_view()}
-                            </div>
-                        })
-                    }}
-                    {move || {
-                        analysis
-                            .get()
-                            .map(|a| {
-                                view! {
-                                    <div class="engine-body">
-                                        <div class="best">{format!("Best: {}", a.best_move)}</div>
-                                        <div class="pv">{a.pv.join(" ")}</div>
-                                        <div class="muted">
-                                            {a.nodes.map(|n| format!("{n} nodes")).unwrap_or_default()}
-                                        </div>
-                                    </div>
-                                }
-                            })
-                    }}
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.tablebase")}</div>
-                    <div class="row-btns">
-                        <button on:click=probe_tablebase>{move || i18n::t(&language.get(), "tb.probe")}</button>
-                        <span class="muted">{move || tb_status.get()}</span>
-                    </div>
-                    {move || {
-                        tb_result
-                            .get()
-                            .map(|t| {
-                                let wdl = match t.wdl.as_str() {
-                                    "win" => i18n::t(&language.get(), "tb.win"),
-                                    "cursed-win" => i18n::t(&language.get(), "tb.cursed"),
-                                    "draw" => i18n::t(&language.get(), "db.draw"),
-                                    "blessed-loss" => i18n::t(&language.get(), "tb.blessed"),
-                                    "loss" => i18n::t(&language.get(), "tb.loss"),
-                                    other => other,
-                                };
-                                view! {
-                                    <div class="engine-body">
-                                        <div class="best">{format!("{wdl} · {} pieces", t.pieces)}</div>
-                                        <div class="muted">
-                                            {t.best_move.clone().map(|m| format!("best: {m}")).unwrap_or_default()}
-                                        </div>
-                                        <div class="muted">{format!("tables: {}", t.path)}</div>
-                                    </div>
-                                }
-                            })
-                    }}
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.move_classification")}</div>
-                    <div class="row-btns">
-                        <button on:click=export_report disabled=move || report.get().is_none()>
-                            {move || i18n::t(&language.get(), "analysis.export_report")}
-                        </button>
-                        <button on:click=annotate_game disabled=move || annotating.get() || report.get().is_none()>
-                            {move || i18n::t(&language.get(), "analysis.annotate")}
-                        </button>
-                        <button on:click=classify disabled=move || reporting.get() || variant_only.get()>
-                            {move || {
-                                if reporting.get() {
-                                    i18n::t(&language.get(), "analysis.classifying")
-                                } else {
-                                    i18n::t(&language.get(), "analysis.classify")
-                                }
-                            }}
-                        </button>
-                        <a
-                            class="link"
-                            href=move || {
-                                selected_game_id.get().map(api::game_pgn_url).unwrap_or_default()
-                            }
-                            download=move || {
-                                let title = selected_title.get();
-                                let name: String = title
-                                    .chars()
-                                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                                    .collect();
-                                format!("{name}.pgn")
-                            }
-                            target="_blank"
-                            rel="noopener"
-                        >
-                            {move || i18n::t(&language.get(), "db.save_pgn")}
-                        </a>
-                        <button on:click=delete_current>{move || i18n::t(&language.get(), "common.delete")}</button>
-                    </div>
-                    <div class="row-btns">
-                        <select
-                            prop:value=move || add_collection.get().to_string()
-                            on:change=move |ev| {
-                                add_collection.set(event_target_value(&ev).parse().unwrap_or(0))
-                            }
-                        >
-                            <option value="0">{move || i18n::t(&language.get(), "db.add_to_collection")}</option>
-                            {move || {
-                                collections
-                                    .get()
-                                    .into_iter()
-                                    .map(|c| {
-                                        view! {
-                                            <option value=c.id.to_string()>{c.name.clone()}</option>
-                                        }
-                                    })
-                                    .collect_view()
-                            }}
-                        </select>
-                        <button on:click=add_game_to_collection>{move || i18n::t(&language.get(), "common.add")}</button>
-                    </div>
-                    {move || {
-                        report
-                            .get()
-                            .map(|r| {
-                                let n = r.moves.len().max(2) as f64;
-                                let points = r
-                                    .moves
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(i, m)| {
-                                        let x = i as f64 * (400.0 / (n - 1.0));
-                                        let y = 100.0 - m.win_after;
-                                        format!("{x:.1},{y:.1}")
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join(" ");
-                                view! {
-                                    <div class="report">
-                                        <div class="acc">
-                                            {format!(
-                                                "White {:.1}% · Black {:.1}%",
-                                                r.white_accuracy.unwrap_or(0.0),
-                                                r.black_accuracy.unwrap_or(0.0),
-                                            )}
-                                        </div>
-                                        <div class="muted">
-                                            {format!(
-                                                "Lichess — inacc {} · mistakes {} · blunders {}",
-                                                r.lichess_counts.inaccuracy,
-                                                r.lichess_counts.mistake,
-                                                r.lichess_counts.blunder,
-                                            )}
-                                        </div>
-                                        <div class="muted">
-                                            {format!(
-                                                "Expected points — inacc {} · mistakes {} · blunders {}",
-                                                r.expected_points_counts.inaccuracy,
-                                                r.expected_points_counts.mistake,
-                                                r.expected_points_counts.blunder,
-                                            )}
-                                        </div>
-                                        <svg class="spark" viewBox="0 0 400 100" preserveAspectRatio="none">
-                                            <polyline points=points fill="none" stroke="#7fd18a" stroke-width="2"></polyline>
-                                        </svg>
-                                        <div class="mv-list">
-                                            {r
-                                                .moves
-                                                .iter()
-                                                .map(|m| {
-                                                    view! {
-                                                        <span class=format!("mv {}", m.lichess)>{m.san.clone()}</span>
-                                                    }
-                                                })
-                                                .collect_view()}
-                                        </div>
-                                    </div>
-                                }
-                            })
-                    }}
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.tree")}</div>
-                    {tree_nodes}
-                    <div class="row-btns">
-                        <button on:click=delete_tree_from_here>
-                            {move || i18n::t(&language.get(), "analysis.delete_from")}
-                        </button>
-                        <button on:click=promote_selected>
-                            {move || i18n::t(&language.get(), "analysis.promote")}
-                        </button>
-                        <label class="checkline">
-                            <input
-                                type="checkbox"
-                                prop:checked=move || record_moves.get()
-                                on:change=move |ev| record_moves.set(event_target_checked(&ev))
-                            />
-                            {move || i18n::t(&language.get(), "analysis.record_moves")}
-                        </label>
-                    </div>
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.assistant")}</div>
-                    <div class="row-btns">
-                        <button on:click=move |_| dock.set("ai".into())>{move || i18n::t(&language.get(), "analysis.ai_chat")}</button>
-                        <button on:click=move |_| dock.set("console".into())>{move || i18n::t(&language.get(), "analysis.engine_console")}</button>
-                    </div>
-                    <div class="muted">
-                        {move || i18n::t(&language.get(), "analysis.assistant_hint")}
-                    </div>
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.game_tags")}</div>
-                    <div class="row-btns">
-                        <button on:click=move |_| show_tags.update(|v| *v = !*v)>
-                            {move || {
-                                if show_tags.get() {
-                                    i18n::t(&language.get(), "db.hide_tags")
-                                } else {
-                                    i18n::t(&language.get(), "db.edit_tags")
-                                }
-                            }}
-                        </button>
-                        <span class="muted">{move || game_detail.get().map(|d| d.event.unwrap_or_default()).unwrap_or_default()}</span>
-                    </div>
-                    {move || {
-                        show_tags
-                            .get()
-                            .then(|| {
-                                view! {
-                                    <div class="tag-form">
-                                        <label>{move || i18n::t(&language.get(), "db.event")}<input type="text" prop:value=move || tag_event.get() on:input=move |ev| tag_event.set(event_target_value(&ev))/></label>
-                                        <label>"Site"<input type="text" prop:value=move || tag_site.get() on:input=move |ev| tag_site.set(event_target_value(&ev))/></label>
-                                        <label>{move || i18n::t(&language.get(), "db.date")}<input type="text" placeholder="YYYY.MM.DD" prop:value=move || tag_date.get() on:input=move |ev| tag_date.set(event_target_value(&ev))/></label>
-                                        <label>"Round"<input type="text" prop:value=move || tag_round.get() on:input=move |ev| tag_round.set(event_target_value(&ev))/></label>
-                                        <label>"White"<input type="text" prop:value=move || tag_white.get() on:input=move |ev| tag_white.set(event_target_value(&ev))/></label>
-                                        <label>"Black"<input type="text" prop:value=move || tag_black.get() on:input=move |ev| tag_black.set(event_target_value(&ev))/></label>
-                                        <label>"Result"<input type="text" prop:value=move || tag_result.get() on:input=move |ev| tag_result.set(event_target_value(&ev))/></label>
-                                        <label>"WhiteElo"<input type="text" prop:value=move || tag_white_elo.get() on:input=move |ev| tag_white_elo.set(event_target_value(&ev))/></label>
-                                        <label>"BlackElo"<input type="text" prop:value=move || tag_black_elo.get() on:input=move |ev| tag_black_elo.set(event_target_value(&ev))/></label>
-                                        <label>"TimeControl"<input type="text" prop:value=move || tag_time_control.get() on:input=move |ev| tag_time_control.set(event_target_value(&ev))/></label>
-                                        <button on:click=save_tags>{move || i18n::t(&language.get(), "db.save_tags")}</button>
-                                    </div>
-                                }
-                            })
-                    }}
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.board_editor")}</div>
-                    <div class="row-btns">
-                        <button on:click=open_editor>
-                            {move || if editor_open.get() {
-                                i18n::t(&language.get(), "editor.close")
-                            } else {
-                                i18n::t(&language.get(), "analysis.edit_position")
-                            }}
-                        </button>
-                    </div>
-                    {move || {
-                        editor_open
-                            .get()
-                            .then(|| {
-                                let palette = editor_palette.get();
-                                let options = ['K', 'Q', 'R', 'B', 'N', 'P', 'k', 'q', 'r', 'b', 'n', 'p'];
-                                view! {
-                                    <div class="editor">
-                                        <div class="palette">
-                                            {options
-                                                .into_iter()
-                                                .map(|ch| {
-                                                    let cls = if palette == Some(ch) { "palette-btn active" } else { "palette-btn" };
-                                                    view! {
-                                                        <button
-                                                            class=cls
-                                                            on:click=move |_| editor_palette.set(Some(ch))
-                                                        >
-                                                            {piece_glyph(ch)}
-                                                        </button>
-                                                    }
-                                                })
-                                                .collect_view()}
-                                            <button
-                                                class=if palette.is_none() { "palette-btn active" } else { "palette-btn" }
-                                                on:click=move |_| editor_palette.set(None)
-                                            >
-                                                "⌫"
-                                            </button>
-                                        </div>
-                                        <div class="editor-grid">
-                                            {move || {
-                                                let pieces = editor_pieces.get();
-                                                (0..64)
-                                                    .map(|display| {
-                                                        let rank = 7 - display / 8;
-                                                        let file = display % 8;
-                                                        let idx = rank * 8 + file;
-                                                        let ch = pieces[idx];
-                                                        let cls = format!(
-                                                            "edit-sq {} {}",
-                                                            if (display / 8 + display % 8) % 2 == 0 { "light" } else { "dark" },
-                                                            ch.map(|c| if c.is_ascii_uppercase() { "white" } else { "black" }).unwrap_or(""),
-                                                        );
-                                                        view! {
-                                                            <button
-                                                                class=cls
-                                                                data-edit-square=index_to_name(idx)
-                                                                on:click=move |_| {
-                                                                    let piece = editor_palette.get_untracked();
-                                                                    editor_pieces.update(|v| v[idx] = piece);
-                                                                }
-                                                            >
-                                                                {ch.map(piece_glyph).unwrap_or("·")}
-                                                            </button>
-                                                        }
-                                                    })
-                                                    .collect_view()
-                                            }}
-                                        </div>
-                                        <div class="editor-fields">
-                                            <label>"Turn"<input type="text" prop:value=move || editor_turn.get() on:input=move |ev| editor_turn.set(event_target_value(&ev))/></label>
-                                            <label>{move || i18n::t(&language.get(), "editor.castling")}<input type="text" prop:value=move || editor_castling.get() on:input=move |ev| editor_castling.set(event_target_value(&ev))/></label>
-                                            <label>{move || i18n::t(&language.get(), "editor.en_passant")}<input type="text" prop:value=move || editor_ep.get() on:input=move |ev| editor_ep.set(event_target_value(&ev))/></label>
-                                            <label class="checkline">
-                                                {move || i18n::t(&language.get(), "settings.scan_image")}
-                                                <input
-                                                    type="file"
-                                                    accept="image/*"
-                                                    on:change=scan_image
-                                                />
-                                            </label>
-                                            <label>
-                                                {move || i18n::t(&language.get(), "db.variant")}
-                                                <select
-                                                    prop:value=move || editor_variant.get()
-                                                    on:change=move |ev| editor_variant.set(event_target_value(&ev))
-                                                >
-                                                    <option value="standard">"Standard"</option>
-                                                    <option value="chess960">"Chess960"</option>
-                                                    <option value="atomic">"Atomic"</option>
-                                                    <option value="antichess">"Antichess"</option>
-                                                    <option value="kingofthehill">"King of the Hill"</option>
-                                                    <option value="3check">"Three-check"</option>
-                                                    <option value="crazyhouse">"Crazyhouse"</option>
-                                                    <option value="racingkings">"Racing Kings"</option>
-                                                    <option value="horde">"Horde"</option>
-                                                </select>
-                                            </label>
-                                        </div>
-                                        <div class="row-btns">
-                                            <button on:click=move |_| {
-                                                editor_pieces.update(|pieces| {
-                                                    for rank in 0..4 {
-                                                        for file in 0..8 {
-                                                            pieces.swap(rank * 8 + file, (7 - rank) * 8 + file);
-                                                        }
-                                                    }
-                                                });
-                                            }>{move || i18n::t(&language.get(), "editor.flip_ranks")}</button>
-                                            <button on:click=move |_| {
-                                                editor_pieces.update(|pieces| {
-                                                    for rank in 0..8 {
-                                                        for file in 0..4 {
-                                                            pieces.swap(rank * 8 + file, rank * 8 + (7 - file));
-                                                        }
-                                                    }
-                                                });
-                                            }>{move || i18n::t(&language.get(), "editor.flip_files")}</button>
-                                            <button on:click=move |_| {
-                                                editor_pieces.update(|pieces| {
-                                                    pieces.reverse();
-                                                });
-                                            }>{move || i18n::t(&language.get(), "editor.rotate")}</button>
-                                        </div>
-                                        <button on:click=apply_editor>{move || i18n::t(&language.get(), "editor.use_position")}</button>
-                                        <div class="muted">{move || vision_msg.get()}</div>
-                                    </div>
-                                }
-                            })
-                    }}
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.edit_moves")}</div>
-                    <div class="row-btns">
-                        <button
-                            on:click=move |_| {
-                                if !edit_moves_open.get_untracked() {
-                                    if let Some(id) = selected_game_id.get_untracked() {
-                                        spawn_local(async move {
-                                            if let Ok(text) = api::game_pgn_text(id).await {
-                                                moves_text.set(text);
-                                            }
-                                        });
-                                    }
-                                }
-                                edit_moves_open.update(|v| *v = !*v);
-                            }
-                        >
-                            {move || if edit_moves_open.get() {
-                                i18n::t(&language.get(), "editor.close")
-                            } else {
-                                i18n::t(&language.get(), "analysis.edit_moves")
-                            }}
-                        </button>
-                        <button on:click=truncate_moves>{move || i18n::t(&language.get(), "analysis.keep_up")}</button>
-                    </div>
-                    {move || {
-                        edit_moves_open
-                            .get()
-                            .then(|| {
-                                view! {
-                                    <div class="pgn-box">
-                                        <textarea
-                                            placeholder="1. e4 e5 2. Nf3 (2. Bc4 Nf6) …"
-                                            prop:value=move || moves_text.get()
-                                            on:input=move |ev| moves_text.set(event_target_value(&ev))
-                                        ></textarea>
-                                        <button on:click=apply_moves>{move || i18n::t(&language.get(), "analysis.save_moves")}</button>
-                                    </div>
-                                }
-                            })
-                    }}
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "openings.repertoire")}</div>
-                    <div class="row-btns">
-                        <select
-                            prop:value=move || analysis_rep.get().to_string()
-                            on:change=move |ev| {
-                                analysis_rep.set(event_target_value(&ev).parse().unwrap_or(0))
-                            }
-                        >
-                            <option value="0">{move || i18n::t(&language.get(), "analysis.add_line_to")}</option>
-                            {move || {
-                                reps
-                                    .get()
-                                    .into_iter()
-                                    .map(|r| {
-                                        view! {
-                                            <option value=r.id.to_string()>
-                                                {format!("{} ({})", r.name, r.color)}
-                                            </option>
-                                        }
-                                    })
-                                    .collect_view()
-                            }}
-                        </select>
-                        <button on:click=add_line_to_repertoire>
-                            {move || i18n::t(&language.get(), "analysis.add_line")}
-                        </button>
-                        <button on:click=add_game_to_repertoire>
-                            {move || i18n::t(&language.get(), "analysis.add_game")}
-                        </button>
-                    </div>
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.annotation")}</div>
-                    <div class="ann-editor">
-                        <input
-                            type="text"
-                            placeholder=move || i18n::t(&language.get(), "analysis.comment_ph")
-                            prop:value=move || ann_text.get()
-                            on:input=move |ev| ann_text.set(event_target_value(&ev))
-                        />
-                        <select
-                            prop:value=move || ann_nag.get().to_string()
-                            on:change=move |ev| ann_nag.set(event_target_value(&ev).parse().unwrap_or(0))
-                        >
-                            <option value="0">"—"</option>
-                            <option value="1">"!"</option>
-                            <option value="2">"?"</option>
-                            <option value="3">"!!"</option>
-                            <option value="4">"??"</option>
-                            <option value="5">"!?"</option>
-                            <option value="6">"?!"</option>
-                        </select>
-                        <button on:click=save_annotation>{move || i18n::t(&language.get(), "common.save")}</button>
-                    </div>
-                </aside>
-                {move || {
-                    let kind = dock.get();
-                    if kind.is_empty() {
-                        return None;
-                    }
-                    let ai = view! {
-                        <div class="dock-body">
-                            <div class="chat-messages" aria-live="polite">
-                                {move || {
-                                    chat_messages
-                                        .get()
-                                        .into_iter()
-                                        .map(|(role, text)| {
-                                            view! {
-                                                <div class=format!("chat-msg {role}")>{text}</div>
-                                            }
-                                        })
-                                        .collect_view()
-                                }}
-                            </div>
-                            {move || {
-                                let tools = chat_tools.get();
-                                (!tools.is_empty()).then(|| view! {
-                                    <div class="chat-tools">
-                                        {tools
-                                            .into_iter()
-                                            .map(|tool| view! { <span class="tool-chip">{tool}</span> })
-                                            .collect_view()}
-                                    </div>
-                                })
-                            }}
-                            <div class="row-btns">
-                                <button on:click=move |_| {
-                                    chat_text.set(i18n::t(&language.get(), "analysis.prompt_analyse").into());
-                                    send_chat();
-                                }>{move || i18n::t(&language.get(), "analysis.analyse")}</button>
-                                <button on:click=move |_| {
-                                    chat_text.set(i18n::t(&language.get(), "analysis.prompt_plan").into());
-                                    send_chat();
-                                }>{move || i18n::t(&language.get(), "analysis.explain")}</button>
-                                <button on:click=move |_| ai_shapes.set(Vec::new())>{move || i18n::t(&language.get(), "analysis.clear_arrows")}</button>
-                            </div>
-                            <div class="chat-input">
-                                <textarea
-                                    placeholder=move || i18n::t(&language.get(), "analysis.ask_hint")
-                                    prop:value=move || chat_text.get()
-                                    on:input=move |ev| chat_text.set(event_target_value(&ev))
-                                ></textarea>
-                                <button on:click=move |_| send_chat()>{move || i18n::t(&language.get(), "analysis.send")}</button>
-                            </div>
-                        </div>
-                    }
-                    .into_any();
-                    let console = view! {
-                        <div class="dock-body">
-                            <div class="engine-fields">
-                                <label>
-                                    {move || i18n::t(&language.get(), "settings.engine")}
-                                    <select
-                                        prop:value=move || console_path.get()
-                                        on:change=move |ev| console_path.set(event_target_value(&ev))
-                                    >
-                                        {move || {
-                                            engines
-                                                .get()
-                                                .into_iter()
-                                                .map(|engine| {
-                                                    view! {
-                                                        <option value=engine.path.clone()>
-                                                            {format!("{} — {}", engine.name, engine.path)}
-                                                        </option>
-                                                    }
-                                                })
-                                                .collect_view()
-                                        }}
-                                    </select>
-                                </label>
-                                <div class="row-btns">
-                                    <button on:click=console_start disabled=move || console_running.get()>
-                                        {move || i18n::t(&language.get(), "common.start")}
-                                    </button>
-                                    <button on:click=console_stop disabled=move || !console_running.get()>
-                                        {move || i18n::t(&language.get(), "practice.stop")}
-                                    </button>
-                                    <span class="status">
-                                        {move || {
-                                            if console_running.get() {
-                                                console_name.get()
-                                            } else {
-                                                "stopped".to_owned()
-                                            }
-                                        }}
-                                    </span>
-                                </div>
-                            </div>
-                            <pre class="console-log">{move || console_log.get().join("\n")}</pre>
-                            <div class="chat-input">
-                                <input
-                                    type="text"
-                                    placeholder=move || i18n::t(&language.get(), "analysis.uci_hint")
-                                    prop:value=move || console_cmd.get()
-                                    on:input=move |ev| console_cmd.set(event_target_value(&ev))
-                                    on:keydown=move |ev| {
-                                        if ev.key() == i18n::t(&language.get(), "common.enter") {
-                                            console_send();
-                                        }
-                                    }
-                                />
-                                <button on:click=move |_| console_send() disabled=move || console_busy.get()>
-                                    {move || i18n::t(&language.get(), "analysis.send")}
-                                </button>
-                            </div>
-                        </div>
-                    }
-                    .into_any();
-                    Some(view! {
-                        <div class="engine-dock">
-                            <div class="dock-head">
-                                <div class="dock-tabs">
-                                    <button
-                                        class=if kind == "ai" { "dock-tab active" } else { "dock-tab" }
-                                        on:click=move |_| dock.set("ai".into())
-                                    >
-                                        {move || i18n::t(&language.get(), "analysis.ai")}
-                                    </button>
-                                    <button
-                                        class=if kind == "console" { "dock-tab active" } else { "dock-tab" }
-                                        on:click=move |_| dock.set("console".into())
-                                    >
-                                        {move || i18n::t(&language.get(), "analysis.console")}
-                                    </button>
-                                </div>
-                                <button
-                                    class="dock-close"
-                                    aria-label={move || i18n::t(&language.get(), "analysis.close_panel")}
-                                    on:click=move |_| dock.set(String::new())
-                                >
-                                    "×"
-                                </button>
-                            </div>
-                            {if kind == "ai" { ai } else { console }}
-                        </div>
-                    })
-                }}
-            </section>
-        }
-        .into_any()
-    };
 
     let normalize_san = |san: &str| -> String {
         san.chars()
@@ -4886,14 +2590,14 @@ pub fn App() -> impl IntoView {
 
     let start_guess = move |id: i64| {
         if id <= 0 {
-            practice_feedback.set("choose a game first".into());
+            practice_feedback.set(i18n::t(&language.get(), "practice.choose_game_first").into());
             return;
         }
         spawn_local(async move {
             match api::get_game(id).await {
                 Ok(detail) => {
                     if detail.moves.trim().is_empty() {
-                        practice_feedback.set("that game has no moves".into());
+                        practice_feedback.set(i18n::t(&language.get(), "practice.no_moves").into());
                         return;
                     }
                     let sans: Vec<String> =
@@ -4906,8 +2610,11 @@ pub fn App() -> impl IntoView {
                     practice_step.set(0);
                     practice_hits.set(0);
                     practice_misses.set(0);
-                    practice_feedback
-                        .set(format!("Play the game's move — {} to go", sans.len()));
+                    practice_feedback.set(i18n::tf(
+                        &language.get(),
+                        "status.d40",
+                        &[("n", sans.len().to_string())],
+                    ));
                     practice_pgn.set(line_pgn(&detail.fen, &[], &variant));
                     let seq = practice_seq.get_untracked() + 1;
                     practice_seq.set(seq);
@@ -4930,21 +2637,25 @@ pub fn App() -> impl IntoView {
             practice_hits.set(hits);
             practice_step.set(step + 1);
             if step + 1 >= sans.len() {
-                practice_feedback.set(format!(
-                    "Finished — {} of {} moves matched",
-                    hits,
-                    sans.len()
+                practice_feedback.set(i18n::tf(
+                    &language.get(),
+                    "status.d27",
+                    &[("hits", hits.to_string()), ("total", sans.len().to_string())],
                 ));
             } else {
-                practice_feedback.set(format!(
-                    "Correct — {} moves to go",
-                    sans.len() - step - 1
+                practice_feedback.set(i18n::tf(
+                    &language.get(),
+                    "status.d28",
+                    &[("remaining", (sans.len() - step - 1).to_string())],
                 ));
             }
         } else {
             practice_misses.update(|m| *m += 1);
-            practice_feedback
-                .set(format!("Not the game move — the game played {}", sans[step]));
+            practice_feedback.set(i18n::tf(
+                &language.get(),
+                "status.d41",
+                &[("mv", sans[step].clone())],
+            ));
             let seq = practice_seq.get_untracked() + 1;
             practice_seq.set(seq);
             practice_goto.set(Some((seq, step)));
@@ -4960,13 +2671,15 @@ pub fn App() -> impl IntoView {
         };
         spar_pgn.set(line_pgn(&fen, &[], "standard"));
         spar_play.set(None);
-        spar_status.set(format!(
-            "You are {}. Play a move.",
-            if spar_color.get_untracked() == "black" {
-                "Black"
-            } else {
-                "White"
-            }
+        let color = if spar_color.get_untracked() == "black" {
+            i18n::t(&language.get(), "common.black")
+        } else {
+            i18n::t(&language.get(), "common.white")
+        };
+        spar_status.set(i18n::tf(
+            &language.get(),
+            "status.d30",
+            &[("color", color.to_string())],
         ));
     };
 
@@ -5013,7 +2726,7 @@ pub fn App() -> impl IntoView {
         };
         let depth = match_depth.get_untracked().clamp(1, 30);
 
-        match_status.set(format!("{} thinking…", entry.name));
+        match_status.set(i18n::tf(&language.get(), "status.d24", &[("name", entry.name.clone())]));
         spawn_local(async move {
             match api::analyze_engine(&board_fen, depth, &entry.path).await {
                 Ok(mv) => {
@@ -5025,7 +2738,7 @@ pub fn App() -> impl IntoView {
                             "1/2-1/2"
                         };
                         match_result.set(result.to_owned());
-                        match_status.set(format!("finished — {result} ({over})"));
+                        match_status.set(i18n::tf(&language.get(), "status.d25", &[("result", result.to_string()), ("over", over.clone())]));
                         match_running.set(false);
                         return;
                     }
@@ -5054,11 +2767,15 @@ pub fn App() -> impl IntoView {
             return;
         }
         let turn = if fen_after.split_whitespace().nth(1) == Some("b") {
-            "Black"
+            i18n::t(&language.get(), "common.black")
         } else {
-            "White"
+            i18n::t(&language.get(), "common.white")
         };
-        match_status.set(format!("{turn} to move"));
+        match_status.set(i18n::tf(
+            &language.get(),
+            "status.d26",
+            &[("turn", turn.to_string())],
+        ));
         spawn_local(async move {
             TimeoutFuture::new(150).await;
             request_match_move();
@@ -5115,1013 +2832,298 @@ pub fn App() -> impl IntoView {
         match_pgn.set(line_pgn(&start, &[], "standard"));
     };
 
-    let practice_view = move || {
-        view! {
-            <section class="practice">
-                <div class="panel practice-controls">
-                    <div class="row-btns">
-                        <button
-                            class=move || {
-                                if practice_mode.get() == "guess" { "mode active" } else { "mode" }
-                            }
-                            on:click=move |_| practice_mode.set("guess".into())
-                        >
-                            {move || i18n::t(&language.get(), "practice.guess")}
-                        </button>
-                        <button
-                            class=move || {
-                                if practice_mode.get() == "spar" { "mode active" } else { "mode" }
-                            }
-                            on:click=move |_| practice_mode.set("spar".into())
-                        >
-                            {move || i18n::t(&language.get(), "practice.spar")}
-                        </button>
-                        <button
-                            class=move || {
-                                if practice_mode.get() == "engine" { "mode active" } else { "mode" }
-                            }
-                            on:click=move |_| practice_mode.set("engine".into())
-                        >
-                            {move || i18n::t(&language.get(), "practice.match")}
-                        </button>
-                    </div>
-                    {move || {
-                        if practice_mode.get() == "guess" {
-                            view! {
-                                <div class="practice-row">
-                                    <input
-                                        type="text"
-                                        placeholder=move || i18n::t(&language.get(), "practice.filter")
-                                        prop:value=move || practice_query.get()
-                                        on:input=move |ev| practice_query.set(event_target_value(&ev))
-                                    />
-                                    <select
-                                        prop:value=move || practice_pick.get().to_string()
-                                        on:change=move |ev| {
-                                            practice_pick
-                                                .set(event_target_value(&ev).parse().unwrap_or(0))
-                                        }
-                                    >
-                                        <option value="0">{move || i18n::t(&language.get(), "practice.choose_game")}</option>
-                                        {move || {
-                                            practice_games
-                                                .get()
-                                                .into_iter()
-                                                .map(|g| {
-                                                    view! {
-                                                        <option value=g.id.to_string()>
-                                                            {format!("{} vs {} · {}", g.white, g.black, g.result)}
-                                                        </option>
-                                                    }
-                                                })
-                                                .collect_view()
-                                        }}
-                                    </select>
-                                    <button on:click=move |_| start_guess(practice_pick.get_untracked())>
-                                        {move || i18n::t(&language.get(), "practice.practise")}
-                                    </button>
-                                    <button
-                                        disabled=move || selected_game_id.get().is_none()
-                                        on:click=move |_| {
-                                            if let Some(id) = selected_game_id.get_untracked() {
-                                                start_guess(id);
-                                            }
-                                        }
-                                    >
-                                        {move || i18n::t(&language.get(), "practice.use_analysis")}
-                                    </button>
-                                </div>
-                            }
-                                .into_any()
-                        } else if practice_mode.get() == "spar" {
-                            view! {
-                                <div class="practice-row">
-                                    <input
-                                        type="text"
-                                        placeholder=move || i18n::t(&language.get(), "practice.start_fen_long")
-                                        prop:value=move || spar_fen.get()
-                                        on:input=move |ev| spar_fen.set(event_target_value(&ev))
-                                    />
-                                    <select
-                                        prop:value=move || spar_color.get()
-                                        on:change=move |ev| spar_color.set(event_target_value(&ev))
-                                    >
-                                        <option value="white">{move || i18n::t(&language.get(), "practice.play_white")}</option>
-                                        <option value="black">{move || i18n::t(&language.get(), "practice.play_black")}</option>
-                                    </select>
-                                    <button on:click=start_spar>{move || i18n::t(&language.get(), "common.start")}</button>
-                                </div>
-                            }
-                                .into_any()
-                        } else {
-                            view! {
-                                <div class="practice-row">
-                                    <select
-                                        prop:value=move || match_white.get().to_string()
-                                        on:change=move |ev| {
-                                            match_white.set(event_target_value(&ev).parse().unwrap_or(0))
-                                        }
-                                    >
-                                        {move || {
-                                            engines
-                                                .get()
-                                                .into_iter()
-                                                .enumerate()
-                                                .map(|(i, engine)| {
-                                                    view! {
-                                                        <option value=i.to_string()>
-                                                            {format!("White: {}", engine.name)}
-                                                        </option>
-                                                    }
-                                                })
-                                                .collect_view()
-                                        }}
-                                    </select>
-                                    <select
-                                        prop:value=move || match_black.get().to_string()
-                                        on:change=move |ev| {
-                                            match_black.set(event_target_value(&ev).parse().unwrap_or(0))
-                                        }
-                                    >
-                                        {move || {
-                                            engines
-                                                .get()
-                                                .into_iter()
-                                                .enumerate()
-                                                .map(|(i, engine)| {
-                                                    view! {
-                                                        <option value=i.to_string()>
-                                                            {format!("Black: {}", engine.name)}
-                                                        </option>
-                                                    }
-                                                })
-                                                .collect_view()
-                                        }}
-                                    </select>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        max="30"
-                                        title=move || i18n::t(&language.get(), "settings.depth_label")
-                                        style="max-width:6rem"
-                                        prop:value=move || match_depth.get().to_string()
-                                        on:input=move |ev| {
-                                            match_depth
-                                                .set(event_target_value(&ev).parse().unwrap_or(10))
-                                        }
-                                    />
-                                    <input
-                                        type="text"
-                                        placeholder=move || i18n::t(&language.get(), "practice.start_fen")
-                                        prop:value=move || match_start_fen.get()
-                                        on:input=move |ev| match_start_fen.set(event_target_value(&ev))
-                                    />
-                                    <button on:click=start_match>{move || i18n::t(&language.get(), "common.start")}</button>
-                                    <button on:click=pause_match>{move || i18n::t(&language.get(), "common.pause")}</button>
-                                    <button on:click=reset_match>{move || i18n::t(&language.get(), "common.reset")}</button>
-                                </div>
-                            }
-                                .into_any()
-                        }
-                    }}
-                </div>
 
-                <div class="analysis practice-board">
-                    <div class="board-pane">
-                        {move || {
-                            if practice_mode.get() == "guess" {
-                                let side = practice_game
-                                    .get()
-                                    .map(|g| format!("{} vs {}", g.white, g.black))
-                                    .unwrap_or_else(|| i18n::t(&language.get(), "practice.guess").into());
-                                view! {
-                                    <Board
-                                        pgn=practice_pgn
-                                        title=Signal::derive(move || side.clone())
-                                        on_move=Callback::new(on_practice_move)
-                                        on_position=Callback::new(move |f: String| fen.set(f))
-                                        goto=Signal::derive(move || practice_goto.get())
-                                        keybinds=Signal::derive(move || keybinds.get())
-                                        theme=Signal::derive(move || settings_theme.get())
-                                        pieces=Signal::derive(move || settings_pieces.get())
-                                        light_color=Signal::derive(move || settings_light.get())
-                                        dark_color=Signal::derive(move || settings_dark.get())
-                                        coords=Signal::derive(move || settings_coords.get())
-                                        lang=Signal::derive(move || language.get())
-                                    />
-                                }
-                                    .into_any()
-                            } else if practice_mode.get() == "spar" {
-                                view! {
-                                    <Board
-                                        pgn=spar_pgn
-                                        title=Signal::derive(move || i18n::t(&language.get(), "practice.spar").to_string())
-                                        orientation=Signal::derive(move || spar_color.get())
-                                        play=Signal::derive(move || spar_play.get())
-                                        on_move=Callback::new(on_spar_move)
-                                        on_position=Callback::new(move |f: String| fen.set(f))
-                                        on_play=Callback::new(move |_: (String, String, String)| {
-                                            spar_status.set(i18n::t(&language.get(), "practice.your_move").into());
-                                        })
-                                        keybinds=Signal::derive(move || keybinds.get())
-                                        theme=Signal::derive(move || settings_theme.get())
-                                        pieces=Signal::derive(move || settings_pieces.get())
-                                        light_color=Signal::derive(move || settings_light.get())
-                                        dark_color=Signal::derive(move || settings_dark.get())
-                                        coords=Signal::derive(move || settings_coords.get())
-                                        lang=Signal::derive(move || language.get())
-                                    />
-                                }
-                                    .into_any()
-                            } else {
-                                view! {
-                                    <Board
-                                        pgn=match_pgn
-                                        title=Signal::derive(move || i18n::t(&language.get(), "practice.match").to_string())
-                                        play=Signal::derive(move || match_play.get())
-                                        on_play=Callback::new(on_match_play)
-                                        on_position=Callback::new(move |f: String| fen.set(f))
-                                        read_only=true
-                                        keybinds=Signal::derive(move || keybinds.get())
-                                        theme=Signal::derive(move || settings_theme.get())
-                                        pieces=Signal::derive(move || settings_pieces.get())
-                                        light_color=Signal::derive(move || settings_light.get())
-                                        dark_color=Signal::derive(move || settings_dark.get())
-                                        coords=Signal::derive(move || settings_coords.get())
-                                        lang=Signal::derive(move || language.get())
-                                    />
-                                }
-                                    .into_any()
-                            }
-                        }}
-                    </div>
-                    <aside class="engine-pane">
-                        <div class="panel-head"><h2>{move || i18n::t(&language.get(), "nav.practice")}</h2></div>
-                        {move || {
-                            if practice_mode.get() == "guess" {
-                                let total = practice_sans.get().len();
-                                let step = practice_step.get();
-                                view! {
-                                    <div class="engine-body">
-                                        <div class="practice-stats">
-                                            {format!("Move {} / {}", (step + 1).min(total), total)}
-                                        </div>
-                                        <div class="muted">
-                                            {format!(
-                                                "{} correct · {} missed",
-                                                practice_hits.get(),
-                                                practice_misses.get(),
-                                            )}
-                                        </div>
-                                        <div class="best">{move || practice_feedback.get()}</div>
-                                        <div class="row-btns">
-                                            <button
-                                                disabled=move || practice_sans.get().is_empty()
-                                                on:click=move |_| {
-                                                    practice_step.set(0);
-                                                    practice_hits.set(0);
-                                                    practice_misses.set(0);
-                                                    practice_feedback.set(String::new());
-                                                    let seq = practice_seq.get_untracked() + 1;
-                                                    practice_seq.set(seq);
-                                                    practice_goto.set(Some((seq, 0)));
-                                                    if let Some(game) = practice_game.get_untracked() {
-                                                        let variant = game
-                                                            .variant
-                                                            .clone()
-                                                            .unwrap_or_else(|| "standard".into());
-                                                        practice_pgn.set(line_pgn(&game.fen, &[], &variant));
-                                                    }
-                                                }
-                                            >
-                                                {move || i18n::t(&language.get(), "practice.restart")}
-                                            </button>
-                                            <button on:click=move |_| {
-                                                if let Some(next) = practice_sans
-                                                    .get_untracked()
-                                                    .get(practice_step.get_untracked())
-                                                {
-                                                    practice_feedback
-                                                        .set(format!("The game move is {next}"));
-                                                }
-                                            }>{move || i18n::t(&language.get(), "practice.reveal")}</button>
-                                        </div>
-                                    </div>
-                                }
-                                    .into_any()
-                            } else if practice_mode.get() == "spar" {
-                                view! {
-                                    <div class="engine-body">
-                                        <div class="best">{move || spar_status.get()}</div>
-                                        <div class="muted">
-                                            {move || {
-                                                if spar_thinking.get() {
-                                                    i18n::t(&language.get(), "practice.engine_thinking")
-                                                } else {
-                                                    ""
-                                                }
-                                            }}
-                                        </div>
-                                        <div class="row-btns">
-                                            <button on:click=start_spar>{move || i18n::t(&language.get(), "practice.new_game")}</button>
-                                        </div>
-                                    </div>
-                                }
-                                    .into_any()
-                            } else {
-                                view! {
-                                    <div class="engine-body">
-                                        <div class="practice-stats">{move || match_status.get()}</div>
-                                        <div class="muted">
-                                            {move || {
-                                                if match_result.get().is_empty() {
-                                                    format!("{} moves", match_moves.get().len())
-                                                } else {
-                                                    format!("result {}", match_result.get())
-                                                }
-                                            }}
-                                        </div>
-                                        <div class="match-moves">
-                                            {move || {
-                                                match_moves
-                                                    .get()
-                                                    .chunks(2)
-                                                    .enumerate()
-                                                    .map(|(i, pair)| {
-                                                        view! {
-                                                            <div class="match-move">
-                                                                <span class="muted">{format!("{}.", i + 1)}</span>
-                                                                <span>{pair[0].clone()}</span>
-                                                                <span>{pair.get(1).cloned().unwrap_or_default()}</span>
-                                                            </div>
-                                                        }
-                                                    })
-                                                    .collect_view()
-                                            }}
-                                        </div>
-                                        <div class="row-btns">
-                                            <button on:click=start_match disabled=move || match_running.get()>
-                                                {move || i18n::t(&language.get(), "common.start")}
-                                            </button>
-                                            <button on:click=pause_match>{move || i18n::t(&language.get(), "common.pause")}</button>
-                                            <button on:click=reset_match>{move || i18n::t(&language.get(), "common.reset")}</button>
-                                        </div>
-                                    </div>
-                                }
-                                    .into_any()
-                            }
-                        }}
-                    </aside>
-                </div>
-            </section>
-        }
-        .into_any()
+
+
+    let app_ctx = views::AppCtx {
+        account_busy,
+        account_import_max,
+        account_msg,
+        accounts,
+        active_collection,
+        add_collection,
+        ai_shapes,
+        analysis,
+        analysis_rep,
+        analyzing,
+        animate_last_move,
+        ann_nag,
+        ann_text,
+        annotating,
+        attempts,
+        chat_messages,
+        chat_text,
+        chat_tools,
+        chesscom_user_input,
+        clock,
+        clock_active,
+        clock_base_input,
+        clock_epoch,
+        clock_inc,
+        clock_inc_input,
+        cloud,
+        collection_name,
+        collections,
+        console_busy,
+        console_cmd,
+        console_log,
+        console_name,
+        console_path,
+        console_running,
+        custom_sets,
+        db_list,
+        dock,
+        edit_moves_open,
+        editor_castling,
+        editor_ep,
+        editor_open,
+        editor_palette,
+        editor_pieces,
+        editor_turn,
+        editor_variant,
+        engine_dialog,
+        engine_results,
+        engine_test,
+        engine_test_busy,
+        engines,
+        eval_hover,
+        evals,
+        event_filter,
+        events,
+        fen,
+        filter_date_from,
+        filter_date_to,
+        filter_elo_max,
+        filter_elo_min,
+        filter_result,
+        filter_variant,
+        game_detail,
+        games,
+        goto_sig,
+        home_recent,
+        import_text,
+        keybinds,
+        language,
+        lichess_token_input,
+        lichess_user_input,
+        lines,
+        load_fen_sig,
+        manage_collection,
+        match_black,
+        match_depth,
+        match_moves,
+        match_pgn,
+        match_play,
+        match_result,
+        match_running,
+        match_start_fen,
+        match_status,
+        match_white,
+        moves_text,
+        new_collection,
+        new_database,
+        new_engine_name,
+        new_engine_path,
+        online_max,
+        online_provider,
+        online_user,
+        opening,
+        opening_fen,
+        opening_mode,
+        opening_source,
+        partial_search,
+        piece_animation_ms,
+        piece_set_msg,
+        piece_set_name,
+        piece_upload_busy,
+        play_as,
+        play_uci,
+        players,
+        position_fen,
+        position_variant,
+        practice_feedback,
+        practice_game,
+        practice_games,
+        practice_goto,
+        practice_hits,
+        practice_misses,
+        practice_mode,
+        practice_pgn,
+        practice_pick,
+        practice_query,
+        practice_sans,
+        practice_seq,
+        practice_step,
+        profile,
+        profile_name,
+        profile_player,
+        puzzle,
+        puzzle_csv,
+        puzzle_delta,
+        puzzle_orientation,
+        puzzle_pgn,
+        puzzle_rating,
+        puzzle_recorded,
+        puzzle_san,
+        puzzle_solution,
+        puzzle_state,
+        puzzle_step,
+        puzzle_theme,
+        puzzle_themes,
+        query,
+        recent_files,
+        record_moves,
+        rep_board,
+        rep_card,
+        rep_color,
+        rep_correct,
+        rep_feedback,
+        rep_id,
+        rep_name,
+        rep_pgn_input,
+        rep_selected,
+        report,
+        reporting,
+        reps,
+        selected_game_id,
+        selected_pgn,
+        selected_title,
+        settings_coords,
+        settings_dark,
+        settings_depth,
+        settings_engine,
+        settings_hash,
+        settings_light,
+        settings_model,
+        settings_pieces,
+        settings_status,
+        settings_syzygy,
+        settings_theme,
+        settings_threads,
+        settings_variant_engine,
+        shapes,
+        show_solution,
+        show_tags,
+        sort_by,
+        sound_enabled,
+        sound_msg,
+        sound_theme,
+        sound_volume,
+        spar_color,
+        spar_fen,
+        spar_pgn,
+        spar_play,
+        spar_status,
+        spar_thinking,
+        stats,
+        status,
+        tab,
+        tag_black,
+        tag_black_elo,
+        tag_date,
+        tag_event,
+        tag_result,
+        tag_round,
+        tag_site,
+        tag_time_control,
+        tag_white,
+        tag_white_elo,
+        tb_result,
+        tb_status,
+        thinking,
+        total,
+        tree_ply,
+        variant_only,
+        vision,
+        vision_busy,
+        vision_msg,
+        vs_engine,
+        workspaces,
+        active_ws,
+        renaming_ws,
+        rename_text,
+        new_tab_kind,
+        activate_workspace: views::app_ctx::view_callback(activate_workspace),
+        close_workspace: views::app_ctx::view_callback(close_workspace),
+        commit_rename: views::app_ctx::view_callback(move |_: ()| commit_rename()),
+        move_workspace: views::app_ctx::view_callback(move |(a, b): (u32, i32)| move_workspace(a, b)),
+        open_page_tab: views::app_ctx::view_callback(open_page_tab),
+        add_collection_clicked: views::app_ctx::view_callback(add_collection_clicked),
+        add_engine: views::app_ctx::view_callback(add_engine),
+        add_game_to_collection: views::app_ctx::view_callback(add_game_to_collection),
+        add_game_to_repertoire: views::app_ctx::view_callback(add_game_to_repertoire),
+        add_line_to_repertoire: views::app_ctx::view_callback(add_line_to_repertoire),
+        annotate_game: views::app_ctx::view_callback(annotate_game),
+        apply_editor: views::app_ctx::view_callback(apply_editor),
+        apply_moves: views::app_ctx::view_callback(apply_moves),
+        choose_side: views::app_ctx::view_callback(choose_side),
+        classify: views::app_ctx::view_callback(classify),
+        console_send: views::app_ctx::view_callback(move |_: ()| console_send()),
+        console_start: views::app_ctx::view_callback(console_start),
+        console_stop: views::app_ctx::view_callback(console_stop),
+        create_db: views::app_ctx::view_callback(create_db),
+        delete_collection: views::app_ctx::view_callback(delete_collection),
+        delete_current: views::app_ctx::view_callback(delete_current),
+        delete_tree_from_here: views::app_ctx::view_callback(delete_tree_from_here),
+        download_vision: views::app_ctx::view_callback(download_vision),
+        export_report: views::app_ctx::view_callback(export_report),
+        fetch_cloud: views::app_ctx::view_callback(fetch_cloud),
+        fetch_engine_lines: views::app_ctx::view_callback(fetch_engine_lines),
+        fetch_lines: views::app_ctx::view_callback(fetch_lines),
+        import: views::app_ctx::view_callback(import),
+        import_account: views::app_ctx::view_callback(import_account),
+        import_online: views::app_ctx::view_callback(import_online),
+        link_account: views::app_ctx::view_callback(link_account),
+        new_workspace: views::app_ctx::view_callback(move |_: ()| new_workspace()),
+        on_board_move: views::app_ctx::view_callback(move |args: (String, String, String)| on_board_move(args)),
+        on_engine_play: views::app_ctx::view_callback(move |args: (String, String, String)| on_engine_play(args)),
+        on_file_pick: views::app_ctx::view_callback(on_file_pick),
+        on_match_play: views::app_ctx::view_callback(move |args: (String, String, String)| on_match_play(args)),
+        on_practice_move: views::app_ctx::view_callback(move |args: (String, String, String)| on_practice_move(args)),
+        on_spar_move: views::app_ctx::view_callback(move |args: (String, String, String)| on_spar_move(args)),
+        open_editor: views::app_ctx::view_callback(open_editor),
+        open_game: views::app_ctx::view_callback(open_game),
+        pause_match: views::app_ctx::view_callback(pause_match),
+        persist_settings: views::app_ctx::view_callback(move |_: ()| persist_settings()),
+        probe_tablebase: views::app_ctx::view_callback(probe_tablebase),
+        promote_selected: views::app_ctx::view_callback(promote_selected),
+        reload: views::app_ctx::view_callback(move |_: ()| reload()),
+        rename_collection: views::app_ctx::view_callback(rename_collection),
+        reset_match: views::app_ctx::view_callback(reset_match),
+        run_analysis: views::app_ctx::view_callback(run_analysis),
+        run_engine_test: views::app_ctx::view_callback(run_engine_test),
+        save_annotation: views::app_ctx::view_callback(save_annotation),
+        save_tags: views::app_ctx::view_callback(save_tags),
+        scan_image: views::app_ctx::view_callback(scan_image),
+        search_position: views::app_ctx::view_callback(search_position),
+        select_node: views::app_ctx::view_callback(select_node),
+        send_chat: views::app_ctx::view_callback(move |_: ()| send_chat()),
+        set_engine_option: views::app_ctx::view_callback(move |(a, b, c): (usize, &'static str, String)| set_engine_option(a, b, c)),
+        start_guess: views::app_ctx::view_callback(start_guess),
+        start_match: views::app_ctx::view_callback(start_match),
+        start_spar: views::app_ctx::view_callback(start_spar),
+        switch_db: views::app_ctx::view_callback(switch_db),
+        switch_tab: views::app_ctx::view_callback(switch_tab),
+        toggle_vs_engine: views::app_ctx::view_callback(toggle_vs_engine),
+        tree_nodes: views::app_ctx::view_callback(move |_: ()| tree_nodes()),
+        truncate_moves: views::app_ctx::view_callback(truncate_moves),
+        unlink_account: views::app_ctx::view_callback(unlink_account),
+        upload_piece_set: views::app_ctx::view_callback(upload_piece_set),
+        upload_sound: views::app_ctx::view_callback(upload_sound),
     };
+    let home_view = move || views::home::home(app_ctx);
 
-    let opening_view = move || {
-        let explore = move |_| {
-            let f = opening_fen.get();
-            if f.is_empty() {
-                return;
-            }
-            let src = opening_source.get_untracked();
-            let source = (src != "local").then_some(src);
-            spawn_local(async move {
-                match api::explore(&f, source.as_deref()).await {
-                    Ok(e) => opening.set(Some(e)),
-                    Err(e) => status.set(e),
-                }
-            });
-        };
-        let explorer = move || {
-            view! {
-                <div class="load">
-                    <input
-                        type="text"
-                        placeholder=move || i18n::t(&language.get(), "openings.fen_ph")
-                        prop:value=move || opening_fen.get()
-                        on:input=move |ev| opening_fen.set(event_target_value(&ev))
-                    />
-                    <button on:click=explore>{move || i18n::t(&language.get(), "openings.explore")}</button>
-                    <button
-                        title=move || i18n::t(&language.get(), "openings.use_current")
-                        on:click=move |_| {
-                            let current = fen.get();
-                            if !current.is_empty() {
-                                opening_fen.set(current);
-                                let src = opening_source.get_untracked();
-                                let source = (src != "local").then_some(src);
-                                spawn_local(async move {
-                                    match api::explore(&opening_fen.get_untracked(), source.as_deref()).await {
-                                        Ok(e) => opening.set(Some(e)),
-                                        Err(e) => status.set(e),
-                                    }
-                                });
-                            }
-                        }
-                    >
-                        {move || i18n::t(&language.get(), "analysis.current_board")}
-                    </button>
-                </div>
-                {move || {
-                    opening
-                        .get()
-                        .map(|o| {
-                            let title = format!(
-                                "{} {}",
-                                o.eco.clone().unwrap_or_default(),
-                                o.name.clone().unwrap_or_default(),
-                            );
-                            view! {
-                                <div class="opening">
-                                    <div class="opening-name">{title}</div>
-                                    <div class="table open">
-                                        <div class="row head">
-                                            <span>{move || i18n::t(&language.get(), "db.move")}</span><span>{move || i18n::t(&language.get(), "db.games")}</span>
-                                            <span>"White"</span><span>{move || i18n::t(&language.get(), "db.draw")}</span><span>"Black"</span>
-                                        </div>
-                                        {o
-                                            .continuations
-                                            .into_iter()
-                                            .map(|c| {
-                                                view! {
-                                                    <div class="row">
-                                                        <span>{c.san}</span>
-                                                        <span>{c.games.to_string()}</span>
-                                                        <span>{c.white.to_string()}</span>
-                                                        <span>{c.draw.to_string()}</span>
-                                                        <span>{c.black.to_string()}</span>
-                                                    </div>
-                                                }
-                                            })
-                                            .collect_view()}
-                                    </div>
-                                </div>
-                            }
-                        })
-                }}
-            }
-            .into_any()
-        };
+    let database_view = move || views::database::database(app_ctx);
 
-        let load_card = move |id: i64| {
-            rep_id.set(id);
-            rep_feedback.set(String::new());
-            spawn_local(async move {
-                match api::next_repertoire_card(id).await {
-                    Ok(Some(card)) => {
-                        rep_board.set(line_pgn(&card.fen, &[], "standard"));
-                        rep_card.set(Some(card));
-                    }
-                    Ok(None) => {
-                        rep_card.set(None);
-                        rep_feedback.set(i18n::t(&language.get(), "openings.no_due").into());
-                    }
-                    Err(e) => rep_feedback.set(e),
-                }
-            });
-        };
+    let analysis_view = move || views::analysis::analysis(app_ctx);
 
-        let next_card = move |_| load_card(rep_id.get_untracked());
+    let practice_view = move || views::practice::practice(app_ctx);
 
-        let create_rep = move |_: leptos::ev::MouseEvent| {
-            let name = rep_name.get();
-            if name.trim().is_empty() {
-                return;
-            }
-            let color = rep_color.get_untracked();
-            spawn_local(async move {
-                match api::create_repertoire(name.trim(), &color).await {
-                    Ok(r) => {
-                        rep_name.set(String::new());
-                        status.set(format!("repertoire '{}' created", r.name));
-                        rep_selected.set(r.id);
-                        if let Ok(list) = api::repertoires().await {
-                            reps.set(list);
-                        }
-                    }
-                    Err(e) => status.set(e),
-                }
-            });
-        };
+    let opening_view = move || views::opening::opening(app_ctx);
 
-        let delete_rep = move |id: i64| {
-            spawn_local(async move {
-                match api::delete_repertoire(id).await {
-                    Ok(()) => {
-                        if rep_id.get_untracked() == id {
-                            rep_card.set(None);
-                        }
-                        if let Ok(list) = api::repertoires().await {
-                            reps.set(list);
-                        }
-                    }
-                    Err(e) => status.set(e),
-                }
-            });
-        };
+    let puzzle_view = move || views::puzzle::puzzle(app_ctx);
 
-        let import_rep = move |id: i64| {
-            let pgn = rep_pgn_input.get();
-            if pgn.trim().is_empty() {
-                return;
-            }
-            spawn_local(async move {
-                match api::import_repertoire_pgn(id, &pgn).await {
-                    Ok(n) => {
-                        rep_pgn_input.set(String::new());
-                        status.set(format!("imported {n} repertoire card(s)"));
-                        if let Ok(list) = api::repertoires().await {
-                            reps.set(list);
-                        }
-                    }
-                    Err(e) => status.set(e),
-                }
-            });
-        };
-
-        let on_rep_move = move |(uci, _san, _fen): (String, String, String)| {
-            let Some(card) = rep_card.get_untracked() else {
-                return;
-            };
-            if !rep_feedback.get_untracked().is_empty() {
-                return;
-            }
-            let correct = uci == card.uci;
-            let expected = card.san.clone();
-            spawn_local(async move {
-                match api::review_repertoire_card(card.id, correct).await {
-                    Ok(updated) => {
-                        rep_correct.set(correct);
-                        rep_feedback.set(if correct {
-                            format!(
-                                "Correct — next review in {} day(s)",
-                                updated.interval_days.max(1.0) as i64
-                            )
-                        } else {
-                            format!("Wrong — expected {expected}")
-                        });
-                        rep_card.set(Some(updated));
-                        if let Ok(list) = api::repertoires().await {
-                            reps.set(list);
-                        }
-                    }
-                    Err(e) => rep_feedback.set(e),
-                }
-            });
-        };
-
-        view! {
-            <div class="opening-shell">
-                {move || {
-                    rep_card
-                        .get()
-                        .map(|card| {
-                            view! {
-                                <section class="analysis">
-                                    <div class="board-pane">
-                                        <Board
-                                            pgn=rep_board
-                                            title=Signal::derive(move || i18n::t(&language.get(), "openings.rep_training").to_string())
-                                            orientation=Signal::derive(move || {
-                                                reps
-                                                    .get()
-                                                    .into_iter()
-                                                    .find(|r| r.id == rep_id.get())
-                                                    .map(|r| r.color)
-                                                    .unwrap_or_else(|| "white".into())
-                                            })
-                                            on_move=Callback::new(on_rep_move)
-                                            theme=Signal::derive(move || settings_theme.get())
-                                            pieces=Signal::derive(move || settings_pieces.get())
-                                        light_color=Signal::derive(move || settings_light.get())
-                                        dark_color=Signal::derive(move || settings_dark.get())
-                                        coords=Signal::derive(move || settings_coords.get())
-                                        lang=Signal::derive(move || language.get())
-                                        />
-                                    </div>
-                                    <aside class="engine-pane">
-                                        <div class="panel-head"><h2>{move || i18n::t(&language.get(), "openings.repertoire")}</h2></div>
-                                        <div class="best">
-                                            {format!(
-                                                "Play {}'s move",
-                                                if card.fen.split_whitespace().nth(1) == Some("b") {
-                                                    "Black"
-                                                } else {
-                                                    "White"
-                                                },
-                                            )}
-                                        </div>
-                                        <div class="muted">{move || rep_feedback.get()}</div>
-                                        <div class="row-btns">
-                                            <button on:click=next_card>{move || i18n::t(&language.get(), "practice.next_card")}</button>
-                                        </div>
-                                    </aside>
-                                </section>
-                            }
-                        })
-                }}
-                <section class="panel">
-                    <div class="panel-head">
-                        <h2>{move || i18n::t(&language.get(), "nav.openings")}</h2>
-                        <div class="row-btns">
-                            <button
-                                class=move || if opening_mode.get() == "explorer" { "chip active" } else { "chip" }
-                                on:click=move |_| opening_mode.set("explorer".into())
-                            >
-                                {move || i18n::t(&language.get(), "openings.explorer")}
-                            </button>
-                            <button
-                                class=move || if opening_mode.get() == "repertoire" { "chip active" } else { "chip" }
-                                on:click=move |_| opening_mode.set("repertoire".into())
-                            >
-                                {move || i18n::t(&language.get(), "openings.repertoires")}
-                            </button>
-                        </div>
-                    </div>
-                    {move || {
-                        if opening_mode.get() == "explorer" {
-                            view! {
-                                <div class="load">
-                                    <select
-                                        prop:value=move || opening_source.get()
-                                        on:change=move |ev| opening_source.set(event_target_value(&ev))
-                                    >
-                                        <option value="local">{move || i18n::t(&language.get(), "openings.local")}</option>
-                                        <option value="lichess">{move || i18n::t(&language.get(), "openings.lichess")}</option>
-                                        <option value="masters">{move || i18n::t(&language.get(), "openings.masters")}</option>
-                                    </select>
-                                </div>
-                                {explorer()}
-                            }
-                            .into_any()
-                        } else {
-                            view! {
-                                <div class="dbs">
-                                    <input
-                                        type="text"
-                                        placeholder=move || i18n::t(&language.get(), "openings.rep_name")
-                                        prop:value=move || rep_name.get()
-                                        on:input=move |ev| rep_name.set(event_target_value(&ev))
-                                    />
-                                    <select
-                                        prop:value=move || rep_color.get()
-                                        on:change=move |ev| rep_color.set(event_target_value(&ev))
-                                    >
-                                        <option value="white">"White"</option>
-                                        <option value="black">"Black"</option>
-                                    </select>
-                                    <button on:click=create_rep>{move || i18n::t(&language.get(), "common.create")}</button>
-                                </div>
-                                <div class="rep-list">
-                                    {move || {
-                                        reps
-                                            .get()
-                                            .into_iter()
-                                            .map(|r| {
-                                                let id = r.id;
-                                                let for_import = id;
-                                                let for_delete = id;
-                                                let for_train = id;
-                                                view! {
-                                                    <div class="rep-row">
-                                                        <span class="rep-name">
-                                                            {format!(
-                                                                "{} · {} · {} cards · {} due",
-                                                                r.name, r.color, r.cards, r.due,
-                                                            )}
-                                                        </span>
-                                                        <button on:click=move |_| load_card(for_train)>
-                                                            {move || i18n::t(&language.get(), "openings.train")}
-                                                        </button>
-                                                        <button on:click=move |_| rep_selected.set(for_import)>
-                                                            {move || i18n::t(&language.get(), "db.import_pgn")}
-                                                        </button>
-                                                        <button on:click=move |_| delete_rep(for_delete)>
-                                                            {move || i18n::t(&language.get(), "db.delete")}
-                                                        </button>
-                                                    </div>
-                                                }
-                                            })
-                                            .collect_view()
-                                    }}
-                                </div>
-                                {move || {
-                                    let id = rep_selected.get();
-                                    (id > 0)
-                                        .then(|| {
-                                            view! {
-                                                <div class="pgn-box">
-                                                    <textarea
-                                                        placeholder=move || i18n::t(&language.get(), "openings.rep_paste")
-                                                        prop:value=move || rep_pgn_input.get()
-                                                        on:input=move |ev| rep_pgn_input.set(event_target_value(&ev))
-                                                    ></textarea>
-                                                    <button on:click=move |_| import_rep(id)>
-                                                        {move || i18n::t(&language.get(), "openings.import_into")}
-                                                    </button>
-                                                </div>
-                                            }
-                                        })
-                                }}
-                                <div class="panel-sub">{move || i18n::t(&language.get(), "openings.training")}</div>
-                                <div class="muted">
-                                    {move || rep_feedback.get()}
-                                </div>
-                                <div class="row-btns">
-                                    <button on:click=next_card>{move || i18n::t(&language.get(), "practice.next_card")}</button>
-                                    {move || {
-                                        rep_card
-                                            .get()
-                                            .map(|card| {
-                                                view! {
-                                                    <span class="muted">
-                                                        {format!(
-                                                            "ease {:.2} · {} reviews · {} lapses",
-                                                            card.ease, card.reviews, card.lapses,
-                                                        )}
-                                                    </span>
-                                                }
-                                            })
-                                    }}
-                                </div>
-                            }
-                            .into_any()
-                        }
-                    }}
-                </section>
-            </div>
-        }
-        .into_any()
-    };
-
-    let puzzle_view = move || {
-        let load = move |_| {
-            let theme = puzzle_theme.get_untracked();
-            let theme = if theme.is_empty() { None } else { Some(theme) };
-            let rating = puzzle_rating.get_untracked();
-            spawn_local(async move {
-                match api::next_puzzle(Some(rating), theme.as_deref()).await {
-                    Ok(Some(p)) => {
-                        let ucis: Vec<String> =
-                            p.moves.split_whitespace().map(str::to_owned).collect();
-                        let sans: Vec<String> =
-                            p.moves_san.split_whitespace().map(str::to_owned).collect();
-                        let has_setup = ucis.len() > 1;
-                        let start_ply = usize::from(has_setup);
-                        let turn_black = p.fen.split_whitespace().nth(1) == Some("b");
-                        let solver_black = if has_setup { !turn_black } else { turn_black };
-                        puzzle_orientation
-                            .set(if solver_black { "black".into() } else { "white".into() });
-                        puzzle_solution.set(ucis);
-                        puzzle_san.set(sans.clone());
-                        puzzle_step.set(start_ply);
-                        puzzle_state.set(String::new());
-                        puzzle_recorded.set(false);
-                        puzzle_delta.set(None);
-                        show_solution.set(false);
-                        let upto = if has_setup { 1 } else { 0 };
-                        puzzle_pgn.set(line_pgn(&p.fen, &sans[..upto.min(sans.len())], "standard"));
-                        puzzle.set(Some(p));
-                    }
-                    Ok(None) => status.set(i18n::t(&language.get(), "status.m15").into()),
-                    Err(e) => status.set(e),
-                }
-            });
-        };
-
-        let retry = move |_| {
-            let Some(p) = puzzle.get_untracked() else { return };
-            let sans = puzzle_san.get_untracked();
-            let ucis = puzzle_solution.get_untracked();
-            let has_setup = ucis.len() > 1;
-            puzzle_step.set(usize::from(has_setup));
-            puzzle_state.set(String::new());
-            puzzle_recorded.set(false);
-            puzzle_delta.set(None);
-            let upto = if has_setup { 1 } else { 0 };
-            puzzle_pgn.set(line_pgn(&p.fen, &sans[..upto.min(sans.len())], "standard"));
-        };
-
-        let on_puzzle_move = move |(uci, _san, _fen): (String, String, String)| {
-            let Some(p) = puzzle.get_untracked() else { return };
-            let solution = puzzle_solution.get_untracked();
-            let step = puzzle_step.get_untracked();
-            if step >= solution.len() {
-                return;
-            }
-            if solution[step] == uci {
-                let mut next = step + 1;
-                if next < solution.len() {
-                    // The opponent's reply is part of the solution line.
-                    next += 1;
-                    let sans = puzzle_san.get_untracked();
-                    let upto = next.min(sans.len());
-                    puzzle_pgn.set(line_pgn(&p.fen, &sans[..upto], "standard"));
-                }
-                puzzle_step.set(next);
-                if next >= solution.len() {
-                    puzzle_state.set("solved".into());
-                    let id = p.id.clone();
-                    let rating = p.rating;
-                    if !puzzle_recorded.get_untracked() {
-                        puzzle_recorded.set(true);
-                        spawn_local(async move {
-                            if let Ok((before, after)) = api::puzzle_attempt(&id, rating, true).await
-                            {
-                                puzzle_delta.set(Some((before, after)));
-                                puzzle_rating.set(after);
-                                if let Ok(list) = api::puzzle_attempts(8).await {
-                                    attempts.set(list);
-                                }
-                            }
-                        });
-                    }
-                } else {
-                    puzzle_state.set("correct".into());
-                }
-            } else {
-                puzzle_state.set("wrong".into());
-                let id = p.id.clone();
-                let rating = p.rating;
-                if !puzzle_recorded.get_untracked() {
-                    puzzle_recorded.set(true);
-                    spawn_local(async move {
-                        if let Ok((before, after)) = api::puzzle_attempt(&id, rating, false).await {
-                            puzzle_delta.set(Some((before, after)));
-                            puzzle_rating.set(after);
-                            if let Ok(list) = api::puzzle_attempts(8).await {
-                                attempts.set(list);
-                            }
-                        }
-                    });
-                }
-            }
-        };
-
-        let feedback = move || match puzzle_state.get().as_str() {
-            "correct" => i18n::t(&language.get(), "puzzles.correct").to_owned(),
-            "wrong" => format!(
-                "Not the puzzle move. Solution: {}",
-                puzzle_san.get().join(" ")
-            ),
-            "solved" => match puzzle_delta.get() {
-                Some((before, after)) => format!("Solved! Rating {before} → {after}"),
-                None => i18n::t(&language.get(), "puzzles.solved").to_owned(),
-            },
-            _ => String::new(),
-        };
-
-        view! {
-            <section class="analysis">
-                <div class="board-pane">
-                    <Board
-                        pgn=puzzle_pgn
-                        title=Signal::derive(move || {
-                            puzzle
-                                .get()
-                                .map(|p| format!("Puzzle {} · {}", p.id, p.rating))
-                                .unwrap_or_else(|| "Puzzle".into())
-                        })
-                        on_move=Callback::new(on_puzzle_move)
-                        orientation=Signal::derive(move || puzzle_orientation.get())
-                        theme=Signal::derive(move || settings_theme.get())
-                        pieces=Signal::derive(move || settings_pieces.get())
-                                        light_color=Signal::derive(move || settings_light.get())
-                                        dark_color=Signal::derive(move || settings_dark.get())
-                                        coords=Signal::derive(move || settings_coords.get())
-                                        lang=Signal::derive(move || language.get())
-                    />
-                </div>
-                <aside class="engine-pane">
-                    <div class="panel-head"><h2>{move || i18n::t(&language.get(), "nav.puzzles")}</h2></div>
-                    <div class="row-btns">
-                        <select
-                            prop:value=move || puzzle_theme.get()
-                            on:change=move |ev| puzzle_theme.set(event_target_value(&ev))
-                        >
-                            <option value="">{move || i18n::t(&language.get(), "puzzles.any_theme")}</option>
-                            {move || {
-                                puzzle_themes
-                                    .get()
-                                    .into_iter()
-                                    .map(|t| {
-                                        view! {
-                                            <option value=t.theme.clone()>
-                                                {format!("{} ({})", t.theme, t.count)}
-                                            </option>
-                                        }
-                                    })
-                                    .collect_view()
-                            }}
-                        </select>
-                        <input
-                            type="number"
-                            min="400"
-                            max="3000"
-                            style="width:5.5rem"
-                            prop:value=move || puzzle_rating.get().to_string()
-                            on:input=move |ev| {
-                                puzzle_rating.set(event_target_value(&ev).parse().unwrap_or(1500))
-                            }
-                        />
-                        <button on:click=load>{move || i18n::t(&language.get(), "puzzles.next")}</button>
-                    </div>
-                    {move || {
-                        puzzle
-                            .get()
-                            .map(|p| {
-                                let solution = p.moves_san.clone();
-                                view! {
-                                    <div class="engine-body">
-                                        <div class="best">
-                                            {format!(
-                                                "{} to move",
-                                                if puzzle_orientation.get() == "black" { "Black" } else { "White" },
-                                            )}
-                                        </div>
-                                        <div class="muted">{p.themes.clone().unwrap_or_default()}</div>
-                                        <div class="muted">{format!("Puzzle {} · Lichess rating {}", p.id, p.rating)}</div>
-                                        <div class="row-btns">
-                                            <button on:click=move |_| show_solution.update(|v| *v = !*v)>
-                                                {move || {
-                                                    if show_solution.get() {
-                                                        i18n::t(&language.get(), "puzzles.hide_solution")
-                                                    } else {
-                                                        i18n::t(&language.get(), "puzzles.show_solution")
-                                                    }
-                                                }}
-                                            </button>
-                                            <button on:click=retry>{move || i18n::t(&language.get(), "puzzles.retry")}</button>
-                                        </div>
-                                        {move || {
-                                            show_solution
-                                                .get()
-                                                .then(|| view! { <div class="pv">{solution.clone()}</div> })
-                                        }}
-                                        {move || {
-                                            let msg = feedback();
-                                            (!msg.is_empty()).then(|| view! {
-                                                <div class=format!(
-                                                    "puzzle-feedback {}",
-                                                    puzzle_state.get(),
-                                                )>{msg}</div>
-                                            })
-                                        }}
-                                    </div>
-                                }
-                            })
-                    }}
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "puzzles.recent")}</div>
-                    {move || {
-                        attempts
-                            .get()
-                            .into_iter()
-                            .map(|a| {
-                                view! {
-                                    <div class="attempt">
-                                        {format!(
-                                            "{} · {} · {} → {}",
-                                            a.puzzle_id,
-                                            if a.solved { "solved" } else { "failed" },
-                                            a.rating_before,
-                                            a.rating_after,
-                                        )}
-                                    </div>
-                                }
-                            })
-                            .collect_view()
-                    }}
-                    <div class="panel-sub">{move || i18n::t(&language.get(), "puzzles.import")}</div>
-                    <textarea
-                        class="import-csv"
-                        placeholder="PuzzleId,FEN,Moves,Rating,…"
-                        prop:value=move || puzzle_csv.get()
-                        on:input=move |ev| puzzle_csv.set(event_target_value(&ev))
-                    ></textarea>
-                    <button on:click=move |_| {
-                        let csv = puzzle_csv.get();
-                        if csv.trim().is_empty() {
-                            return;
-                        }
-                        spawn_local(async move {
-                            match api::import_puzzles(&csv).await {
-                                Ok(n) => {
-                                    status.set(format!("imported {n} puzzles"));
-                                    puzzle_csv.set(String::new());
-                                    if let Ok(t) = api::puzzle_themes().await {
-                                        puzzle_themes.set(t);
-                                    }
-                                }
-                                Err(e) => status.set(e),
-                            }
-                        });
-                    }>{move || i18n::t(&language.get(), "puzzles.import_csv")}</button>
-                </aside>
-            </section>
-        }
-        .into_any()
-    };
+    let settings_view = move || views::settings::settings(app_ctx);
 
     view! {
         <a class="skip-link" href="#app-main">{move || i18n::t(&language.get(), "a11y.skip")}</a>
@@ -6170,122 +3172,7 @@ pub fn App() -> impl IntoView {
                     </button>
                     <span class="status" aria-live="polite">{move || status.get()}</span>
                 </header>
-                <div class="workspaces">
-                    <span class="ws-label">{move || i18n::t(&language.get(), "ws.label")}</span>
-                    <For
-                        each=move || workspaces.get()
-                        key=|ws| (ws.key, ws.title.clone())
-                        children=move |ws: Workspace| {
-                            let key = ws.key;
-                            let title = ws.title.clone();
-                            let kind = ws.kind.clone();
-                            let kind_label = match kind.as_str() {
-                                "database" => "DB",
-                                "openings" => "OP",
-                                "puzzles" => "PZ",
-                                _ => "AN",
-                            };
-                            let title_shared = StoredValue::new(title.clone());
-                            view! {
-                                <div class=move || {
-                                    if active_ws.get() == key { "ws-tab active" } else { "ws-tab" }
-                                }>
-                                    <span class=format!("ws-kind kind-{kind}")>{kind_label}</span>
-                                    {move || {
-                                        let title_click = title_shared;
-                                        let title_text = title_shared;
-                                        let title_dbl = title_shared;
-                                        if renaming_ws.get() == Some(key) {
-                                            view! {
-                                                <input
-                                                    class="ws-rename"
-                                                    prop:value=move || rename_text.get()
-                                                    on:input=move |ev| rename_text.set(event_target_value(&ev))
-                                                    on:change=move |_| commit_rename()
-                                                    on:keydown=move |ev| {
-                                                        if ev.key() == i18n::t(&language.get(), "common.enter") {
-                                                            commit_rename();
-                                                        }
-                                                    }
-                                                />
-                                            }
-                                                .into_any()
-                                        } else {
-                                            view! {
-                                                <button
-                                                    class="ws-name"
-                                                    title=title_click.get_value()
-                                                    on:click=move |_| activate_workspace(key)
-                                                    on:dblclick=move |_| {
-                                                        rename_text.set(title_dbl.get_value());
-                                                        renaming_ws.set(Some(key));
-                                                    }
-                                                >
-                                                    {title_text.get_value()}
-                                                </button>
-                                            }
-                                                .into_any()
-                                        }
-                                    }}
-                                    <button
-                                        class="ws-icon"
-                                        title={move || i18n::t(&language.get(), "common.rename")}
-                                        aria-label="Rename workspace"
-                                        on:click=move |_| {
-                                            rename_text.set(title_shared.get_value());
-                                            renaming_ws.set(Some(key));
-                                        }
-                                    >
-                                        "✎"
-                                    </button>
-                                    <button
-                                        class="ws-icon"
-                                        title={move || i18n::t(&language.get(), "ws.move_left")}
-                                        aria-label="Move workspace left"
-                                        on:click=move |_| move_workspace(key, -1)
-                                    >
-                                        "‹"
-                                    </button>
-                                    <button
-                                        class="ws-icon"
-                                        title={move || i18n::t(&language.get(), "ws.move_right")}
-                                        aria-label="Move workspace right"
-                                        on:click=move |_| move_workspace(key, 1)
-                                    >
-                                        "›"
-                                    </button>
-                                    <button
-                                        class="ws-close"
-                                        title={move || i18n::t(&language.get(), "ws.close")}
-                                        aria-label={move || i18n::t(&language.get(), "ws.close")}
-                                        on:click=move |_| close_workspace(key)
-                                    >
-                                        "×"
-                                    </button>
-                                </div>
-                            }
-                        }
-                    />
-                    <select
-                        class="ws-new"
-                        prop:value=move || new_tab_kind.get()
-                        on:change=move |ev| {
-                            let kind = event_target_value(&ev);
-                            new_tab_kind.set(String::new());
-                            match kind.as_str() {
-                                "analysis" => new_workspace(),
-                                "database" | "openings" | "puzzles" => open_page_tab(&kind),
-                                _ => {}
-                            }
-                        }
-                    >
-                        <option value="">"+ New tab"</option>
-                        <option value="analysis">"Analysis"</option>
-                        <option value="database">"Database"</option>
-                        <option value="openings">{move || i18n::t(&language.get(), "nav.openings")}</option>
-                        <option value="puzzles">{move || i18n::t(&language.get(), "nav.puzzles")}</option>
-                    </select>
-                </div>
+                {views::workspaces::workspaces_bar(app_ctx)}
                 {move || match tab.get() {
                     Tab::Home => home_view().into_any(),
                     Tab::Database => database_view().into_any(),

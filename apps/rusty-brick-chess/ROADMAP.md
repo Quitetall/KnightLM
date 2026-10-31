@@ -66,9 +66,11 @@ Every surface has a headless Chrome suite in the dev harness, all green:
   workspaces keyed by a client id; `localStorage` remains the fast path.
 - **Archives: done.** `export-parquet` / `import-parquet` move collections out
   of SQLite without the position index; round-trip tested.
-- **Frontend split: started.** Pure types/helpers live in `src/model.rs`
-  (~400 lines) and read-only views in `src/views/` (stats first); the remaining
-  views still live in `lib.rs` (~5.5k lines) and should be extracted before the
-  next feature.
-- **Status messages:** static ones are translated; dynamic (counts) and error
-  text stay English.
+- **Frontend split: done.** Pure types/helpers live in `src/model.rs`; every
+  view (home, database, analysis, practice, openings, puzzles, stats, settings)
+  and the workspace tab strip live in `src/views/`, sharing a `Copy` `AppCtx`
+  of signals plus local `UnsyncCallback`s. `lib.rs` is down from ~6.3k to
+  ~3.2k lines and holds only state, effects and the app shell.
+- **Status messages: done.** Static and dynamic messages (counts, names,
+  engine/match/practice feedback, import and vision progress) are translated
+  through `i18n::t` / `i18n::tf`; server error text is passed through verbatim.
