@@ -13,6 +13,8 @@ Usage:
   rustybrickchess --version  print the version
   rustybrickchess --help     show this message
 
+  rustybrickchess export-parquet --db DB --out FILE.parquet
+  rustybrickchess import-parquet --file FILE.parquet [--db DB] [--index-positions]
   rustybrickchess import-dump --file DUMP.zst --db OUT.db [filters]
                              stream a monthly Lichess dump into a database
                              (--max N, --player NAME, --date-from, --date-to,
@@ -31,8 +33,11 @@ Environment:
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
-    if arguments.first().map(String::as_str) == Some("import-dump") {
-        return import_dump(&arguments[1..]);
+    match arguments.first().map(String::as_str) {
+        Some("import-dump") => return import_dump(&arguments[1..]),
+        Some("export-parquet") => return archive_command(&arguments[1..], true),
+        Some("import-parquet") => return archive_command(&arguments[1..], false),
+        _ => {}
     }
     let mut open = false;
     for argument in arguments {
@@ -154,4 +159,39 @@ fn import_dump(arguments: &[String]) -> anyhow::Result<()> {
     }
     let options = options.ok_or_else(|| anyhow::anyhow!("--file is required"))?;
     run(&options, &filters)
+}
+
+fn archive_command(arguments: &[String], export: bool) -> anyhow::Result<()> {
+    use rusty_brick_chess::archive;
+    let mut db = rusty_brick_chess::default_db_path().display().to_string();
+    let mut file: Option<String> = None;
+    let mut index = false;
+    let mut position = 0;
+    while position < arguments.len() {
+        match arguments[position].as_str() {
+            "--db" => {
+                position += 1;
+                db = arguments
+                    .get(position)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("missing value for --db"))?;
+            }
+            "--out" | "--file" => {
+                position += 1;
+                file = arguments.get(position).cloned();
+            }
+            "--index-positions" => index = true,
+            other => anyhow::bail!("unknown option: {other}"),
+        }
+        position += 1;
+    }
+    let file = file.ok_or_else(|| anyhow::anyhow!("--out/--file is required"))?;
+    if export {
+        let count = archive::export(&db, std::path::Path::new(&file))?;
+        println!("exported {count} games to {file} (from {db})");
+    } else {
+        let count = archive::import(&db, std::path::Path::new(&file), index)?;
+        println!("imported {count} games from {file} into {db}");
+    }
+    Ok(())
 }

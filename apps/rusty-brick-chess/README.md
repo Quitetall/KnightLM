@@ -468,6 +468,30 @@ Tauri updates are signed. The **private key** stays with the release owner
    release: the updater compares versions, so a tag without a version bump is
    never offered as an update. Draft releases are not served until published.
 
+## Archives (Parquet)
+
+For collections that outgrow the SQLite store (roughly beyond 2–5M games), move
+them to Parquet instead of growing the per-ply position index:
+
+```bash
+rustybrickchess export-parquet --db games.db --out games.parquet
+rustybrickchess import-parquet --file games.parquet --db archive.db
+```
+
+Exports carry id, tags, Elo, result, FEN, SAN moves, time control and variant.
+Imports rebuild the catalogs and skip the position index by default (add
+`--index-positions` when you need position search on the archive). A round-trip
+is covered by a unit test.
+
+## Schema and sessions
+
+The database has a versioned schema (`schema_meta`); `GET /api/health` reports
+`schema`. Migrations run on open, so older files upgrade in place.
+
+Workspaces are stored twice: `localStorage` for instant restore and the server
+(`/api/session`, keyed by a per-browser client id) so a cleared cache or another
+window restores the same tabs.
+
 ## Session persistence
 
 Open analysis boards (workspaces) survive a reload or app restart: tabs,

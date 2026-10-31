@@ -3,6 +3,7 @@
 pub mod api;
 pub mod board;
 pub mod i18n;
+mod views;
 pub mod sound;
 
 use brick_chess::scene::index_to_name;
@@ -14,385 +15,8 @@ use wasm_bindgen::closure::Closure;
 
 use board::{Board, Keybinds};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab {
-    Home,
-    Database,
-    Analysis,
-    Practice,
-    Openings,
-    Puzzles,
-    Stats,
-    Settings,
-}
-
-fn default_workspace_kind() -> String {
-    "analysis".into()
-}
-
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct Workspace {
-    key: u32,
-    #[serde(default = "default_workspace_kind")]
-    kind: String,
-    game_id: Option<i64>,
-    title: String,
-    pgn: String,
-    ply: usize,
-    variant: String,
-    preview_only: bool,
-    moves: Vec<String>,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct Session {
-    workspaces: Vec<Workspace>,
-    active: u32,
-    seq: u32,
-    tab: String,
-}
-
-const SESSION_KEY: &str = "rbc.session.v1";
-const RECENT_FILES_KEY: &str = "rbc.recentFiles";
-
-fn tab_name(tab: Tab) -> &'static str {
-    match tab {
-        Tab::Home => "home",
-        Tab::Database => "database",
-        Tab::Analysis => "analysis",
-        Tab::Practice => "practice",
-        Tab::Openings => "openings",
-        Tab::Puzzles => "puzzles",
-        Tab::Stats => "stats",
-        Tab::Settings => "settings",
-    }
-}
-
-fn tab_from_name(name: &str) -> Option<Tab> {
-    Some(match name {
-        "home" => Tab::Home,
-        "database" => Tab::Database,
-        "analysis" => Tab::Analysis,
-        "practice" => Tab::Practice,
-        "openings" => Tab::Openings,
-        "puzzles" => Tab::Puzzles,
-        "stats" => Tab::Stats,
-        "settings" => Tab::Settings,
-        _ => return None,
-    })
-}
-
-fn read_session() -> Option<Session> {
-    let storage = web_sys::window()?.local_storage().ok().flatten()?;
-    let raw = storage.get_item(SESSION_KEY).ok().flatten()?;
-    serde_json::from_str(&raw).ok()
-}
-
-fn read_recent_files() -> Vec<(String, usize)> {
-    let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else {
-        return Vec::new();
-    };
-    storage
-        .get_item(RECENT_FILES_KEY)
-        .ok()
-        .flatten()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
-}
-
-fn write_recent_files(files: &[(String, usize)]) {
-    let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else {
-        return;
-    };
-    if let Ok(raw) = serde_json::to_string(files) {
-        let _ = storage.set_item(RECENT_FILES_KEY, &raw);
-    }
-}
-
-fn write_session(session: &Session) {
-    let Some(storage) = web_sys::window()
-        .and_then(|w| w.local_storage().ok().flatten())
-    else {
-        return;
-    };
-    if let Ok(raw) = serde_json::to_string(session) {
-        let _ = storage.set_item(SESSION_KEY, &raw);
-    }
-}
-
-#[derive(Clone, Debug)]
-struct TreeItem {
-    path: String,
-    ply: usize,
-    san: String,
-    depth: usize,
-    line: Vec<String>,
-    clock: Option<String>,
-}
-
-fn download_text(name: &str, text: &str) {
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    let Some(document) = window.document() else {
-        return;
-    };
-    let encoded = js_sys::encode_uri_component(text);
-    let href = format!("data:text/markdown;charset=utf-8,{encoded}");
-    if let Ok(anchor) = document.create_element("a") {
-        let _ = anchor.set_attribute("href", &href);
-        let _ = anchor.set_attribute("download", name);
-        if let Some(element) = anchor.dyn_into::<web_sys::HtmlElement>().ok() {
-            element.click();
-        }
-    }
-}
-
-fn clock_of(node: &api::PgnNode) -> Option<String> {
-    for comment in [node.pre_comment.as_ref(), node.post_comment.as_ref()]
-        .into_iter()
-        .flatten()
-    {
-        if let Some(start) = comment.find("[%clk ") {
-            let rest = &comment[start + 6..];
-            if let Some(end) = rest.find(']') {
-                return Some(rest[..end].to_owned());
-            }
-        }
-    }
-    None
-}
-
-fn flatten_nodes(
-    nodes: &[api::PgnNode],
-    prefix: &str,
-    ply0: usize,
-    depth: usize,
-    line: &mut Vec<String>,
-    out: &mut Vec<TreeItem>,
-) {
-    let mut ply = ply0;
-    for (i, node) in nodes.iter().enumerate() {
-        let path = format!("{prefix}{i}");
-        // A variation replaces this move, so it branches from the position
-        // *before* it, not from the line that already contains it.
-        let prior = line.clone();
-        line.push(node.san.clone());
-        out.push(TreeItem {
-            path: path.clone(),
-            ply,
-            san: node.san.clone(),
-            depth,
-            line: line.clone(),
-            clock: clock_of(node),
-        });
-        for (j, variation) in node.variations.iter().enumerate() {
-            let mut branch = prior.clone();
-            flatten_nodes(
-                variation,
-                &format!("{path}~{j}."),
-                ply,
-                depth + 1,
-                &mut branch,
-                out,
-            );
-        }
-        ply += 1;
-    }
-}
-
-fn tree_items(nodes: &[api::PgnNode]) -> Vec<TreeItem> {
-    let mut out = Vec::new();
-    flatten_nodes(nodes, "", 0, 0, &mut Vec::new(), &mut out);
-    out
-}
-
-fn plain_items(sans: &[String]) -> Vec<TreeItem> {
-    let mut out = Vec::new();
-    for (i, san) in sans.iter().enumerate() {
-        out.push(TreeItem {
-            path: i.to_string(),
-            ply: i,
-            san: san.clone(),
-            depth: 0,
-            line: sans[..=i].to_vec(),
-            clock: None,
-        });
-    }
-    out
-}
-
-fn line_pgn(fen: &str, sans: &[String], variant: &str) -> String {
-    let standard = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    let black_start = fen.split_whitespace().nth(1) == Some("b");
-    let mut out = String::new();
-    let mut has_tags = false;
-    if !variant.is_empty() && variant != "standard" {
-        out.push_str(&format!("[Variant \"{variant}\"]\n"));
-        has_tags = true;
-    }
-    if fen != standard && !fen.is_empty() {
-        out.push_str(&format!("[SetUp \"1\"]\n[FEN \"{fen}\"]\n"));
-        has_tags = true;
-    }
-    if has_tags {
-        out.push('\n');
-    }
-    for (i, san) in sans.iter().enumerate() {
-        if i == 0 && black_start {
-            out.push_str("1... ");
-        } else if i % 2 == 0 {
-            out.push_str(&format!("{}. ", i / 2 + 1));
-        }
-        out.push_str(san);
-        out.push(' ');
-    }
-    out.push('*');
-    out
-}
-
-fn find_annotation<'a>(
-    anns: &'a [api::Annotation],
-    path: &str,
-    ply: i64,
-) -> Option<&'a api::Annotation> {
-    anns.iter()
-        .find(|a| a.path.as_deref() == Some(path))
-        .or_else(|| {
-            anns.iter()
-                .find(|a| a.path.as_deref().map(str::is_empty).unwrap_or(true) && a.ply == ply)
-        })
-}
-
-fn annotation_shapes(ann: Option<&api::Annotation>) -> Vec<brick_chess::Shape> {
-    ann.and_then(|a| a.shapes.as_deref())
-        .and_then(|json| serde_json::from_str(json).ok())
-        .unwrap_or_default()
-}
-
-fn eval_value(row: &api::EvalRow) -> f64 {
-    if let Some(mate) = row.mate {
-        if mate > 0 { 1200.0 } else { -1200.0 }
-    } else {
-        row.cp.unwrap_or(0) as f64
-    }
-}
-
-fn pieces_from_fen(fen: &str) -> [Option<char>; 64] {
-    let mut out = [None; 64];
-    let board = fen.split_whitespace().next().unwrap_or_default();
-    let mut rank: i32 = 7;
-    let mut file = 0usize;
-    for ch in board.chars() {
-        match ch {
-            '/' => {
-                rank -= 1;
-                file = 0;
-            }
-            '1'..='8' => file += ch.to_digit(10).unwrap_or(0) as usize,
-            _ => {
-                if (0..8).contains(&rank) && file < 8 {
-                    out[rank as usize * 8 + file] = Some(ch);
-                    file += 1;
-                }
-            }
-        }
-    }
-    out
-}
-
-fn fen_from_editor(
-    pieces: &[Option<char>; 64],
-    turn: &str,
-    castling: &str,
-    ep: &str,
-) -> String {
-    let mut placement = String::new();
-    for rank in (0..8).rev() {
-        let mut empty = 0;
-        for file in 0..8 {
-            match pieces[rank * 8 + file] {
-                Some(ch) => {
-                    if empty > 0 {
-                        placement.push_str(&empty.to_string());
-                        empty = 0;
-                    }
-                    placement.push(ch);
-                }
-                None => empty += 1,
-            }
-        }
-        if empty > 0 {
-            placement.push_str(&empty.to_string());
-        }
-        if rank > 0 {
-            placement.push('/');
-        }
-    }
-    let castling = if castling.is_empty() { "-" } else { castling };
-    let ep = if ep.trim().is_empty() { "-" } else { ep.trim() };
-    format!("{placement} {turn} {castling} {ep} 0 1")
-}
-
-fn piece_glyph(ch: char) -> &'static str {
-    match ch {
-        'K' => "♔", 'Q' => "♕", 'R' => "♖", 'B' => "♗", 'N' => "♘", 'P' => "♙",
-        'k' => "♚", 'q' => "♛", 'r' => "♜", 'b' => "♝", 'n' => "♞", 'p' => "♟",
-        _ => "·",
-    }
-}
-
-fn parse_time_control(value: &str) -> Option<(i64, i64)> {
-    let value = value.trim();
-    if value.is_empty() || value.contains('/') {
-        return None;
-    }
-    let (base, inc) = value.split_once('+').unwrap_or((value, "0"));
-    let base = base.parse::<i64>().ok()?;
-    let inc = inc.parse::<i64>().unwrap_or(0);
-    (base > 0 && base <= 86_400).then_some((base, inc))
-}
-
-fn clock_pgn(seconds: i64) -> String {
-    let seconds = seconds.max(0);
-    format!(
-        "{}:{:02}:{:02}",
-        seconds / 3600,
-        (seconds % 3600) / 60,
-        seconds % 60
-    )
-}
-
-fn format_clock(seconds: i64) -> String {
-    let seconds = seconds.max(0);
-    let hours = seconds / 3600;
-    let minutes = (seconds % 3600) / 60;
-    let secs = seconds % 60;
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{secs:02}")
-    } else {
-        format!("{minutes}:{secs:02}")
-    }
-}
-
-fn eval_text(row: &api::EvalRow) -> String {
-    if let Some(mate) = row.mate {
-        format!("M{mate}")
-    } else {
-        format!("{:+.2}", row.cp.unwrap_or(0) as f64 / 100.0)
-    }
-}
-
-fn eval_point(row: &api::EvalRow) -> (f64, f64) {
-    // Engine scores are from the side to move; the graph is White's POV.
-    let white = if row.ply % 2 == 1 {
-        -eval_value(row)
-    } else {
-        eval_value(row)
-    };
-    let clamped = (white / 800.0).clamp(-1.0, 1.0);
-    (row.ply as f64, (1.0 - clamped) * 45.0 + 5.0)
-}
+mod model;
+use model::*;
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -743,7 +367,7 @@ pub fn App() -> impl IntoView {
             match api::rename_collection(id, name.trim()).await {
                 Ok(()) => {
                     collection_name.set(String::new());
-                    status.set("collection renamed".into());
+                    status.set(i18n::t(&language.get(), "status.m07").into());
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -769,7 +393,7 @@ pub fn App() -> impl IntoView {
                         active_collection.set(None);
                     }
                     manage_collection.set(0);
-                    status.set("collection deleted".into());
+                    status.set(i18n::t(&language.get(), "status.m06").into());
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -789,7 +413,7 @@ pub fn App() -> impl IntoView {
                 Ok(found) => {
                     total.set(found.len() as i64);
                     games.set(found);
-                    status.set("position search".into());
+                    status.set(i18n::t(&language.get(), "status.m19").into());
                 }
                 Err(e) => status.set(e),
             }
@@ -805,7 +429,7 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             match api::add_to_collection(cid, gid).await {
                 Ok(()) => {
-                    status.set("added to collection".into());
+                    status.set(i18n::t(&language.get(), "status.m00").into());
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -1223,6 +847,8 @@ pub fn App() -> impl IntoView {
 
     // Persist the workspace session (tabs, active tab, current ply) and restore
     // it on the next load, so reopening the app returns to the same boards.
+    let client = client_id();
+    let client_for_restore = client.clone();
     Effect::new(move |_| {
         let mut list = workspaces.get();
         let active = active_ws.get();
@@ -1241,20 +867,16 @@ pub fn App() -> impl IntoView {
             seq: ws_seq.get(),
             tab: tab_name(tab_now).to_owned(),
         };
+        let raw = serde_json::to_string(&session).unwrap_or_default();
+        let client = client.clone();
         spawn_local(async move {
             TimeoutFuture::new(350).await;
             write_session(&session);
+            let _ = api::save_session(&client, &raw).await;
         });
     });
 
-    Effect::new(move |_| {
-        if session_restored.get_untracked() {
-            return;
-        }
-        session_restored.set(true);
-        let Some(session) = read_session() else {
-            return;
-        };
+    let apply_session = move |session: Session| {
         if session.workspaces.is_empty() {
             return;
         }
@@ -1308,10 +930,29 @@ pub fn App() -> impl IntoView {
                 tree_ply.set(ws.ply);
                 goto_sig.set(Some((goto_seq.get_untracked() + 1, ws.ply)));
             }
-            if let Some(t) = tab_from_name(&session.tab) {
+            if let Some(t) = restored_tab {
                 tab.set(t);
             }
         }
+    };
+
+    Effect::new(move |_| {
+        if session_restored.get_untracked() {
+            return;
+        }
+        session_restored.set(true);
+        if let Some(session) = read_session() {
+            apply_session(session);
+            return;
+        }
+        let client = client_for_restore.clone();
+        spawn_local(async move {
+            if let Ok(Some(raw)) = api::load_session(&client).await {
+                if let Ok(session) = serde_json::from_str::<Session>(&raw) {
+                    apply_session(session);
+                }
+            }
+        });
     });
 
     // The desktop shell (Tauri) dispatches this after a native File > Open…
@@ -1527,7 +1168,7 @@ pub fn App() -> impl IntoView {
         }
         let provider = online_provider.get_untracked();
         let max = online_max.get_untracked();
-        status.set("importing…".into());
+        status.set(i18n::t(&language.get(), "status.m11").into());
         spawn_local(async move {
             let result = match provider.as_str() {
                 "chesscom" => api::import_chesscom(user.trim(), max).await,
@@ -1633,7 +1274,7 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             match api::save_tags(id, payload).await {
                 Ok(d) => {
-                    status.set("tags saved".into());
+                    status.set(i18n::t(&language.get(), "status.m28").into());
                     selected_title.set(format!("{} vs {} · {}", d.white, d.black, d.result));
                     game_detail.set(Some(d));
                     show_tags.set(false);
@@ -1646,7 +1287,7 @@ pub fn App() -> impl IntoView {
 
     let add_line_to_repertoire = move |_: leptos::ev::MouseEvent| {
         let Some(repertoire) = Some(analysis_rep.get()).filter(|id| *id > 0) else {
-            status.set("choose a repertoire first".into());
+            status.set(i18n::t(&language.get(), "status.m03").into());
             return;
         };
         let Some(detail) = game_detail.get() else {
@@ -1668,7 +1309,7 @@ pub fn App() -> impl IntoView {
                 .unwrap_or_default()
         };
         if line.is_empty() {
-            status.set("select a move in the tree first".into());
+            status.set(i18n::t(&language.get(), "status.m25").into());
             return;
         }
         let pgn = line_pgn(&detail.fen, &line, detail.variant.as_deref().unwrap_or("standard"));
@@ -1713,7 +1354,7 @@ pub fn App() -> impl IntoView {
             match api::update_tree(id, &pgn).await {
                 Ok(d) => {
                     adopt_detail(d);
-                    status.set("tree saved".into());
+                    status.set(i18n::t(&language.get(), "status.m29").into());
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -1727,14 +1368,14 @@ pub fn App() -> impl IntoView {
         };
         let path = tree_current.get();
         if path.is_empty() {
-            status.set("select a move first".into());
+            status.set(i18n::t(&language.get(), "status.m24").into());
             return;
         }
         spawn_local(async move {
             match api::delete_tree_node(id, &path).await {
                 Ok(d) => {
                     adopt_detail(d);
-                    status.set("line deleted".into());
+                    status.set(i18n::t(&language.get(), "status.m12").into());
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -1748,14 +1389,14 @@ pub fn App() -> impl IntoView {
         };
         let path = tree_current.get();
         if !path.contains('~') {
-            status.set("select a variation first".into());
+            status.set(i18n::t(&language.get(), "status.m26").into());
             return;
         }
         spawn_local(async move {
             match api::promote_variation(id, &path).await {
                 Ok(d) => {
                     adopt_detail(d);
-                    status.set("variation promoted".into());
+                    status.set(i18n::t(&language.get(), "status.m31").into());
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -1782,7 +1423,7 @@ pub fn App() -> impl IntoView {
 
     let add_game_to_repertoire = move |_: leptos::ev::MouseEvent| {
         let Some(repertoire) = Some(analysis_rep.get()).filter(|id| *id > 0) else {
-            status.set("choose a repertoire first".into());
+            status.set(i18n::t(&language.get(), "status.m03").into());
             return;
         };
         let Some(game) = selected_game_id.get() else {
@@ -1814,7 +1455,7 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             match api::delete_game(id).await {
                 Ok(()) => {
-                    status.set("game deleted".into());
+                    status.set(i18n::t(&language.get(), "status.m10").into());
                     game_detail.set(None);
                     selected_pgn.set(String::new());
                     selected_game_id.set(None);
@@ -1880,7 +1521,7 @@ pub fn App() -> impl IntoView {
             let nag = if nag == 0 { None } else { Some(nag) };
             match api::add_annotation(id, ply, Some(path), comment, nag, shapes_json).await {
                 Ok(()) => {
-                    status.set("annotation saved".into());
+                    status.set(i18n::t(&language.get(), "status.m01").into());
                     if let Ok(a) = api::annotations(id).await {
                         annotations.set(a);
                     }
@@ -1939,7 +1580,7 @@ pub fn App() -> impl IntoView {
         ann_ply.set(item.ply as i64);
         tree_ply.set(item.ply);
         if variant_only.get_untracked() {
-            status.set("variant preview: board navigation is unavailable".into());
+            status.set(i18n::t(&language.get(), "status.m30").into());
             return;
         }
         clock_active.set(false);
@@ -2121,7 +1762,7 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             match api::save_settings(&settings).await {
                 Ok(s) => {
-                    settings_status.set("saved".into());
+                    settings_status.set(i18n::t(&language.get(), "status.m23").into());
                     puzzle_rating.set(s.puzzle_rating);
                 }
                 Err(e) => settings_status.set(e),
@@ -2436,70 +2077,11 @@ pub fn App() -> impl IntoView {
     };
 
     let stats_view = move || {
-        let card = |label: &'static str, value: i64| {
-            view! {
-                <div class="stat-card">
-                    <div class="stat-label">{label}</div>
-                    <div class="stat-value">{value.to_string()}</div>
-                </div>
-            }
-        };
-        let s = stats.get();
-        view! {
-            <section class="panel">
-                <div class="panel-head">
-                    <h2>{move || i18n::t(&language.get(), "db.statistics")}</h2>
-                    <span class="muted">{move || db_list.get().into_iter().find(|d| d.current).map(|d| d.name).unwrap_or_default()}</span>
-                </div>
-                <div class="stat-grid">
-                    {card(i18n::t(&language.get(), "db.games"), s.games)}
-                    {card(i18n::t(&language.get(), "db.white_wins"), s.white_wins)}
-                    {card(i18n::t(&language.get(), "db.draws"), s.draws)}
-                    {card(i18n::t(&language.get(), "db.black_wins"), s.black_wins)}
-                    {card(i18n::t(&language.get(), "db.unfinished"), s.unfinished)}
-                    {card(i18n::t(&language.get(), "db.players"), s.players)}
-                    {card(i18n::t(&language.get(), "db.events"), s.events)}
-                    {card(i18n::t(&language.get(), "db.collections"), s.collections)}
-                    {card(i18n::t(&language.get(), "nav.puzzles"), s.puzzles)}
-                </div>
-                <div class="catalog-row">
-                    <div class="catalog">
-                        <div class="panel-sub">{move || i18n::t(&language.get(), "db.most_active")}</div>
-                        {move || {
-                            stats
-                                .get()
-                                .top_players
-                                .into_iter()
-                                .map(|p| {
-                                    view! {
-                                        <span class="muted">
-                                            {format!(
-                                                "{} — {} games{}",
-                                                p.name,
-                                                p.games,
-                                                p.elo.map(|e| format!(" · {e}")).unwrap_or_default(),
-                                            )}
-                                        </span>
-                                    }
-                                })
-                                .collect_view()
-                        }}
-                    </div>
-                    <div class="catalog">
-                        <div class="panel-sub">{move || i18n::t(&language.get(), "db.events")}</div>
-                        {move || {
-                            stats
-                                .get()
-                                .top_events
-                                .into_iter()
-                                .map(|e| view! { <span class="muted">{format!("{} — {}", e.name, e.games)}</span> })
-                                .collect_view()
-                        }}
-                    </div>
-                </div>
-            </section>
-        }
-        .into_any()
+        views::stats::stats_view(views::stats::StatsCtx {
+            language,
+            stats,
+            db_list,
+        })
     };
 
     let download_vision = move |_| {
@@ -2602,7 +2184,6 @@ pub fn App() -> impl IntoView {
         let _ = reader.read_as_data_url(&file);
         onload.forget();
     };
-
     let settings_view = move || {
         view! {
             <section class="panel">
@@ -2925,7 +2506,7 @@ pub fn App() -> impl IntoView {
                                     </button>
                                     <button on:click=move |_| {
                                         persist_settings();
-                                        settings_status.set("engine saved".into());
+                                        settings_status.set(i18n::t(&language.get(), "status.m08").into());
                                     }>{move || i18n::t(&language.get(), "common.save")}</button>
                                     <span class="status">{move || settings_status.get()}</span>
                                 </div>
@@ -3799,7 +3380,7 @@ pub fn App() -> impl IntoView {
         if position.is_empty() {
             return;
         }
-        tb_status.set("probing…".into());
+        tb_status.set(i18n::t(&language.get(), "status.m20").into());
         tb_result.set(None);
         spawn_local(async move {
             match api::tablebase(&position, &board_variant.get_untracked()).await {
@@ -3874,10 +3455,10 @@ pub fn App() -> impl IntoView {
     let fetch_cloud = move |_: leptos::ev::MouseEvent| {
         let position = fen.get_untracked();
         if position.trim().is_empty() {
-            status.set("no position on the board".into());
+            status.set(i18n::t(&language.get(), "status.m14").into());
             return;
         }
-        status.set("asking Lichess cloud…".into());
+        status.set(i18n::t(&language.get(), "status.m02").into());
         spawn_local(async move {
             match api::cloud_eval(&position).await {
                 Ok(result) => {
@@ -3887,7 +3468,7 @@ pub fn App() -> impl IntoView {
                             result.depth.unwrap_or(0)
                         ));
                     } else {
-                        status.set("no cloud evaluation for this position".into());
+                        status.set(i18n::t(&language.get(), "status.m13").into());
                     }
                     cloud.set(Some(result));
                 }
@@ -3898,7 +3479,7 @@ pub fn App() -> impl IntoView {
 
     let export_report = move |_: leptos::ev::MouseEvent| {
         let Some(report) = report.get_untracked() else {
-            status.set("classify the game first".into());
+            status.set(i18n::t(&language.get(), "status.m05").into());
             return;
         };
         let title = selected_title.get_untracked();
@@ -3929,20 +3510,20 @@ pub fn App() -> impl IntoView {
             .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
             .collect();
         download_text(&format!("{name}-report.md"), &text);
-        status.set("report exported".into());
+        status.set(i18n::t(&language.get(), "status.m22").into());
     };
 
     let annotate_game = move |_: leptos::ev::MouseEvent| {
         let Some(game_id) = selected_game_id.get_untracked() else {
-            status.set("open a game first".into());
+            status.set(i18n::t(&language.get(), "status.m16").into());
             return;
         };
         let Some(report) = report.get_untracked() else {
-            status.set("classify the game first".into());
+            status.set(i18n::t(&language.get(), "status.m05").into());
             return;
         };
         annotating.set(true);
-        status.set("writing annotations…".into());
+        status.set(i18n::t(&language.get(), "status.m32").into());
         spawn_local(async move {
             let mut written = 0usize;
             for m in &report.moves {
@@ -4010,7 +3591,7 @@ pub fn App() -> impl IntoView {
                         />
                         <button on:click=move |_| {
                             persist_settings();
-                            status.set("profile saved".into());
+                            status.set(i18n::t(&language.get(), "status.m21").into());
                         }>{move || i18n::t(&language.get(), "home.save_profile")}</button>
                     </div>
                 </div>
@@ -4269,7 +3850,7 @@ pub fn App() -> impl IntoView {
                             <button on:click=move |_| {
                                 persist_settings();
                                 profile_player.set(profile_player.get_untracked());
-                                status.set("player profile saved".into());
+                                status.set(i18n::t(&language.get(), "status.m18").into());
                             }>{move || i18n::t(&language.get(), "home.use_account")}</button>
                         </div>
                         <div class="muted">
@@ -5426,7 +5007,7 @@ pub fn App() -> impl IntoView {
             match_white.get_untracked()
         };
         let Some(entry) = list.get(index).cloned() else {
-            match_status.set("choose two engines first".into());
+            match_status.set(i18n::t(&language.get(), "status.m04").into());
             match_running.set(false);
             return;
         };
@@ -5450,7 +5031,7 @@ pub fn App() -> impl IntoView {
                     }
                     if mv.best_move.is_empty() || mv.best_move == "(none)" {
                         match_result.set("1/2-1/2".into());
-                        match_status.set("finished — no legal moves".into());
+                        match_status.set(i18n::t(&language.get(), "status.m09").into());
                         match_running.set(false);
                         return;
                     }
@@ -5494,7 +5075,7 @@ pub fn App() -> impl IntoView {
         match_pgn.set(line_pgn(&start, &[], "standard"));
         match_moves.set(Vec::new());
         match_result.set(String::new());
-        match_status.set("starting…".into());
+        match_status.set(i18n::t(&language.get(), "status.m27").into());
         match_play.set(None);
         let seq = match_seq.get_untracked() + 1;
         match_seq.set(seq);
@@ -5514,7 +5095,7 @@ pub fn App() -> impl IntoView {
     let pause_match = move |_: leptos::ev::MouseEvent| {
         match_running.set(false);
         if match_result.get_untracked().is_empty() {
-            match_status.set("paused".into());
+            match_status.set(i18n::t(&language.get(), "status.m17").into());
         }
     };
 
@@ -6303,7 +5884,7 @@ pub fn App() -> impl IntoView {
                         puzzle_pgn.set(line_pgn(&p.fen, &sans[..upto.min(sans.len())], "standard"));
                         puzzle.set(Some(p));
                     }
-                    Ok(None) => status.set("no puzzles installed".into()),
+                    Ok(None) => status.set(i18n::t(&language.get(), "status.m15").into()),
                     Err(e) => status.set(e),
                 }
             });

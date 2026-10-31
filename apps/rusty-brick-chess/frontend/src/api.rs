@@ -1483,3 +1483,29 @@ pub async fn cloud_eval(fen: &str) -> Result<CloudEval, String> {
     })
 }
 
+
+pub async fn load_session(client: &str) -> Result<Option<String>, String> {
+    let resp = Request::get(&format!("/api/session?client={client}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    let value: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(value["payload"].as_str().map(str::to_owned))
+}
+
+pub async fn save_session(client: &str, payload: &str) -> Result<(), String> {
+    let resp = Request::put("/api/session")
+        .json(&serde_json::json!({ "client": client, "payload": payload }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if resp.ok() {
+        Ok(())
+    } else {
+        Err(resp.text().await.unwrap_or_default())
+    }
+}

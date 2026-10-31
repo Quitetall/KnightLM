@@ -15,6 +15,17 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS schema_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS sessions (
+    client  TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    updated INTEGER NOT NULL
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS games (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     event        TEXT,
@@ -164,6 +175,23 @@ const STANDARD_TAGS: &[&str] = &[
     "Event", "Site", "Date", "Round", "White", "Black", "Result", "WhiteElo", "BlackElo",
     "TimeControl", "FEN", "SetUp",
 ];
+
+#[derive(Debug, Clone, Default)]
+pub struct ArchiveGame {
+    pub event: Option<String>,
+    pub site: Option<String>,
+    pub date: Option<String>,
+    pub round: Option<String>,
+    pub white: String,
+    pub white_elo: Option<i32>,
+    pub black: String,
+    pub black_elo: Option<i32>,
+    pub result: String,
+    pub fen: String,
+    pub moves: String,
+    pub time_control: Option<String>,
+    pub variant: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Game {
@@ -413,6 +441,84 @@ impl Db {
         let count: i64 =
             conn.query_row("SELECT COUNT(*) FROM opening_moves", [], |row| row.get(0))?;
         Ok(count as usize)
+    }
+
+    /// Insert a game from an archive export (Parquet). Stores SAN moves; the
+    /// per-ply position index is optional because archive imports are usually
+    /// browse-only.
+    pub fn insert_archive_game(&self, game: &ArchiveGame, index_positions_wanted: bool) -> Result<i64> {
+        let variant = normalize_variant(game.variant.as_deref());
+        let variant_value = (variant != "standard").then(|| variant.clone());
+        let ply_count = game.moves.split_whitespace().count() as i64;
+        let conn = self.conn.lock().expect("db lock");
+        conn.execute(
+            "INSERT INTO games
+             (event, site, date, round, white, white_elo, black, black_elo,
+              result, fen, moves, movetext, ply_count, time_control, other, variant)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,NULL,?12,?13,NULL,?14)",
+            params![
+                game.event,
+                game.site,
+                game.date,
+                game.round,
+                game.white,
+                game.white_elo,
+                game.black,
+                game.black_elo,
+                game.result,
+                game.fen,
+                game.moves,
+                ply_count,
+                game.time_control,
+                variant_value,
+            ],
+        )?;
+        let id = conn.last_insert_rowid();
+        if index_positions_wanted {
+            let (mut pos, mode) = variant_start(&game.fen, Some(&variant))?;
+            let mut ucis = Vec::new();
+            for san in game.moves.split_whitespace() {
+                let mv = SanPlus::from_ascii(san.as_bytes())?.san.to_move(&pos)?;
+                ucis.push(UciMove::from_move(mv, mode).to_string());
+                pos = pos.play(mv)?;
+            }
+            index_positions(&conn, id, &game.fen, &ucis, &variant)?;
+        }
+        Ok(id)
+    }
+
+    pub fn schema_version(&self) -> Result<i64> {
+        let conn = self.conn.lock().expect("db lock");
+        Ok(conn
+            .query_row(
+                "SELECT CAST(value AS INTEGER) FROM schema_meta WHERE key = 'version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0))
+    }
+
+    /// Store a UI session (tabs, active workspace) for one client.
+    pub fn save_session(&self, client: &str, payload: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("db lock");
+        conn.execute(
+            "INSERT OR REPLACE INTO sessions (client, payload, updated)
+             VALUES (?1, ?2, unixepoch())",
+            params![client, payload],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_session(&self, client: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().expect("db lock");
+        let payload = conn
+            .query_row(
+                "SELECT payload FROM sessions WHERE client = ?1",
+                params![client],
+                |row| row.get::<_, String>(0),
+            )
+            .ok();
+        Ok(payload)
     }
 
     pub fn begin_bulk(&self) -> Result<()> {
@@ -2035,7 +2141,44 @@ fn moves_to_san(fen: &str, moves: &str) -> String {
 }
 
 /// Additive migrations for databases created by older builds.
+/// Current schema version. Bump this and add a `migrate_vN` step for changes
+/// that `CREATE ... IF NOT EXISTS` cannot express.
+pub const SCHEMA_VERSION: i64 = 3;
+
 fn migrate(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schema_meta (
+             key TEXT PRIMARY KEY, value TEXT NOT NULL
+         ) WITHOUT ROWID;",
+    )?;
+    let mut version: i64 = conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM schema_meta WHERE key = 'version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    if version < 1 {
+        migrate_v1(conn)?;
+        version = 1;
+    }
+    if version < 2 {
+        migrate_v2(conn)?;
+        version = 2;
+    }
+    if version < 3 {
+        migrate_v3(conn)?;
+        version = 3;
+    }
+    conn.execute(
+        "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
+        params![version.to_string()],
+    )?;
+    Ok(())
+}
+
+/// v1: columns added after the first release and annotation de-duplication.
+fn migrate_v1(conn: &Connection) -> Result<()> {
     let mut stmt = conn.prepare("PRAGMA table_info(positions)")?;
     let cols: Vec<String> = stmt
         .query_map([], |row| row.get::<_, String>(1))?
@@ -2062,12 +2205,47 @@ fn migrate(conn: &Connection) -> Result<()> {
     if !ann_cols.iter().any(|c| c == "path") {
         conn.execute("ALTER TABLE annotations ADD COLUMN path TEXT", [])?;
     }
-    // Older builds inserted a new row per annotation save; keep the latest
-    // annotation for each node and drop the duplicates.
     conn.execute(
         "DELETE FROM annotations WHERE id NOT IN
          (SELECT MAX(id) FROM annotations GROUP BY game_id, ply, COALESCE(path, ''))",
         [],
+    )?;
+    Ok(())
+}
+
+/// v2: indexes and aggregate tables introduced with large-database support.
+fn migrate_v2(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_games_white ON games(white);
+         CREATE INDEX IF NOT EXISTS idx_games_black ON games(black);
+         CREATE INDEX IF NOT EXISTS idx_games_result ON games(result);
+         CREATE INDEX IF NOT EXISTS idx_games_date ON games(date);
+         CREATE INDEX IF NOT EXISTS idx_games_event ON games(event);
+         CREATE INDEX IF NOT EXISTS idx_games_white_elo ON games(white_elo);
+         CREATE INDEX IF NOT EXISTS idx_games_black_elo ON games(black_elo);
+         CREATE INDEX IF NOT EXISTS idx_positions_key_game ON positions(key, game_id);
+         DROP INDEX IF EXISTS idx_positions_key;
+         CREATE TABLE IF NOT EXISTS opening_moves (
+             key TEXT NOT NULL, uci TEXT NOT NULL, games INTEGER NOT NULL,
+             white INTEGER NOT NULL, draw INTEGER NOT NULL, black INTEGER NOT NULL,
+             PRIMARY KEY (key, uci)
+         ) WITHOUT ROWID;
+         CREATE TABLE IF NOT EXISTS player_stats (
+             name TEXT PRIMARY KEY, elo INTEGER, games INTEGER NOT NULL
+         ) WITHOUT ROWID;
+         CREATE TABLE IF NOT EXISTS event_stats (
+             name TEXT PRIMARY KEY, games INTEGER NOT NULL
+         ) WITHOUT ROWID;",
+    )?;
+    Ok(())
+}
+
+/// v3: server-side UI sessions per client.
+fn migrate_v3(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sessions (
+             client TEXT PRIMARY KEY, payload TEXT NOT NULL, updated INTEGER NOT NULL
+         ) WITHOUT ROWID;",
     )?;
     Ok(())
 }

@@ -59,12 +59,16 @@ Every surface has a headless Chrome suite in the dev harness, all green:
 
 ## Technical debt
 
-- `frontend/src/lib.rs` is ~6k lines: split into `views/` modules before the
-  next feature surface.
-- SQLite is comfortable to ~2–5M games; beyond that, archive mode should move to
-  DuckDB/Parquet instead of growing the position index.
-- Schema changes rely on `CREATE ... IF NOT EXISTS`; add a migration/version
-  table before the next breaking change.
-- Session persistence is `localStorage`; move it into the profile if account
-  sync becomes server-side.
-- Transient status/error messages are not translated.
+- **Schema migrations: done.** `schema_meta` tracks a version (`v1` legacy
+  columns, `v2` large-database indexes/catalogs, `v3` sessions); `/api/health`
+  reports it.
+- **Server-side sessions: done.** `/api/session` stores each browser's
+  workspaces keyed by a client id; `localStorage` remains the fast path.
+- **Archives: done.** `export-parquet` / `import-parquet` move collections out
+  of SQLite without the position index; round-trip tested.
+- **Frontend split: started.** Pure types/helpers live in `src/model.rs`
+  (~400 lines) and read-only views in `src/views/` (stats first); the remaining
+  views still live in `lib.rs` (~5.5k lines) and should be extracted before the
+  next feature.
+- **Status messages:** static ones are translated; dynamic (counts) and error
+  text stay English.

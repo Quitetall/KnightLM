@@ -4,6 +4,7 @@
 //! (games database, engine analysis, classification) + AI chat.
 
 pub mod accounts;
+pub mod archive;
 pub mod pieces;
 pub mod api;
 pub mod console;
@@ -66,6 +67,7 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/databases/switch", post(api::switch_database))
         .route("/api/sounds/custom/{name}", get(api::custom_sound).post(api::upload_sound))
         .route("/api/accounts", get(api::accounts))
+        .route("/api/session", get(api::get_session).put(api::put_session))
         .route("/api/pieces", get(api::piece_sets).post(api::upload_piece_set))
         .route("/api/pieces/{name}", axum::routing::delete(api::delete_piece_set))
         .route("/api/pieces/{name}/{code}", get(api::piece_file))

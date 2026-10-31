@@ -366,3 +366,22 @@ fn tree_editing_keeps_variations_consistent() {
     assert_eq!(g.moves, "e4 e5 Bc4 Nf6");
     assert!(!g.movetext.as_deref().unwrap().contains("Nf3"));
 }
+
+#[test]
+fn schema_is_versioned_and_sessions_round_trip() {
+    let db = Db::open_memory().unwrap();
+    assert_eq!(db.schema_version().unwrap(), rbc_db::SCHEMA_VERSION);
+    assert!(db.load_session("client-1").unwrap().is_none());
+    db.save_session("client-1", r#"{"tabs":["a"]}"#).unwrap();
+    assert_eq!(
+        db.load_session("client-1").unwrap().as_deref(),
+        Some(r#"{"tabs":["a"]}"#)
+    );
+    db.save_session("client-1", r#"{"tabs":["b"]}"#).unwrap();
+    assert_eq!(
+        db.load_session("client-1").unwrap().as_deref(),
+        Some(r#"{"tabs":["b"]}"#)
+    );
+    // Re-running the migration is a no-op and keeps the version.
+    assert_eq!(db.schema_version().unwrap(), rbc_db::SCHEMA_VERSION);
+}

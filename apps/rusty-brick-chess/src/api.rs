@@ -79,6 +79,7 @@ pub async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
         "games": state.db.count().unwrap_or(0),
         "engine": state.engine_path.is_some(),
         "model": state.model_url.is_some(),
+        "schema": state.db.schema_version().unwrap_or(0),
     }))
 }
 
@@ -1949,6 +1950,49 @@ pub async fn import_account_games(
         "skipped": skipped,
         "provider": provider,
     })))
+}
+
+#[derive(Deserialize)]
+pub struct SessionQuery {
+    pub client: String,
+}
+
+#[derive(Deserialize)]
+pub struct SessionBody {
+    pub client: String,
+    pub payload: String,
+}
+
+fn valid_client(client: &str) -> bool {
+    (8..=64).contains(&client.len())
+        && client
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+pub async fn get_session(
+    State(state): State<AppState>,
+    Query(q): Query<SessionQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if !valid_client(&q.client) {
+        return Err(ApiError::BadRequest("invalid client id".into()));
+    }
+    let payload = state.db.load_session(&q.client)?;
+    Ok(Json(serde_json::json!({ "payload": payload })))
+}
+
+pub async fn put_session(
+    State(state): State<AppState>,
+    Json(body): Json<SessionBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if !valid_client(&body.client) {
+        return Err(ApiError::BadRequest("invalid client id".into()));
+    }
+    if body.payload.len() > 2_000_000 {
+        return Err(ApiError::BadRequest("session payload is too large".into()));
+    }
+    state.db.save_session(&body.client, &body.payload)?;
+    Ok(Json(serde_json::json!({ "saved": true })))
 }
 
 #[derive(Deserialize)]
