@@ -4,8 +4,8 @@ Status against **En Croissant** (the reference desktop app): a database you can
 search, a board you can analyse and play from, engines you can configure, and
 the same sidebar surfaces, on Linux/macOS/Windows.
 
-**The feature roadmap is complete.** What remains is operator setup (update
-signing keys) and technical debt, listed at the end.
+**The feature roadmap is complete.** Technical debt is closed (history at the
+end); what remains is operator setup for signed releases.
 
 ## Status
 
@@ -33,9 +33,9 @@ signing keys) and technical debt, listed at the end.
 | i18n / accessibility | **Done** | English/Spanish UI, board ARIA labels, skip link, live regions, focus rings |
 | Auto-update | **Documented** | signing keypair is the release owner's to generate; walkthrough in README |
 
-Rough position: **~95% of the daily En Croissant surface**. The visible gaps are
-not features: signed/notarized installers and the updater keypair belong to the
-release owner, and a few transient status messages are English-only.
+Rough position: **~95% of the daily En Croissant surface**. The remaining gaps
+are not features: signed/notarized installers and the updater keypair belong to
+the release owner.
 
 ## Verification
 
