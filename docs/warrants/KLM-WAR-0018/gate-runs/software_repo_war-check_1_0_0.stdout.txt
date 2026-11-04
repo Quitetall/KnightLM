@@ -1,0 +1,193 @@
+PASS gate.registered                    software.repo.war-check@1.0.0: local candidate, qualified against its declared fault model
+WARN independence.undeclared            no independence is declared for this repository, so §46.3's minimums cannot be evaluated for any Warrant. Absent is not the same as none — `none` reads as examined and absent, absent reads as unexamined
+                                             → openwarrant.toml
+WARN authority.unprotected              no protected authority store is configured (`[authority] store`). docs/authority/roles.toml, docs/authority/allowed_signers and the policy keys that decide whether work may close ([independence], allow_automated_resolution, require_user_presence, verifier_argv) are working-tree files the performer can write; review of them is the control (THREAT_MODEL row 6, docs/AUTHENTICATION.md)
+                                             → openwarrant.toml
+PASS manifest.valid                     KLM-WAR-0001: manifest and composition are well-formed
+PASS traceability.refs                  KLM-WAR-0001: 1 requirement ref(s) and 1 roadmap ref(s) parse
+PASS journal.append-only                KLM-WAR-0001: 1 event(s), 0 backfilled, extends the committed journal
+PASS gate.resolved                      KLM-WAR-0001: 1 cited gate(s) resolve to a bindable definition
+PASS milestones.valid                   KLM-WAR-0001: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0001: 2 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0001: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0002: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0002: 4 event(s), 0 backfilled, extends the committed journal
+PASS gate.resolved                      KLM-WAR-0002: 1 cited gate(s) resolve to a bindable definition
+PASS milestones.valid                   KLM-WAR-0002: 3 milestone(s), 3 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0002: 4 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0002: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0003: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0003: 4 event(s), 0 backfilled, extends the committed journal
+PASS gate.resolved                      KLM-WAR-0003: 1 cited gate(s) resolve to a bindable definition
+PASS milestones.valid                   KLM-WAR-0003: 3 milestone(s), 3 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0003: 4 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0003: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0004: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0004: 4 event(s), 0 backfilled, extends the committed journal
+PASS gate.resolved                      KLM-WAR-0004: 1 cited gate(s) resolve to a bindable definition
+PASS milestones.valid                   KLM-WAR-0004: 4 milestone(s), 4 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0004: 5 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0004: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0005: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0005: 4 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0005: 3 milestone(s), 3 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0005: 5 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0005: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0006: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0006: 4 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0006: 3 milestone(s), 3 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0006: 4 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0006: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0007: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0007: 4 event(s), 0 backfilled, extends the committed journal
+PASS gate.resolved                      KLM-WAR-0007: 1 cited gate(s) resolve to a bindable definition
+PASS milestones.valid                   KLM-WAR-0007: 3 milestone(s), 4 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0007: 5 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0007: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0008: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0008: 4 event(s), 0 backfilled, extends the committed journal
+PASS gate.resolved                      KLM-WAR-0008: 1 cited gate(s) resolve to a bindable definition
+PASS milestones.valid                   KLM-WAR-0008: 3 milestone(s), 4 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0008: 4 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0008: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0009: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0009: 4 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0009: 3 milestone(s), 4 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0009: 5 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0009: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0010: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0010: 4 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0010: 4 milestone(s), 4 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0010: 5 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0010: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0011: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0011: 4 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0011: 3 milestone(s), 3 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0011: 4 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0011: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0012: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0012: 1 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0012: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0012: 7 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0012: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0013: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0013: 1 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0013: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0013: 4 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0013: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0014: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0014: 1 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0014: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0014: 6 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0014: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0015: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0015: 1 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0015: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0015: 5 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0015: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0016: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0016: 1 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0016: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0016: 0 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0016: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0017: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0017: 1 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0017: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0017: 0 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0017: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0018: manifest and composition are well-formed
+WARN evidence.not-a-pass                KLM-WAR-0018: software.repo.war-check@1.0.0 · the run is not a §44.5 required pass (askability askable, execution completed, verdict fail)
+                                             → docs/warrants/KLM-WAR-0018/gate-runs/software_repo_war-check_1_0_0.run.toml
+                                             → auto: war evidence record KLM-WAR-0018
+PASS journal.append-only                KLM-WAR-0018: 3 event(s), 0 backfilled, extends the committed journal
+PASS gate.resolved                      KLM-WAR-0018: 1 cited gate(s) resolve to a bindable definition
+PASS milestones.valid                   KLM-WAR-0018: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0018: 7 obligation(s), each with a bounded scope and evidence
+ERROR generated.drift                    KLM-WAR-0018: committed generated/WAR.md differs from a fresh compilation; it was edited by hand or its sources changed without recompiling
+                                             → docs/warrants/KLM-WAR-0018/generated/WAR.md
+                                             → auto: war admin compile
+ERROR generated.drift                    KLM-WAR-0018: committed generated/WAR.json differs from a fresh compilation; it was edited by hand or its sources changed without recompiling
+                                             → docs/warrants/KLM-WAR-0018/generated/WAR.json
+                                             → auto: war admin compile
+PASS manifest.valid                     KLM-WAR-0019: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0019: 1 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0019: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0019: 0 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0019: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0020: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0020: 1 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0020: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0020: 0 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0020: 2 generated view(s) match a fresh compilation
+PASS manifest.valid                     KLM-WAR-0021: manifest and composition are well-formed
+PASS journal.append-only                KLM-WAR-0021: 1 event(s), 0 backfilled, extends the committed journal
+PASS milestones.valid                   KLM-WAR-0021: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
+PASS obligations.valid                  KLM-WAR-0021: 0 obligation(s), each with a bounded scope and evidence
+PASS generated.drift                    KLM-WAR-0021: 2 generated view(s) match a fresh compilation
+PASS composition.acyclic                parent graph is acyclic across 21 Warrant(s)
+PASS identity.duplicate-uuid            21 Warrant UUID(s), each naming one Warrant
+PASS identity.atom-mismatch             KLM-WAR-0001: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0002: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0003: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0004: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0005: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0006: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0007: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0008: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0009: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0010: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0011: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0012: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0013: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0014: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0015: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0016: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0017: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0018: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0019: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0020: 4 atom(s) name this Warrant's UUID
+PASS identity.atom-mismatch             KLM-WAR-0021: 4 atom(s) name this Warrant's UUID
+UNKNOWN identity.changed                   /home/brianklam/Projects/KnightLM is not inside a git repository, so no manifest UUID can be compared with a committed one. §12.2's "never changes" is unasked here, not established
+                                             → docs/warrants
+PASS identity.alias-ref                 0 parent and supersedes reference(s), each by UUID
+PASS sas-normative.section-labels       no unsupported numbered SAS heading hides or mislabels a normative body statement
+WARN sas.proposed-unaccepted            the document is revision 0.2.1 (proposed), sha256:f634dbd65e4a; the accepted revision 0.1.0 remains normative until `war sign 0.2.1` accepts it
+                                             → docs/sas/KnightLM_SAS.md
+                                             → info: war sign sas status
+PASS format.well-formed                 59 Format 1.0 document(s), 107 unit(s): nothing refused, nothing UNKNOWN
+PASS authority.signed                   SAS-0.1.0: signed by quitetall over docs/authority/responses/SAS-0.1.0.response.toml
+PASS warrant-overview.drift             WARRANT_OVERVIEW.md matches a fresh compilation
+PASS adr-overview.drift                 ADR_OVERVIEW.md matches a fresh compilation
+PASS corpus-status.drift                CORPUS_STATUS.md matches a fresh compilation
+ERROR corpus-status.drift                the committed CORPUS_STATUS.json differs from a fresh compilation; it was edited by hand or its sources changed without recompiling
+                                             → docs/warrants/generated/CORPUS_STATUS.json
+ERROR corpus-status.drift                the committed CORPUS_STATUS.html differs from a fresh compilation; it was edited by hand or its sources changed without recompiling
+                                             → docs/warrants/generated/CORPUS_STATUS.html
+ERROR corpus-timeline.drift              the committed CORPUS_TIMELINE.json differs from a fresh compilation; it was edited by hand or its sources changed without recompiling
+                                             → docs/warrants/generated/CORPUS_TIMELINE.json
+PASS corpus-pending.drift               CORPUS_PENDING.json matches a fresh compilation
+PASS sas-normative.drift                NORMATIVE.md matches a fresh compilation
+PASS sas-normative.drift                NORMATIVE.json matches a fresh compilation
+PASS sas-sections.drift                 SECTIONS.md matches a fresh compilation
+PASS sas-sections.drift                 SECTIONS.json matches a fresh compilation
+PASS context-index.drift                llms.txt matches a fresh compilation
+ERROR generated.drift                    the committed CURRENT.md differs from a fresh compilation; it was edited by hand or its sources changed without recompiling
+                                             → docs/generated/CURRENT.md
+                                             → auto: war admin compile
+
+REMEDIES:
+  auto  war admin compile   (×3)
+  auto  war evidence record KLM-WAR-0018   (×1)
+  info  war sign sas status   (×1)
+
+149 pass · 4 warn · 1 unknown · 6 error   (worst: ERROR)
+
+NOT CHECKED:
+  · 16 of 21 Warrant(s) have no disposed              obligations — §38.6 yields no resolution verdict for them, which is the              expected state of work that has not been assessed
+  · contract digest covers 8 of 17 §28.5 elements — missing: deliverables, capabilities, autonomy, resources, gates, obligations, rollback, amendment_policy, assurance_requirements
+  · gate execution — `war evidence gate --run` executes a registered gate (§44), but `war check` does not invoke it, so nothing here is evidence that a Warrant's acceptance gates were run
+  · Preflight readiness (§32.7) — 'well-formed' is a claim about the record only
+  · bound-atom resolution — `ref =` atoms cannot be fetched offline
+  · Source Holder ambiguity and classification propagation (§91.2 tests 14, 15) — narrowed by OW-ADR-0008: test 14 needs a `source_holder` on atoms, which §13 requires and none declares; test 15 needs a classification ordering, which the SAS does not give. Neither is undecided — both are undeclared
+
+NOT READY

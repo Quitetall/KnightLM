@@ -1,0 +1,88 @@
+schema = "oh.war/deliverables/v1"
+
+# §37.1 — declared by the performer. `war admin deliver` computes every
+# content_digest from the bytes on disk and records the provenance.
+
+[[deliverable]]
+id = "D-001"
+title = "Security review"
+kind = "file"
+target_ref = "code/docs/security.md"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:8f94200334c37876eedd6eb00cbe38f52cd0b820382368c83de57f4bb5989238"
+media_type = "text/markdown"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-002"
+title = "Security tests"
+kind = "file"
+target_ref = "code/crates/ai/tests/security.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:4411fe177f7b72994c94bc395a99fe99010ea8d4e58d21c8f70885505f282fd5"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-003"
+title = "The full check suite"
+kind = "file"
+target_ref = "code/scripts/check_all.sh"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:bc3c3345c349f548f15e187029be901e41cdc667a13ef2646cb36c145e51ad78"
+media_type = "text/x-shellscript"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-004"
+title = "Running and packaging documentation"
+kind = "file"
+target_ref = "code/docs/running.md"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:a6dbd933f87d6a3d7a02295d33583ab9d38f261b0d0aabd0159f1cecf42dda07"
+media_type = "text/markdown"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"

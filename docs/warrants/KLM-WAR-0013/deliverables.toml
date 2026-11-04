@@ -1,0 +1,88 @@
+schema = "oh.war/deliverables/v1"
+
+# §37.1 — declared by the performer. `war admin deliver` computes every
+# content_digest from the bytes on disk and records the provenance.
+
+[[deliverable]]
+id = "D-001"
+title = "Context compiler"
+kind = "file"
+target_ref = "code/crates/context/src/compile.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:01414a33c2560070880729cdbca32459e778955a8196450c907db169cdf2fdcc"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-002"
+title = "Canonical JSON and hashing"
+kind = "file"
+target_ref = "code/crates/context/src/canonical.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:4b5f8b26d19875d6d15b445eb78414810741e4df2c4bfb5740fcd89069581e0b"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-003"
+title = "Headless CLI"
+kind = "file"
+target_ref = "code/crates/context/src/bin/rbc-context.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:c566093a3656c994ea71b53a38790bb2dcc3925003ca620faefa77c34d1f9b03"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-004"
+title = "Compiler tests"
+kind = "file"
+target_ref = "code/crates/context/tests/compile.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:2ce65fc1647834de87b2ec356a38eaede94e84d4bceafda3f3c31d71226dcbaa"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"

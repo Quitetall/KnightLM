@@ -1,0 +1,109 @@
+schema = "oh.war/deliverables/v1"
+
+# §37.1 — declared by the performer. `war admin deliver` computes every
+# content_digest from the bytes on disk and records the provenance.
+
+[[deliverable]]
+id = "D-001"
+title = "MCP protocol core"
+kind = "file"
+target_ref = "code/crates/ai/src/mcp.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:29dd12362b4f310df0771e910fc0026d4240f5e1dff8871f01ac476d1d8dda85"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-002"
+title = "MCP transports, token and rate limit"
+kind = "file"
+target_ref = "code/apps/rusty-brick-chess/src/mcp.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:c6372352d9e03aed37658f49e529d551325ecabafd2d055bb8a8d1489e0be559"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-003"
+title = "MCP setup documentation"
+kind = "file"
+target_ref = "code/docs/mcp.md"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:b66372ef7ef3bb270d170185c925b0f1c1a438ff072462cd49bb0b7df519c44b"
+media_type = "text/markdown"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-004"
+title = "MCP protocol tests"
+kind = "file"
+target_ref = "code/crates/ai/tests/mcp.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:00c0132d71a4155d2fdbc9eee91bda76d81809e978a41327d376eabbf4e912e6"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-005"
+title = "MCP end-to-end suite"
+kind = "file"
+target_ref = "code/scripts/check_mcp.sh"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:5bc8aa38a0ac0439abc75897b87052a337c2550733c5dfdc25498ca310bcd505"
+media_type = "text/x-shellscript"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"

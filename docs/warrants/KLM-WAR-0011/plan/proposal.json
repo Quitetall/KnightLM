@@ -1,0 +1,85 @@
+{
+  "api_version": "oh.war/draft-proposal/v2",
+  "proposed_identity": {
+    "title": "Track B seed: Burn environment, SmolVLM study, and an honest-red parity battery",
+    "profile": "delivery",
+    "assurance": "basic"
+  },
+  "operations": [
+    {
+      "op": "create_atom",
+      "role": "intent",
+      "ordinal": 10,
+      "path": "10-intent.md",
+      "body": "# Intent\n\nStart Track B's clock honestly: the Burn-native SmolVLM admission gets its\ngroundwork \u2014 a pinned Burn/Linux environment, a component-level study of\nSmolVLM's architecture against the HuggingFace reference, and a parity-gate\ntest skeleton that is RED-by-design where nothing is implemented \u2014 so the\naccountability doubles: red today, green only when the parity battery says\nso (KLM-SAS-RQ-013).\n\n## Out of scope\n\n- Full Burn implementation, weights, training/adjusted attribution strength.\n- Any strength claims \u2014 none are collectable here.\n- Qwen-track decisions (post-run-1 review territory, per the sponsor).\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "basis",
+      "ordinal": 20,
+      "path": "20-basis.md",
+      "body": "# Basis\n\n## Sources\n\n- KnightLM SAS revision 0.2.1: \u00a783 Phase 7; KLM-SAS-RQ-013 (\u00a7106).\n- Sponsor's Track B decision (2026-10-20): 10% of ML capacity starting week\n  2; admission is ONLY through the parity gates (processor/tokenizer parity,\n  reference logits, gradients, overfit, reload, reset isolation between\n  passes); run-1 Track A harness is the oracle when it lands.\n- Burn pinned at 0.21 (the repo's existing engine dependency), plus the\n  code/docs/plan.md Phase-7 sketch of the parity gate list.\n\n## Prerequisites\n\n- KLM-WAR-0008's `model-io` seam (the parity battery will compare against\n  Track A's serving) \u2014 its M2 lands before this Warrant's M2.\n\n## Open questions\n\nNone: the phase boundary and the gate list were settled on 2026-10-20.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "work_order",
+      "ordinal": 40,
+      "path": "40-work-order.md",
+      "body": "# Work Order\n\n## Deliverables\n\n1. Burn environment bring-up: `burn 0.21` + a GPU backend choice (wgpu or\n   cuda) proven green on a tiny smoke test; the choice recorded as evidence\n   with versions (driver/toolkit compatible).\n2. The architecture study doc (`code/docs/trackb-smolvlm-study.md`):\n   component inventory of SigLIP encoder + pixel-shuffle projector + LLM\n   decoder, parameter counts, tensor shapes per layer where documented in\n   the model card, the state reset points (KV attention, recurrent/conv\n   states) that RQ-013's reset isolation must quarantined, and each parity\n   gate mapped to a named test.\n3. The parity skeleton: a test module in `crates/model` (or a proposed\n   layout for it) with the named gate tests from KLM-SAS-RQ-013, red NOW\n   where the parity falls, with red/green mapping zero decoding paths (the\n   SKEL test hard-fails a fake-green attempt), compile-checked.\n4. A smoke session where the skeleton's IO paths (tokenizer side) actually\n   run against the pinned reference and record what is currently\n   represented (RED documented honestly).\n\n## Seams and who depends on them\n\n1. **SEAM `parity-battery`** \u2014 the named test list + expected outcomes from\n   the study. Consumers: the future Burn implementation Warranty (post-0011),\n   KLM-WAR-0008's model-io (an oracle target across teams).\n2. Frozen consumed seams: model-io (W-0008) \u2014 the battery's target format.\n\n## Owner's space\n\nWhere the study file lives, its doc shapes, the test module's inner\nstructure, the backend choice internals, the smoke session scripting.\nAnything that would DICTATE the future implementation's architecture beyond\nthe parity contracts is sponsor territory.\n\n## Premade instructions\n\n- RED is honest. Greenwashed-anything is a defect: a planted fake-logit test\n  MUST fail.\n- Outcomes write down what you do not know (the `unknown` evidence class\n  exists for you).\n\n## Autonomy and escalation\n\nTier T2. Escalation: any deviation from the parity gate list (they are\nsponsor'd requirements), any attempt to pull Track A's strength targets into\nTrack B.\n\n## Rollback\n\nDelete the study md and the test module; burn env brings nothing into the\nworkspace root config that cannot be cleanly removed (the smoke stays in\nthis repo, the env is local).\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "milestones",
+      "ordinal": 45,
+      "path": "45-milestones.yaml",
+      "body": "schema: \"oh.war/milestones/v1\"\n\nmilestones:\n  - id: \"M1\"\n    title: \"Burn env green; study published\"\n    stage_refs: [\"STAGE-001\"]\n    obligation_refs: [\"OBL-001\"]\n\n  - id: \"M2\"\n    title: \"Parity skeleton honest-red\"\n    depends_on: [\"M1\"]\n    stage_refs: [\"STAGE-002\"]\n    obligation_refs: [\"OBL-002\", \"OBL-003\"]\n\n  - id: \"M3\"\n    title: \"Next-implementer handoff check\"\n    depends_on: [\"M2\"]\n    stage_refs: [\"STAGE-003\"]\n    obligation_refs: [\"OBL-004\"]\n\nstages:\n  - id: \"STAGE-001\"\n    title: \"burn bring-up + architecture study\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n\n  - id: \"STAGE-002\"\n    title: \"parity skeleton + fake-green refusal test\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n\n  - id: \"STAGE-003\"\n    title: \"hand study + skeleton to the next implementer\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "assurance",
+      "ordinal": 60,
+      "path": "60-assurance.md",
+      "body": "# Assurance\n\n## Acceptance Obligations\n\n### OBL-001 \u2014 the environment and the study are real\n- **scope:** the burn smoke test record; the study doc\n- **evidence:** smoke log with backend/driver versions; the study doc's component inventory\nchecked against the pinned HF reference (line-item cites)\n### OBL-002 \u2014 the parity skeleton is honestly red\n- **scope:** the named gate tests (RQ-013: processor/tokenizer parity, reference\nlogits, gradients, overfit, reload, reset isolation)\n- **evidence:** test run record: each gate named, status RED with the reason for red; zero\ngreen without reference evidence\n### OBL-003 \u2014 fake-green attempts refuse\n- **scope:** a planted test claiming parity with fabricated logits\n- **evidence:** the battery's self-check test discovers fabrications (e.g., a hash mismatch\nor a missing-reference marker) and fails visibly\n### OBL-004 \u2014 the next implementer can continue without the author\n- **scope:** an ML-lane member new to Track B reads the study, runs the skeleton\n- **evidence:** hand-off note: both artifacts understood, next actions named, questions\nlisted for the sponsor\n\n## Gate Adequacy\n\nRequired at `basic`.\n\n**Adversarial question:** Could 'red' become theater (a test that can never go green without being noticed as such)?\n\n- **outcome:** no \u2014 each gate maps to a named test and an expected outcome; the fake-green refusal test is itself in the battery.\n\n**Adversarial question:** Could the study cite the reference model while pinning the wrong revision?\n\n- **outcome:** no \u2014 the study doc carries pinned revisions; reference mismatches are a named failure mode.\n\n\n## Residual Risk\n\nBurn 0.21's GPU backend selection may land differently than planned\n(wgpu/cuda feature differences); the study records both options rather than\npromising one. Reset isolation points in SmolVLM need care (attention cache\nreuse across contexts); the study inventories them for the future implementer,\nnot this Warrant.\n"
+    }
+  ],
+  "proposed_relations": [
+    "sas://KLM-SAS-RQ-013",
+    "roadmap://KLM-PHASE-7"
+  ],
+  "evidence_claims": [
+    {
+      "id": "EC-001",
+      "class": "existing",
+      "statement": "burn 0.21 is the workspace's pinned Burn version",
+      "reference": "code/Cargo.toml:1"
+    },
+    {
+      "id": "EC-002",
+      "class": "expected",
+      "statement": "the HF SmolVLM reference (model card + repo) is pinned by a human before the study",
+      "reference": "the pin list includes revisions; a human downloads and hashes it per the no-auto-download policy"
+    }
+  ],
+  "durable_choices": [
+    {
+      "id": "DC-001",
+      "class": "policy",
+      "statement": "The parity battery is RED-by-design until implementation exists.",
+      "alternatives": [
+        "pre-write a green skeleton claiming parity",
+        "defer all Track B testing until code lands"
+      ],
+      "rationale": [
+        "RQ-013's admission discipline; honest red is an audit surface, an empty\nfile is neither."
+      ],
+      "proposed_adr_draft": "# ADR: red-before-green parity\n\n## Context\n\nThe parity gates exist to prevent a false \"port done\" claim. A skeleton with\nno tests provides no resistance to later fabrication.\n\n## Decision\n\nTrack B's skeleton this Warrant ships named tests that CAN go green, fail\ntoday with explicit reasons, and include a self-check that refuses fabricated\nparity evidence (hash checks against pinned references where present).\n\n## Consequences\n\nEarly honest signal at near-zero cost; the future implementation has its\ntest acceptance list already; no early strength story \u2014 green waits for the\nreal thing."
+    }
+  ],
+  "unresolved_questions": [],
+  "risk_assessment": "Burn 0.21's GPU backend selection may land differently than planned\n(wgpu/cuda feature differences); the study records both options rather than\npromising one. Reset isolation points in SmolVLM need care (attention cache\nreuse across contexts); the study inventories them for the future implementer,\nnot this Warrant.",
+  "adequacy_attacks": [
+    "Could a fabricated green slip past a battery that never self-checks?",
+    "Could the study cite a moved reference quietly and inherit the wrong shape claims?"
+  ],
+  "diagnostics": []
+}

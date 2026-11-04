@@ -1,0 +1,46 @@
+schema = "oh.war/deliverables/v1"
+
+# §37.1 — declared by the performer. `war admin deliver` computes every
+# content_digest from the bytes on disk and records the provenance.
+
+[[deliverable]]
+id = "D-001"
+title = "Track B parity battery"
+kind = "file"
+target_ref = "code/crates/model/tests/trackb_parity.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:4ae579d9c742382140d6428b6510be5051d437a311e2ce8427c366431ef09744"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-002"
+title = "Track B study"
+kind = "file"
+target_ref = "code/docs/trackb-smolvlm-study.md"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:f8c5408d94105a681b6a855b1ad668695a1010c2e5c6b72a1b72acdf5a43790c"
+media_type = "text/markdown"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"

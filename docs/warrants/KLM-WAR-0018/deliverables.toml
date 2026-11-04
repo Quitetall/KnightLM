@@ -1,0 +1,109 @@
+schema = "oh.war/deliverables/v1"
+
+# §37.1 — declared by the performer. `war admin deliver` computes every
+# content_digest from the bytes on disk and records the provenance.
+
+[[deliverable]]
+id = "D-001"
+title = "Study tools and their locks"
+kind = "file"
+target_ref = "code/crates/ai/src/board.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:a047b45545a4bac49e904022ce285b6105d103410b9286dc799135d9ca57bc4f"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-002"
+title = "Study editor"
+kind = "file"
+target_ref = "code/apps/rusty-brick-chess/frontend/src/views/study.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:3eec89de5659556f22b87d7572bd4fc2f213cf2f4d7d88ee34282e554953024e"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-003"
+title = "Study bundle import/export"
+kind = "file"
+target_ref = "code/crates/ai/src/study_bundle.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:690e79b57a10a2d443be0574480b04b6a30050fddaca53c149d0b813a611491f"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-004"
+title = "Study suites"
+kind = "file"
+target_ref = "code/scripts/check_studies.sh"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:63f03dff458b8eeea345386750f9aa7d7c55880abbe8611f4dea730371b610ff"
+media_type = "text/x-shellscript"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-005"
+title = "Study editor CDP suite"
+kind = "file"
+target_ref = "code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_study.js"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:fc8962602a390822768b2d09c169668f935fc233ddd43f402116adb80e5fd70b"
+media_type = "text/javascript"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"

@@ -1,0 +1,88 @@
+schema = "oh.war/deliverables/v1"
+
+# §37.1 — declared by the performer. `war admin deliver` computes every
+# content_digest from the bytes on disk and records the provenance.
+
+[[deliverable]]
+id = "D-001"
+title = "Structural diff engine"
+kind = "file"
+target_ref = "code/crates/ai/src/diff.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:c58886bfcbb66bf4768ea215705b53aceab6c7c1deb4af86ad66678ad489497f"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-002"
+title = "Diff tests"
+kind = "file"
+target_ref = "code/crates/ai/tests/diff.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:713e0a6ed0d5a8c8e8ea9ded3811ab5e3740fca0717103eaecd7717a54f703ad"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-003"
+title = "Compare UI"
+kind = "file"
+target_ref = "code/apps/rusty-brick-chess/frontend/src/views/compare.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:509ef82913604196966a373ee1bc6fb8abca09bbf7997d0304a3b052c4222bab"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-004"
+title = "Compare CDP suite"
+kind = "file"
+target_ref = "code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_compare.js"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:b4b87c2212b0ed025a24dc30ceac7fca04933bdd74d2f8d47401ce220a44dfea"
+media_type = "text/javascript"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"

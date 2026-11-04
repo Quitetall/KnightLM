@@ -1,0 +1,6 @@
+id = "GR-software.repo.war-check@1.0.0"
+gate = "software.repo.war-check@1.0.0"
+askability = "askable"
+execution_status = "completed"
+verdict = "fail"
+reason_code = "failed"

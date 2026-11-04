@@ -1,0 +1,106 @@
+{
+  "api_version": "oh.war/draft-proposal/v2",
+  "proposed_identity": {
+    "title": "Universal state hub I: SAN engine and the thin Lichess PGN reader",
+    "profile": "delivery",
+    "assurance": "basic"
+  },
+  "operations": [
+    {
+      "op": "create_atom",
+      "role": "intent",
+      "ordinal": 10,
+      "path": "10-intent.md",
+      "body": "# Intent\n\nStand up the first half of the universal notation layer so corpus building can\nstart without waiting for the full PGN parser: a hand-written SAN engine over\nthe canonical `GameState`, a `knightlm-notation` crate skeleton with a\nformat-detection seam, and a thin streaming reader for Lichess bulk-DB PGN\nthat turns zst month files into provenance-carrying `GameRecord`s.\n\n## Out of scope\n\n- Full PGN fidelity: comments, NAGs, recursive variations \u2014 KLM-WAR-0003.\n- Other notations (X-FEN, Shredder-FEN, EPD, UCI move lists, long algebraic,\n  ICCF, descriptive) and first-class FRC ingest \u2014 KLM-WAR-0004.\n- Labeling, joins, splits, engines \u2014 KLM-WAR-0005 and KLM-WAR-0007.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "basis",
+      "ordinal": 20,
+      "path": "20-basis.md",
+      "body": "# Basis\n\n## Sources\n\n- KnightLM SAS revision 0.2.1 (sha256 f634dbd65e4a, proposed): \u00a798 Phase 2 \u2014\n  Universal state hub; KLM-SAS-RQ-004 and KLM-SAS-RQ-006 (\u00a7106).\n- `code/README.md` \"upstream warts\": Lichess bulk export emits four-field FENs\n  and `UCI_Chess960` PV keys; heterogeneous analysis depths exist in the eval\n  side, not the game side. A four-field-FEN source never yields\n  `history_complete: true` (KLM-SAS-RQ-006).\n- cozy-chess 0.3.4 provides move generation but has no SAN parser or writer\n  (checked against docs.rs). The SAN engine is hand-written here.\n- Lichess database facts (database.lichess.org, fetched from the live site on\n  2026-10): bulk game export is monthly `.pgn.zst`; the thin reader only needs\n  the Seven-Tag Roster plus movetext.\n\n## Prerequisites\n\n- `code/crates/core` compiles and `cargo test -p knightlm-core` passes today.\n\n## Open questions\n\nNone: scope boundaries were settled with the sponsor on 2026-10-20.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "work_order",
+      "ordinal": 40,
+      "path": "40-work-order.md",
+      "body": "# Work Order\n\n## Deliverables\n\n1. New crate `code/crates/notation/` (`knightlm-notation`) with:\n   - a SAN writer and parser over `knightlm_core::GameState`: piece moves,\n     captures, disambiguation (file and rank letters), promotions including\n     under-promotions, castling, check and mate suffixes;\n   - a format-detection seam with `Format::{San, Pgn}` today (variants are\n     added by KLM-WAR-0003/0004 additively);\n   - a thin Lichess bulk-DB reader: zstd-decompressed month PGN to an iterator\n     of `GameRecord`s, carrying `source` provenance (`lichess-bulk/<YYYY-MM>`)\n     and `history_complete` per KLM-SAS-RQ-006.\n2. `knightlm-notation` CLI additions: `ingest --input <file.pgn.zst> --out\n   <dir>` writing shard JSONL plus a manifest row per run.\n3. A fixture corpus under `code/crates/notation/tests/`: hand-authored SAN\n   edge cases plus real excerpts of Lichess month files (excerpted from a\n   file a team member downloads; nothing auto-downloads).\n\n## Seams and who depends on them\n\n1. **SEAM `nota-reader`** \u2014 `knightlm_notation::reader::open(path) -> impl\n   Iterator<Item = GameRecord>`. Contract: yields records or fails with an\n   error carrying position and token; never silently drops or repairs a game.\n   Consumers: KLM-WAR-0007 (corpus ingest) and KLM-WAR-0003 (shares the\n   fixture corpus).\n2. **SEAM `nota-detect`** \u2014 `knightlm_notation::detect(&[u8]) -> Format`.\n   Consumers: KLM-WAR-0004 (adds variants), KLM-WAR-0010 (viewer ingest).\n3. Frozen without change in this Warrant: the `knightlm-core` public API and\n   the `GameRecord`/`GameState` schemas, provenance fields included.\n\n## Owner's space\n\nInside the two seams the performer owns the rest: parser representations and\nerror types, streaming and buffering strategy, test layout and fixture\nchoice, CLI ergonomics, internal module structure. Improving the interior so\ndownstream consumers get a better tool is in scope; changing a seam is not \u2014\na seam change is an amendment negotiated with the named consumers.\n\n## Premade instructions\n\n- `cargo test -p knightlm-notation` after every interior change.\n- Never silently repair: a malformed game is an explicit error (RQ-004).\n\n## Autonomy and escalation\n\nTier T2: the performer builds, tests and reports; the human authorizes and\nresolves. A seam change request escalates to the sponsor.\n\n## Rollback\n\nRemove `code/crates/notation/` and the CLI command; nothing outside the crate\ndepends on the new seams yet.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "milestones",
+      "ordinal": 45,
+      "path": "45-milestones.yaml",
+      "body": "schema: \"oh.war/milestones/v1\"\n\nmilestones:\n  - id: \"M1\"\n    title: \"SAN engine round-trips the fixture battery\"\n    stage_refs: [\"STAGE-001\"]\n    obligation_refs: [\"OBL-001\", \"OBL-002\"]\n\n  - id: \"M2\"\n    title: \"Thin reader ingests a real month-file excerpt\"\n    depends_on: [\"M1\"]\n    stage_refs: [\"STAGE-002\"]\n    obligation_refs: [\"OBL-003\"]\n\n  - id: \"M3\"\n    title: \"Detection seam, CLI, and the consumer check\"\n    depends_on: [\"M2\"]\n    stage_refs: [\"STAGE-003\"]\n    obligation_refs: [\"OBL-004\"]\n\nstages:\n  - id: \"STAGE-001\"\n    title: \"build the SAN engine and its round-trip battery\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n\n  - id: \"STAGE-002\"\n    title: \"build the thin reader and run it on a real excerpt\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n\n  - id: \"STAGE-003\"\n    title: \"wire the detection seam and CLI; hand to the consumer\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "assurance",
+      "ordinal": 60,
+      "path": "60-assurance.md",
+      "body": "# Assurance\n\n## Acceptance Obligations\n\n### OBL-001 \u2014 SAN writer and parser round-trip the fixture battery\n- **scope:** every SAN fixture in `code/crates/notation/tests/`: disambiguation, captures,\npromotions including under-promotions, castling, check and mate suffixes\n- **evidence:** `cargo test -p knightlm-notation` round-trip tests green on the whole battery\n### OBL-002 \u2014 the parser refuses a SAN that names no legal move\n- **scope:** the same fixture battery, planted with illegal and ambiguous SAN tokens\n- **evidence:** planted token exercises produce the specific refusal error naming position and\ntoken; no fallback guess, no silent repair (KLM-SAS-RQ-004)\n### OBL-003 \u2014 the thin reader yields provenance-carrying records or explicit failure\n- **scope:** one real Lichess month-file excerpt ingested end to end; a planted malformed movetext game\n- **evidence:** records carry source `lichess-bulk/<month>` and policy-correct\n`history_complete`; the planted game produces a position-and-token error\n### OBL-004 \u2014 the consumer ingests without the author\n- **scope:** KLM-WAR-0007's ingest stage run by MLOps, not by this Warrant's author\n- **gate:** gate://software.repo.war-check@1.0.0\n- **evidence:** recorded cross-lane consumer check: month file to shard JSONL + manifest via\nthe CLI, unaided\n\n## Gate Adequacy\n\nRequired at `basic`.\n\n**Adversarial question:** Can this Warrant be satisfied while a four-field-FEN source is marked `history_complete: true`?\n\n- **outcome:** no \u2014 OBL-003 states the policy and the reader tests include such a source.\n\n**Adversarial question:** Can the corpus start even though this Warrant's reader skips annotations?\n\n- **outcome:** no counterexample \u2014 the thin reader is exactly the path that allows it; fidelity belongs to KLM-WAR-0003.\n\n\n## Residual Risk\n\nReal-world Lichess movetext may deviate from spec in ways the thin reader\nmust refuse rather than repair; the refusal rate on a real excerpt is the\nsignal to watch. Zst streaming memory is bounded but a hostile month file\ncould stress it; fixtures include one large excerpt.\n"
+    }
+  ],
+  "proposed_relations": [
+    "sas://KLM-SAS-RQ-004",
+    "sas://KLM-SAS-RQ-006",
+    "roadmap://KLM-PHASE-2"
+  ],
+  "evidence_claims": [
+    {
+      "id": "EC-001",
+      "class": "existing",
+      "statement": "cozy-chess 0.3.4 has no SAN parser/writer, so the engine is hand-written (checked against its published API)",
+      "reference": "code/crates/core/Cargo.toml:11; docs.rs/cozy-chess/0.3.4 (SAN rev. of API: none), checked 2026-10"
+    },
+    {
+      "id": "EC-002",
+      "class": "expected",
+      "statement": "one real Lichess month file will be ingested during M2",
+      "reference": "a team member downloads it per the no-auto-download policy; the excerpt lands in fixtures"
+    },
+    {
+      "id": "EC-003",
+      "class": "expected",
+      "statement": "the consumer check will happen inside KLM-WAR-0007's ingest stage",
+      "reference": "MLOps runs the CLI and records the output in KLM-WAR-0007's stage journal"
+    }
+  ],
+  "durable_choices": [
+    {
+      "id": "DC-001",
+      "class": "seam",
+      "statement": "Hand-written SAN over cozy-chess 0.3.4; no second movegen dependency.",
+      "alternatives": [
+        "introduce shakmaty",
+        "port python-chess logic",
+        "wait for cozy-chess SAN support"
+      ],
+      "rationale": [
+        "The repo standardizes on cozy-chess; a second movegen engine is a seam the team rejected on 2026-10-20."
+      ],
+      "proposed_adr_draft": "# ADR: SAN is hand-written over cozy-chess\n\n## Context\n\ncozy-chess 0.3.4 provides move generation without SAN. Phase 2 needs a SAN\nengine over the canonical GameState. A second movegen dependency would fork\ncanonical state semantics between crates.\n\n## Decision\n\n`knightlm-notation` implements SAN read and write directly over\n`knightlm_core::GameState`. No shakmaty, no ported python-chess logic.\n\n## Consequences\n\nRoughly 500 lines of owned parser code with a property and refusal battery.\nSAN stays in lockstep with the canonical compiler by construction."
+    },
+    {
+      "id": "DC-002",
+      "class": "process",
+      "statement": "The thin reader is a separate fast path from W-0003's full parser; both share the notation seams.",
+      "alternatives": [
+        "wait for the full parser",
+        "build the corpus from non-PGN exports"
+      ],
+      "rationale": [
+        "Corpus urgency is a Phase 5 gate; full PGN fidelity must not hold it hostage."
+      ],
+      "proposed_adr_draft": "# ADR: two PGN paths, one seam line\n\n## Context\n\nPhase 5 (data pipeline) cannot start until bulk Lichess games ingest. Full\nPGN fidelity is Phase 2 work that must not gate it.\n\n## Decision\n\nThe thin reader (KLM-WAR-0002) consumes the Seven-Tag Roster plus movetext\nonly; the full parser (KLM-WAR-0003) is a separate module sharing the\nnota seams. Neither silently repairs the other.\n\n## Consequences\n\nCorpus work starts weeks earlier; the cost is PGN features absent from the\nthin path by design, proven explicitly by fixtures."
+    }
+  ],
+  "unresolved_questions": [],
+  "risk_assessment": "Real-world Lichess movetext may deviate from spec in ways the thin reader\nmust refuse rather than repair; the refusal rate on a real excerpt is the\nsignal to watch. Zst streaming memory is bounded but a hostile month file\ncould stress it; fixtures include one large excerpt.",
+  "adequacy_attacks": [
+    "Can this Warrant be resolved without any real Lichess data ever flowing through the reader? The reader obligation cites a real month-file excerpt, so no.",
+    "Could the thin reader silently mark games complete when the tags are absent? OBL-003 pins history_complete policy and includes that case."
+  ],
+  "diagnostics": []
+}

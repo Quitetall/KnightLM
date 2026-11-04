@@ -1,0 +1,18 @@
+{
+  "completed": [
+    "parse the proposal",
+    "require review or policy approval",
+    "run risk and authority checks",
+    "show a semantic diff",
+    "validate schema",
+    "validate semantic references",
+    "write authored atoms"
+  ],
+  "failures": [
+    [
+      "compile and check",
+      "war check reported errors"
+    ]
+  ],
+  "review": "reviewed"
+}

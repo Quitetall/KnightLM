@@ -1,0 +1,35 @@
+schema: "oh.war/milestones/v1"
+
+milestones:
+  - id: "M1"
+    title: "UCI client completes handshake and fixed-depth analysis on fixtures"
+    stage_refs: ["STAGE-001"]
+    obligation_refs: ["OBL-001", "OBL-002"]
+
+  - id: "M2"
+    title: "Labeling harness produces versioned, stamped labels"
+    depends_on: ["M1"]
+    stage_refs: ["STAGE-002"]
+    obligation_refs: ["OBL-003"]
+
+  - id: "M3"
+    title: "Boundary and gates"
+    depends_on: ["M2"]
+    stage_refs: ["STAGE-003"]
+    obligation_refs: ["OBL-004", "OBL-005"]
+
+stages:
+  - id: "STAGE-001"
+    title: "build the client and prove handshake/analysis"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-002"
+    title: "build the label harness; run its fixtures"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-003"
+    title: "prove zero-boundary; author gate definitions with batteries"
+    executor_kind: "agent"
+    responsibility_tier: "T2"

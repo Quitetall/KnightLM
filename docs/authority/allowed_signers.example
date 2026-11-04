@@ -1,0 +1,57 @@
+# Who may sign a response with an ssh key (`war sign --ssh-sign`).
+#
+# Copy to `allowed_signers` and edit — or answer `war init` at a terminal,
+# which writes it from the key you pick out of `ssh-add -L`. Like `roles.toml`
+# it follows one rule (OW-ADR-0021, Consequences): a tool writes it only from a
+# human's answers at a terminal, once; no command edits it afterwards. It is
+# the list of keys whose signatures this repository accepts, and a tool that
+# wrote it at will could let an agent add its own key.
+#
+# Format is OpenSSH's ALLOWED SIGNERS (see ssh-keygen(1), "-Y verify"):
+#
+#   <principal> [namespaces="oh.war/response,oh.war/dsse"] <keytype> <base64> [comment]
+#
+# `principal` is the `ssh_principal` on the actor's `roles.toml` entry — a
+# separate name because OpenSSH permits no spaces here. The namespaces option
+# is optional but recommended: it means a signature this key made for any
+# other purpose does not verify as a response. If you set it, list BOTH
+# namespaces: `oh.war/response` signs the response, `oh.war/dsse` signs the
+# attestation `war sign --ssh-sign` writes beside the record (OW-ADR-0015).
+# With only the first, the act is recorded and its attestation is refused
+# with `attest.not-emitted` — the act stands; the witness is missing.
+#
+# ---------------------------------------------------------------------------
+# THE ONE THING `war` CANNOT CHECK
+# ---------------------------------------------------------------------------
+#
+# Load the key into your agent with confirmation ON:
+#
+#   ssh-add -c ~/.ssh/id_ed25519
+#
+# `-c` makes the agent ask YOU, through a dialog, every time the key is used.
+# That dialog is the human act; no shell — yours, or an agent's running inside
+# your session — can answer it. Without `-c`, any process that can reach the
+# agent socket can sign as you, and an AI agent's shell can reach it. `war`
+# has no way to tell whether the key was loaded with `-c`. Get this right.
+#
+# A hardware key (sk-ssh-ed25519@openssh.com) with touch required is the same
+# guarantee, held in silicon.
+#
+# TEST YOUR DENY BEFORE YOU TRUST YOUR ALLOW. The agent raises the dialog
+# through $SSH_ASKPASS with SSH_ASKPASS_PROMPT=confirm and treats exit 0 as
+# "allow". A custom askpass that only knows passphrase mode, or that parses
+# pinentry's replies carelessly, can allow on Deny — found here the first time
+# it was used: pinentry answers OK to every SET command before the CONFIRM
+# reply, so "any OK" allowed everything. Run `war sign <x> --ssh-sign` once,
+# click Deny, and confirm `sign.ssh-refused` with nothing written. Then trust it.
+# One more trap for pinentry-based askpasses: the agent's confirm prompt
+# contains a literal NEWLINE ("Allow use of key …?\nKey fingerprint …").
+# Passed raw, it splits your own SETDESC into a second, unknown command that
+# pinentry answers with ERR — and a correct any-ERR-denies rule then denies
+# every Allow. Percent-encode it (%0A) before sending.
+# Note also that the agent's environment, not your shell's, must carry
+# SSH_ASKPASS and DISPLAY — a systemd user service needs a drop-in for that.
+#
+# ---------------------------------------------------------------------------
+
+brian namespaces="oh.war/response,oh.war/dsse" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA...replace-with-your-key... brian@host

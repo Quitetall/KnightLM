@@ -1,0 +1,46 @@
+schema: "oh.war/milestones/v1"
+
+milestones:
+  - id: "M1"
+    title: "FEN family, EPD, UCI lists, FRC first-class"
+    stage_refs: ["STAGE-001"]
+    obligation_refs: ["OBL-003"]
+
+  - id: "M2"
+    title: "Long algebraic, ICCF, descriptive"
+    depends_on: ["M1"]
+    stage_refs: ["STAGE-002"]
+    obligation_refs: ["OBL-001", "OBL-002"]
+
+  - id: "M3"
+    title: "Differential parity battery against python-chess"
+    depends_on: ["M2"]
+    stage_refs: ["STAGE-003"]
+    obligation_refs: ["OBL-004"]
+
+  - id: "M4"
+    title: "Consumer check through corpus and viewer lanes"
+    depends_on: ["M3"]
+    stage_refs: ["STAGE-004"]
+    obligation_refs: ["OBL-005"]
+
+stages:
+  - id: "STAGE-001"
+    title: "implement the FEN family and FRC paths"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-002"
+    title: "implement the remaining legacy notations"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-003"
+    title: "run the differential battery; disposition results"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-004"
+    title: "hand amended GameRecord and exports to consumers"
+    executor_kind: "agent"
+    responsibility_tier: "T2"

@@ -1,0 +1,87 @@
+{
+  "api_version": "oh.war/draft-proposal/v2",
+  "proposed_identity": {
+    "title": "The run-1 corpus: ingest, join, split, and audit",
+    "profile": "delivery",
+    "assurance": "basic"
+  },
+  "operations": [
+    {
+      "op": "create_atom",
+      "role": "intent",
+      "ordinal": 10,
+      "path": "10-intent.md",
+      "body": "# Intent\n\nTurn the raw bulk Lichess stream into the run-1 corpus: 2 million timed blitz\nand rapid standard games at 1600+ (bullet excluded), reduced to decision-point packets,\njoined with the lichess eval labels by normalized position key, split into\ntemporally-separated train and eval sets, audited for leaks, and materialized\nas sharded JSONL with a provenance manifest \u2014 the load-bearing data contract\neverything downstream consumes (KLM-SAS-RQ-011).\n\n## Out of scope\n\n- Training itself \u2014 KLM-WAR-0008.\n- crawler/download mechanics: bulk files arrive hand-downloaded; the corpus\n  work assumes they are on disk.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "basis",
+      "ordinal": 20,
+      "path": "20-basis.md",
+      "body": "# Basis\n\n## Sources\n\n- KnightLM SAS revision 0.2.1: \u00a779 Phase 5; KLM-SAS-RQ-011 and RQ-006 (\u00a7106).\n- The sponsor's run-1 decisions (2026-10-20): 2M standard games; filter\n  blitz+rapid both players averaged 1600+; Chess960 excluded from the run-1\n  corpus; 200K train games; 10K eval games held out temporally; labels\n  joined from `lichess_db_eval.jsonl` by normalized position key with a\n  depth floor of 20, highest depth per position; first PV (parsed as\n  `UCI_Chess960`) is the policy target; the played move stays the primary\n  signal.\n- Lichess database facts (database.lichess.org, live 2026-10): bulk game\n  files are monthly `.pgn.zst`; the evals export is keyed by four-field FEN\n  and carries `depth`, `pv` (UCI_Chess960 flavored), and `cp`/`mate` lines.\n\n## Prerequisites\n\n- KLM-WAR-0002 M2/M3 landed (`nota-reader`, CLI ingest working).\n- KLM-WAR-0005 M2 landed (engine + label shape, for any own-engine labels).\n\n## Open questions\n\nNone: the split policy and join keying were settled on 2026-10-20.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "work_order",
+      "ordinal": 40,
+      "path": "40-work-order.md",
+      "body": "# Work Order\n\n## Deliverables\n\n1. Corpus ingest driver over `nota-reader`: filter to standard chess, timed\n   blitz and rapid, both players 1600+, two-move mate/abandoned games\n   dropped; 2M games ingested to shard JSONL.\n2. Packet compiler extension: per decision point, per-arm packets + policy\n   target (the played move) + a joined label when available. Tablet narrowing\n   mirroring `code/crates/core`'s exp-backed format.\n3. Label join: normalized position key (from FEN) >> `lichess_db_eval.jsonl`;\n   depth floor 20; highest-depth row wins ties; first PV token parsed with\n   the `UCI_Chess960` flavor table (KLM-WAR-0004's); cp/mate preserved; joins\n   recorded as LABELS ONLY per RQ-011.\n4. Splits: 200K train games; 10K eval games strictly from the newest month of\n   the pool; game-family disjoint (same opening family/traditional\n   neighboring transposition clusters do not straddle splits).\n5. Split audit + manifest: counts, per-shard hashes, provenance keyed to file\n   names and download receipts the team records; an audit that refuses to\n   bless a split with a planted leak.\n\n## Seams and who depends on them\n\n1. **SEAM `corpus-shards`** \u2014 directory layout + manifest schema: shard\n   files, per-shard row counts/hashes, label source, split policy, filter\n   params, SF version for any own labels. Consumers: KLM-WAR-0008 (the\n   loader), evaluation (verifying splits), sponsor (experiment lineage).\n2. **SEAM `packet-row`** \u2014 per-row packet structure extending\n   `code/crates/core`'s compiler outputs with labels. Consumers: 0008's\n   training and eval harnesses.\n\n## Owner's space\n\nJoin strategy and index structure, sharding and size policy, internal cache\nlayout, sampling details, parallelism, packing decisions, and how family\ndisjointness is computed given the samples. The audit's verdicts and the\nmanifest must never be fabricated; how efficient they are is free.\n\n## Premade instructions\n\n- The split audit must be seen rejecting a planted leak; an audit that has\n  only blessed neighbors is untrusted.\n- Every label column is a label \u2014 provenance and join policy are data, not\n  side notes: label provenance columns reflect what the join did.\n\n## Autonomy and escalation\n\nTier T2. Anything touching the split policy or adding an engine to the\nchain-of-custody defaults out of bounds without the sponsor.\n\n## Rollback\n\nShards + manifest live under `data/corpus/run1/` (git-ignored); delete the\ndirectory. The compiler extension and audit code remain in git history.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "milestones",
+      "ordinal": 45,
+      "path": "45-milestones.yaml",
+      "body": "schema: \"oh.war/milestones/v1\"\n\nmilestones:\n  - id: \"M1\"\n    title: \"2M games ingested with provenance\"\n    stage_refs: [\"STAGE-001\"]\n    obligation_refs: [\"OBL-001\", \"OBL-004\"]\n\n  - id: \"M2\"\n    title: \"Label join by normalized position key\"\n    depends_on: [\"M1\"]\n    stage_refs: [\"STAGE-002\"]\n    obligation_refs: [\"OBL-002\"]\n\n  - id: \"M3\"\n    title: \"Splits, audits, and the consumer check\"\n    depends_on: [\"M2\"]\n    stage_refs: [\"STAGE-003\", \"STAGE-004\"]\n    obligation_refs: [\"OBL-003\", \"OBL-005\"]\n\nstages:\n  - id: \"STAGE-001\"\n    title: \"ingest and filter; verify provenance\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n\n  - id: \"STAGE-002\"\n    title: \"join labels with recorded policy\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n\n  - id: \"STAGE-003\"\n    title: \"split and audit its rejects\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n\n  - id: \"STAGE-004\"\n    title: \"hand shards to the training loader\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "assurance",
+      "ordinal": 60,
+      "path": "60-assurance.md",
+      "body": "# Assurance\n\n## Acceptance Obligations\n\n### OBL-001 \u2014 ingest preserves provenance per row\n- **scope:** the 2M-game run over monthly bulk files\n- **evidence:** every `GameRecord` carries bulk-source file names; the manifest ties files\nto receipts the team recorded at download\n### OBL-002 \u2014 label joins are policy-correct and label-only\n- **scope:** sampled positions from the eval set checked against the lichess eval file\n- **evidence:** spot-check table: normalized position key match, depth >= 20, highest-depth\nrow chosen, first PV as policy target; zero rows where the label reads like\nground truth (labels + engine + depth columns present instead)\n### OBL-003 \u2014 the split audit refuses a planted leak\n- **scope:** a planted duplicate game family straddling splits and a canonical-position\nduplicate across train/eval\n- **evidence:** audit run record: both plants rejected by name; split stats recomputed\npost-rejection\n### OBL-004 \u2014 counts materialize as contracted\n- **scope:** final shard tree + manifest\n- **evidence:** manifest: 2M-game train pool shards; 200K train / 10K eval rows; per-shard\nhashes; train/eval strictly temporal\n### OBL-005 \u2014 the consumer trains without the author\n- **scope:** KLM-WAR-0008's loader stage run by the ML lane\n- **gate:** gate://software.repo.war-check@1.0.0\n- **evidence:** cross-lane recorded check: the loader reads the manifest and trains or\nevaluates on shards directly, with no author queries\n\n## Gate Adequacy\n\nRequired at `basic`.\n\n**Adversarial question:** Could a leak survive if the audit only checks whole-game duplicate IDs but not family/canonical duplicates?\n\n- **outcome:** no \u2014 OBL-003 plants both kinds and requires rejection; the audit cannot pass on a single check kind.\n\n**Adversarial question:** Could labels creep into 'data' and lose their provenance column?\n\n- **outcome:** no \u2014 OBL-002 checks label columns exist and look like labels, not like truth.\n\n\n## Residual Risk\n\nJoin cardinality: many eval rows per position with ending-variant depths; the\ntie policy is decided pre-run and the audit verifies it. Disk footprint on\nthe order of tens of GB \u2014 sized before the run. Malformed Lichess rows are\nexpected and are an explicit-refusal count, not a silent skip, per RQ-004;\nweekly ingest reports log refusal shapes.\n"
+    }
+  ],
+  "proposed_relations": [
+    "sas://KLM-SAS-RQ-006",
+    "sas://KLM-SAS-RQ-011",
+    "roadmap://KLM-PHASE-5"
+  ],
+  "evidence_claims": [
+    {
+      "id": "EC-001",
+      "class": "expected",
+      "statement": "monthly bulk files will be hand-downloaded by a human with receipts recorded",
+      "reference": "the no-auto-download policy in code/README.md; receipts enter data/corpus/run1/manifest"
+    },
+    {
+      "id": "EC-002",
+      "class": "expected",
+      "statement": "lichess_db_eval.jsonl will be present on the operator's machine before the join",
+      "reference": "the operator stages it under the run-1 decision record; the manifest records the file's provenance"
+    }
+  ],
+  "durable_choices": [
+    {
+      "id": "DC-001",
+      "class": "policy",
+      "statement": "Labels join by normalized position key with depth floor 20, highest-depth wins, first PV policy target, played move primary.",
+      "alternatives": [
+        "join by FEN text equality",
+        "sparkless fuzzy joins",
+        "chess openings instead of temporal evals"
+      ],
+      "rationale": [
+        "Settled with the sponsor on 2026-10-20; FEN-text keys break across eval-file\nconventions, normalized keys survive."
+      ],
+      "proposed_adr_draft": "# ADR: normalized-key label join\n\n## Context\n\nLichess evals key on four-field FEN; corpus records key on our normalized\nposition. The RQ-011 provenance needs labels to stay labels.\n\n## Decision\n\nJoin on normalized key; depth floor 20; tie to highest depth; first PV as\npolicy target; the played move remains the primary signal; no label is ever\ntreated as ground truth.\n\n## Consequences\n\nSome positions with eval rows stay unlabeled (below depth floor) \u2014 recorded,\nexpected, and quantified in the manifest. The join policy itself is a\nmanifest field, so a re-run policy change must change the manifest."
+    }
+  ],
+  "unresolved_questions": [],
+  "risk_assessment": "Join cardinality: many eval rows per position with ending-variant depths; the\ntie policy is decided pre-run and the audit verifies it. Disk footprint on\nthe order of tens of GB \u2014 sized before the run. Malformed Lichess rows are\nexpected and are an explicit-refusal count, not a silent skip, per RQ-004;\nweekly ingest reports log refusal shapes.",
+  "adequacy_attacks": [
+    "Could the audit bless a split where half the plants were never actually planted?",
+    "Could a single audit checker being wrong be masked by a clean pass on the second plant?"
+  ],
+  "diagnostics": []
+}

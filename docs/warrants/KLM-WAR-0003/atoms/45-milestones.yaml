@@ -1,0 +1,35 @@
+schema: "oh.war/milestones/v1"
+
+milestones:
+  - id: "M1"
+    title: "Parser carries the annotation battery"
+    stage_refs: ["STAGE-001"]
+    obligation_refs: ["OBL-002"]
+
+  - id: "M2"
+    title: "Writer round-trips state and annotations"
+    depends_on: ["M1"]
+    stage_refs: ["STAGE-002"]
+    obligation_refs: ["OBL-001", "OBL-003"]
+
+  - id: "M3"
+    title: "Consumer check by the viewer and parity lanes"
+    depends_on: ["M2"]
+    stage_refs: ["STAGE-003"]
+    obligation_refs: ["OBL-004"]
+
+stages:
+  - id: "STAGE-001"
+    title: "build the full parser over the annotation battery"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-002"
+    title: "build the writer; prove re-parse identity"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-003"
+    title: "hand AnnotatedGame to the consumer lanes"
+    executor_kind: "agent"
+    responsibility_tier: "T2"

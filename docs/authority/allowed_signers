@@ -1,0 +1,18 @@
+# Who may sign a response with an ssh key (`war sign --ssh-sign`).
+# Written by `war init` on 2026-10-12T21:53:44Z from answers typed at a terminal by "QuiteTall".
+#
+# THE RULE FOR THIS FILE: a tool writes it only from a human's answers at a
+# terminal, once. No command edits it afterwards — every tool in this
+# workspace reads it, and `war init` refuses to touch one that exists.
+# Authority still enters from outside the system it governs: the answers
+# were a human's, the terminal gate is the one `war sign` uses (§27.2), and
+# a pseudo-terminal defeats it exactly as it defeats `war sign` — the
+# residual THREAT_MODEL entry 2 already accepts (OW-ADR-0021, Consequences).
+#
+# The human stated their key was loaded with `ssh-add -c`: yes.
+# `war` cannot check that; it is their statement, recorded as given.
+#
+# Format: <principal> namespaces="oh.war/response,oh.war/dsse" <keytype> <base64> [comment]
+# Both namespaces: the first signs the response, the second the attestation.
+
+quitetall namespaces="oh.war/response,oh.war/dsse" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFRwJ646UxbMwMJlEZ1P42kd/8UfJY3D75KxOM4EdVhw

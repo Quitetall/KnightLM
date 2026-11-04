@@ -1,0 +1,40 @@
+schema: "oh.war/milestones/v1"
+
+milestones:
+  - id: "M1"
+    title: "2M games ingested with provenance"
+    stage_refs: ["STAGE-001"]
+    obligation_refs: ["OBL-001", "OBL-004"]
+
+  - id: "M2"
+    title: "Label join by normalized position key"
+    depends_on: ["M1"]
+    stage_refs: ["STAGE-002"]
+    obligation_refs: ["OBL-002"]
+
+  - id: "M3"
+    title: "Splits, audits, and the consumer check"
+    depends_on: ["M2"]
+    stage_refs: ["STAGE-003", "STAGE-004"]
+    obligation_refs: ["OBL-003", "OBL-005"]
+
+stages:
+  - id: "STAGE-001"
+    title: "ingest and filter; verify provenance"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-002"
+    title: "join labels with recorded policy"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-003"
+    title: "split and audit its rejects"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-004"
+    title: "hand shards to the training loader"
+    executor_kind: "agent"
+    responsibility_tier: "T2"

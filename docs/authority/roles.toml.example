@@ -1,0 +1,94 @@
+# Actor role assignments (SAS §27.4).
+#
+# Copy to `roles.toml` and edit — or answer `war init` at a terminal, which
+# writes `roles.toml` from what you type. This file is a TEMPLATE and grants
+# nothing: only `docs/authority/roles.toml` is read, and an absent register
+# grants nobody anything — which is the fail-closed direction and the correct
+# default.
+#
+# ---------------------------------------------------------------------------
+# THE RULE FOR `roles.toml` (OW-ADR-0021, Consequences)
+# ---------------------------------------------------------------------------
+#
+# Authority has to come from outside the system it governs. A command that
+# could write this file at will would let an agent assign itself the roles
+# §27.2 exists to withhold — through the same tool that later checks whether
+# the assignment is valid. So the rule is narrow: a tool writes this file only
+# from a human's answers typed at a terminal, once. `war init` does that, behind
+# the same terminal gate `war sign` uses, and refuses to touch a `roles.toml`
+# that exists. No command edits it afterwards; every tool in this workspace
+# reads it. There is no `war authority grant`. The agent entry `war init`
+# writes is `performer` and nothing else — no answer can widen it.
+#
+# What that gate cannot do: a pseudo-terminal defeats it, exactly as it
+# defeats `war sign`'s plain path (THREAT_MODEL entry 2). The trust rests where
+# it always did — on the key, and on `ssh-add -c`.
+#
+# ---------------------------------------------------------------------------
+# ROLES
+# ---------------------------------------------------------------------------
+#
+#   performer      executes stages, produces artifacts        (§27.1)
+#   verifier       reviews artifacts independently            (§46)
+#   authorizer     authorizes a proposed contract revision    (§28.4)
+#   resolver       records a resolution                       (§56)
+#   risk_acceptor  accepts organizational residual risk        (§27.2)
+#   judge          records a judgment                         (§42)
+#
+# `actor_kind` is one of `human`, `agent`, `policy_service`, and it is not a
+# label — it changes what the actor may do:
+#
+#   agent           may never authorize, accept residual risk, resolve, or make
+#                   a judgment. §27.1 permits RECOMMENDING a judgment; recording
+#                   one as made is a different act. Granting an agent these
+#                   roles does not make it eligible — the refusal is on kind.
+#   policy_service  may resolve, but ONLY a basic Warrant whose obligations are
+#                   all mechanical, with no residual-risk judgment needed, an
+#                   identity distinct from the performer, and `policy.
+#                   allow_automated_resolution = true` in openwarrant.toml.
+#                   All five conditions of §27.3, all required together.
+#   human           may do anything the roles granted here allow, except act on
+#                   their own work: a human may not authorize a revision they
+#                   proposed, nor resolve a delivery they performed.
+#
+# ---------------------------------------------------------------------------
+
+[[assignment]]
+actor = "your-name-here"
+actor_kind = "human"
+roles = ["authorizer", "resolver", "risk_acceptor", "judge"]
+# Who granted this. An assignment nobody granted is not an assignment — for the
+# first entry in a new repository this is normally the repository owner, naming
+# themselves as the source of their own authority, which is the honest record of
+# how a sole-owner project actually works.
+assigned_by = "your-name-here"
+effective_time = "2026-01-01T00:00:00Z"
+note = "Repository owner."
+# Optional. The principal this actor signs as in `allowed_signers` when using
+# `war sign --ssh-sign`. No spaces (OpenSSH's rule). Grants nothing by itself;
+# see allowed_signers.example for the `ssh-add -c` requirement.
+ssh_principal = "your-principal-here"
+
+# The agent is recorded as a performer and nothing else. This entry is not
+# required — an actor with no assignment simply has no authority — but writing it
+# down states the arrangement explicitly rather than leaving it to be inferred
+# from an absence.
+# A second human. Two eligible signers for one act is a question `war sign`
+# asks (`sign.who`); pass `--as` to answer it. Nothing here makes one signer
+# the other's reviewer — independence is a declaration on the Warrant.
+[[assignment]]
+actor = "second-signer-here"
+actor_kind = "human"
+roles = ["authorizer", "resolver"]
+assigned_by = "your-name-here"
+effective_time = "2026-01-01T00:00:00Z"
+note = "Second signer; may authorize and resolve."
+ssh_principal = "second-principal-here"
+
+[[assignment]]
+actor = "claude"
+actor_kind = "agent"
+roles = ["performer"]
+assigned_by = "your-name-here"
+effective_time = "2026-01-01T00:00:00Z"
+note = "Drafts and executes. Authorizes nothing, resolves nothing (§27.2)."

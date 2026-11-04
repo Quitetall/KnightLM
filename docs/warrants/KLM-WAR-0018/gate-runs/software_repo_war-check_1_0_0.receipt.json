@@ -1,0 +1,29 @@
+{
+  "run_id": "GR-software.repo.war-check@1.0.0",
+  "gate_definition_digest": "sha256:719636ad60f447d590f1e3962849fd3c7ac7e9fe048519f5240a95450584cd1a",
+  "gate_binding_digest": "unbound:software.repo.war-check@1.0.0",
+  "subject_digests": [
+    "contract:sha256:b88b8448d9d28193b1a2dab4a3f34de2297cf046887d2a9b8fed0f08385e0ded",
+    "deliverables:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "fixture_digests": [],
+  "runner": "war gate --run",
+  "runtime_environment": "linux x86_64 / rustc 1.97.1",
+  "arguments": [
+    "war",
+    "check",
+    "--generated"
+  ],
+  "working_directory": "/home/brianklam/Projects/KnightLM",
+  "started_at": "2026-11-04T12:15:42Z",
+  "completed_at": "2026-11-04T12:15:42Z",
+  "exit_result": "fail",
+  "selected_test_count": 0,
+  "selected_test_manifest": [],
+  "raw_evidence_refs": [],
+  "stdout_ref": "docs/warrants/KLM-WAR-0018/gate-runs/software_repo_war-check_1_0_0.stdout.txt",
+  "stderr_ref": "docs/warrants/KLM-WAR-0018/gate-runs/software_repo_war-check_1_0_0.stderr.txt",
+  "resource_usage": "wall-clock only; 3 argv item(s)",
+  "verdict": "fail",
+  "receipt_digest": "sha256:2bf1535c92502baa6d0144c65a9296493c0c8d9b966ceff312ff1740ad673cdf"
+}

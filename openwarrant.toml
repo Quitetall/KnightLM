@@ -1,0 +1,35 @@
+schema = "oh.war/repository-config/v1"
+
+[project]
+name = "KnightLM"
+namespace = "KLM"
+
+[paths]
+sas = "docs/sas"
+roadmap = "docs/roadmap"
+adrs = "docs/adr"
+warrants = "docs/warrants"
+gates = "docs/gates"
+receipts = "docs/receipts"
+
+[generated]
+commit = true
+verify_drift = true
+
+[policy]
+allow_automated_resolution = false
+
+[plan]
+drafter_argv = []
+drafter_timeout_secs = 0
+drafter_name = ""
+
+[context]
+
+[verify]
+verifier_argv = []
+verifier_timeout_secs = 0
+max_excerpt_bytes = 0
+
+[run]
+default_wall_time_seconds = 0

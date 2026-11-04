@@ -1,0 +1,99 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# A Gate Definition (SAS §43.2). This is a LOCAL CANDIDATE, not an institutional
+# gate: §43.1 gives Knowledge Fabric the authoritative registry, and OW-ADR-0005
+# records why a candidate stays labelled as one until OW-WAR-0028 federates.
+#
+# Two shapes here are forced by OW-ADR-0003's restricted reader rather than
+# chosen: lists are flow sequences (`["a", "b"]`), and §43.4's qualification is
+# spelled with `qualification_` prefixes because the reader does not nest inside
+# a record. The cost of that ADR is paid visibly here instead of by quietly
+# adding a YAML dependency to satisfy one file.
+
+gate_id: "software.repo.war-check"
+version: "1.0.0"
+lifecycle: "qualified"
+implementation_ref: "artifact://openwarrant-cli/war-check"
+output_schema_ref: "schema://war-check-report/v1"
+provenance: "local_candidate"
+input_kinds: ["warrant-corpus"]
+
+# §44.7 — a structured argument vector, not a shell string. This gate IS
+# `war check`; running it does not recurse, because `war check` validates the
+# record and never executes gates (that limit is in known_blind_spots below).
+# The built binary rather than `war` on PATH: this repository is a source
+# checkout, and `cargo xtask gate` builds the workspace before running anything.
+# A released install would say ["war", "check", "--generated"], and pointing at
+# PATH here would make this gate permanently not_askable(missing_tool) in the one
+# environment it is supposed to run in.
+argv: ["war", "check", "--generated"]
+
+# §44.8 — this gate reads; it changes nothing.
+mutating: "false"
+
+# §44.2 — this gate's own deadline. `war check` on a 40-Warrant corpus takes
+# under a second; 120 leaves room for a much larger one without the deadline
+# becoming decorative.
+timeout_secs: "120"
+
+# What this gate claims to detect. Every entry has a recorded detection result
+# below, because §43.4 qualification is about DECLARED fault classes.
+fault_model: ["manifest-malformed", "atom-missing", "stale-parent-contract-digest", "generated-view-drift", "frontmatter-injection", "adr-malformed", "composition-cycle", "milestone-graph-invalid", "obligation-malformed", "adequacy-review-absent"]
+
+# §43.2. Stating these is what keeps fault_model honest rather than aspirational.
+known_blind_spots: ["Does not execute a Warrant's acceptance gates; a well-formed record is not a satisfied contract (Phase 6, OW-WAR-0020).", "Cannot resolve `ref =` bound atoms offline, so a bound atom's content is unverified.", "Cannot judge whether an adequacy review was any good, only that one was conducted (SAS 39.5).", "Does not detect a semantically wrong but structurally valid claim: an obligation may cite real evidence for the wrong thing."]
+
+# ---------------------------------------------------------------------------
+# 43.4 qualification. The qualifier is the plant battery in conformance/plant.sh,
+# run by `cargo xtask gate` on every commit and in CI.
+# ---------------------------------------------------------------------------
+
+qualification_qualifier: "QuiteTall via OpenWarrant's conformance battery, at the release this binary was built from"
+# Deliberately empty. A qualification digest is computed over the qualification
+# record; nothing computes one yet (OW-WAR-0020). An empty field reads as "not
+# computed"; a placeholder like "sha256:pending" would render in a gate report
+# exactly where a reader expects an integrity value, and `validate()` now refuses
+# any non-empty value that is not a real sha256.
+qualification_digest: ""
+
+qualification_positive_controls: ["22 planted violations, each a specific malformation of a real corpus file, each expected to be REJECTED by a named rule AND a named detail string."]
+
+qualification_negative_controls: ["The `pass` plant: the unmodified 40-Warrant corpus must exit 0. Without this control, a gate that rejects everything would qualify identically to one that works."]
+
+qualification_mutation_classes: ["deletion (atom file, required manifest entry, adequacy section)", "substitution (digest, ordinal, status, gate reference)", "injection (YAML anchor, self-parent edge, dependency cycle)", "hand-edit of a generated view"]
+
+qualification_environments: ["linux-x86_64, rustc 1.97.1 pinned by rust-toolchain.toml", "ubuntu-latest, same pinned toolchain, via .github/workflows/ci.yml"]
+
+qualification_limitations: ["Plants are single-fault; a corpus with two interacting defects is not covered.", "Four plants share the rule `manifest.invalid`, so the asserted detail string is what distinguishes them. A rule-only assertion would let the duplicate-ordinal plant 'pass' while actually being caught by the unknown-role branch.", "Qualification shows the gate detects these mutations. It does not show the mutation set is complete."]
+
+detection_results:
+  - fault_class: "manifest-malformed"
+    mutation: "removed a required atom; duplicated an ordinal; declared an unknown role; fabricated an enterprise id"
+    detected: "true"
+  - fault_class: "atom-missing"
+    mutation: "deleted 20-basis.md while leaving it declared in the manifest"
+    detected: "true"
+  - fault_class: "stale-parent-contract-digest"
+    mutation: "left a child pinning a parent contract digest that no longer matches"
+    detected: "true"
+  - fault_class: "generated-view-drift"
+    mutation: "hand-edited generated/WAR.md; deleted generated/WAR.json; hand-edited both overviews"
+    detected: "true"
+  - fault_class: "frontmatter-injection"
+    mutation: "injected a YAML anchor into atom frontmatter"
+    detected: "true"
+  - fault_class: "adr-malformed"
+    mutation: "set an unknown ADR status; removed a required frontmatter key"
+    detected: "true"
+  - fault_class: "composition-cycle"
+    mutation: "made a Warrant its own parent"
+    detected: "true"
+  - fault_class: "milestone-graph-invalid"
+    mutation: "dangling stage_ref; dependency cycle; a milestone carrying a stage-only field"
+    detected: "true"
+  - fault_class: "obligation-malformed"
+    mutation: "removed an obligation's scope; pointed obligation_refs at OBL-999"
+    detected: "true"
+  - fault_class: "adequacy-review-absent"
+    mutation: "deleted the Gate Adequacy section from a controlled Warrant; replaced a review body with confident prose containing no question"
+    detected: "true"

@@ -1,0 +1,46 @@
+schema: "oh.war/milestones/v1"
+
+milestones:
+  - id: "M1"
+    title: "ViewModel core: board, list, navigation, facts"
+    stage_refs: ["STAGE-001"]
+    obligation_refs: ["OBL-001"]
+
+  - id: "M2"
+    title: "Ingest battery + explicit error state"
+    depends_on: ["M1"]
+    stage_refs: ["STAGE-002"]
+    obligation_refs: ["OBL-002"]
+
+  - id: "M3"
+    title: "Exports, analysis, Rust-only proofed"
+    depends_on: ["M2"]
+    stage_refs: ["STAGE-003"]
+    obligation_refs: ["OBL-003", "OBL-004"]
+
+  - id: "M4"
+    title: "The team usability check"
+    depends_on: ["M3"]
+    stage_refs: ["STAGE-004"]
+    obligation_refs: ["OBL-005"]
+
+stages:
+  - id: "STAGE-001"
+    title: "scaffold the app; board + navigation over fixtures"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-002"
+    title: "ingest + error states"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-003"
+    title: "export menu + panels; run the Rust-only scan"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-004"
+    title: "a teammate ingests exports unaided"
+    executor_kind: "agent"
+    responsibility_tier: "T2"

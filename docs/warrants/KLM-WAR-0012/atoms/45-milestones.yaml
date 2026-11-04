@@ -1,0 +1,20 @@
+schema: "oh.war/milestones/v1"
+
+milestones:
+  - id: "M1"
+    title: "Foundation: schema v4, multi-board workspaces, studies, stable IDs and reset: deliverables complete"
+    stage_refs: ["STAGE-001"]
+  - id: "M2"
+    title: "Foundation: schema v4, multi-board workspaces, studies, stable IDs and reset: assurance recorded"
+    depends_on: ["M1"]
+    stage_refs: ["STAGE-002"]
+
+stages:
+  - id: "STAGE-001"
+    title: "implement the deliverables and package tests"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+  - id: "STAGE-002"
+    title: "record evidence and close the obligations"
+    executor_kind: "agent"
+    responsibility_tier: "T2"

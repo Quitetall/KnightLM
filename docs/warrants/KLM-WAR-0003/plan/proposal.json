@@ -1,0 +1,85 @@
+{
+  "api_version": "oh.war/draft-proposal/v2",
+  "proposed_identity": {
+    "title": "Universal state hub II: full PGN in and out, annotations preserved",
+    "profile": "delivery",
+    "assurance": "basic"
+  },
+  "operations": [
+    {
+      "op": "create_atom",
+      "role": "intent",
+      "ordinal": 10,
+      "path": "10-intent.md",
+      "body": "# Intent\n\nFinish the notation layer's PGN half at full fidelity: a parser and writer\nthat carry comments, NAGs, recursive variations and results (lamentable games\nincluded), so the viewer displays annotated games and exporters lose nothing\n\u2014 proven by round-trips, never by hope.\n\n## Out of scope\n\n- Other notation formats and first-class FRC ingest \u2014 KLM-WAR-0004.\n- The corpus's thin path (KLM-WAR-0002); this Warrant extends, never\n  disturbs, that seam.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "basis",
+      "ordinal": 20,
+      "path": "20-basis.md",
+      "body": "# Basis\n\n## Sources\n\n- KnightLM SAS revision 0.2.1: \u00a798 Phase 2; KLM-SAS-RQ-004 and KLM-SAS-RQ-005\n  (\u00a7106).\n- The PGN standard (kernel tags, movetext with braces comments, NAG numbers,\n  recursive variation parenthesization, `*`/`1-0`/`0-1`/`1/2-1/2` results) as\n  summarized in `code/docs/plan.md`'s format inventory.\n- KLM-WAR-0002's SAN engine and fixture corpus (its M1 lands first).\n\n## Prerequisites\n\n- KLM-WAR-0002 Stage M1 complete: SAN round-trips (`nota-*` seams usable).\n\n## Open questions\n\nNone.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "work_order",
+      "ordinal": 40,
+      "path": "40-work-order.md",
+      "body": "# Work Order\n\n## Deliverables\n\n1. `knightlm-notation::pgn` full parser and writer:\n   - tag section: the Seven-Tag Roster plus supplemental tags, `SetUp`/`FEN`\n     for non-standard starts;\n   - movetext: comments (braces and `;` line comments), NAGs ($n), recursive\n     variations, null moves, results \u2014 all preserved.\n2. `AnnotatedGame`: tags + movetext tree with comments, NAGs, variations and\n   the final result; conversion to `GameRecord` for play-through.\n3. Writer emitting the same fidelity back out, re-parse identical.\n4. CLI: `parse --annotations` over the shared fixture corpus, including\n   hand-authored pathological cases (nested variations, comments containing\n   braces, variation inside variation, NAG storms).\n\n## Seams and who depends on them\n\n1. **SEAM `nota-annot`** \u2014 `knightlm_notation::pgn::parse_annotated(&[u8]) ->\n   Result<AnnotatedGame, ParseError>`. Contract: annotations preserved or a\n   position-and-token error. Consumers: KLM-WAR-0010 (viewer renders\n   annotations), KLM-WAR-0004 (adds formats beside it).\n2. Unfrozen promise made and kept: the `nota-reader`, `nota-detect` and\n   `GameRecord` seams from KLM-WAR-0002 do not change here.\n\n## Owner's space\n\nThe performer owns the movetext AST, memory and traversal design, error\ntaxonomy inside the contract, writer pretty-printing policy, test structure.\nAnything that would force a consumer to change code is a seam amendment, not\nan interior choice.\n\n## Premade instructions\n\n- Round-trip is the standard: parse -> write -> parse idempotent over the\n  battery, state and annotations identical.\n- Malformed input never succeeds quietly (RQ-004).\n\n## Autonomy and escalation\n\nTier T2. Seam-level contract changes escalate to the sponsor and consumers.\n\n## Rollback\n\nDelete `code/crates/notation/src/pgn/`; the thin path from W-0002 is\nuntouched.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "milestones",
+      "ordinal": 45,
+      "path": "45-milestones.yaml",
+      "body": "schema: \"oh.war/milestones/v1\"\n\nmilestones:\n  - id: \"M1\"\n    title: \"Parser carries the annotation battery\"\n    stage_refs: [\"STAGE-001\"]\n    obligation_refs: [\"OBL-002\"]\n\n  - id: \"M2\"\n    title: \"Writer round-trips state and annotations\"\n    depends_on: [\"M1\"]\n    stage_refs: [\"STAGE-002\"]\n    obligation_refs: [\"OBL-001\", \"OBL-003\"]\n\n  - id: \"M3\"\n    title: \"Consumer check by the viewer and parity lanes\"\n    depends_on: [\"M2\"]\n    stage_refs: [\"STAGE-003\"]\n    obligation_refs: [\"OBL-004\"]\n\nstages:\n  - id: \"STAGE-001\"\n    title: \"build the full parser over the annotation battery\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n\n  - id: \"STAGE-002\"\n    title: \"build the writer; prove re-parse identity\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n\n  - id: \"STAGE-003\"\n    title: \"hand AnnotatedGame to the consumer lanes\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "assurance",
+      "ordinal": 60,
+      "path": "60-assurance.md",
+      "body": "# Assurance\n\n## Acceptance Obligations\n\n### OBL-001 \u2014 annotated round-trip preserves everything\n- **scope:** the shared fixture battery: seven-tag games, comments, NAGs, nested\nvariations, brace-in-comment pathologies, SetUp/FEN starts\n- **evidence:** `cargo test -p knightlm-notation` round-trip tests: parse, write, re-parse\nidempotent; the replayed state identical at every node (KLM-SAS-RQ-005)\n### OBL-002 \u2014 malformed annotation input is refused, not repaired\n- **scope:** planted unterminated comments, unbalanced variation parentheses, stray tokens\n- **evidence:** each plant produces an error naming position and token; none is silently dropped or repaired (KLM-SAS-RQ-004)\n### OBL-003 \u2014 AnnotatedGame survives conversion to GameRecord\n- **scope:** every fixture's `GameRecord` conversion replays the same final state\n- **evidence:** replay tests assert identical terminal state between annotated and converted paths\n### OBL-004 \u2014 the consumer renders without the author\n- **scope:** the viewer lane (KLM-WAR-0010) loads one annotated fixture through `nota-annot`\n- **gate:** gate://software.repo.war-check@1.0.0\n- **evidence:** recorded cross-lane consumer check in KLM-WAR-0010's integration stage\n\n## Gate Adequacy\n\nRequired at `basic`.\n\n**Adversarial question:** Can annotations be lost in the GameRecord conversion while the pure round-trip tests stay green?\n\n- **outcome:** no \u2014 OBL-003 states the conversion replay explicitly.\n\n**Adversarial question:** Could this Warrant be resolved with a parser that accepts the happy path only?\n\n- **outcome:** no \u2014 the battery includes planted malformations that must fail loudly.\n\n\n## Residual Risk\n\nPathological real-world PGNs (unterminated iterations, wildly nested\nvariations) can diverge from the written standard; the battery targets the\npathologies found in Lichess-style exports and hand-crafted cases. Depth\nlimits on recursion are an interior choice the performer documents.\n"
+    }
+  ],
+  "proposed_relations": [
+    "sas://KLM-SAS-RQ-004",
+    "sas://KLM-SAS-RQ-005",
+    "roadmap://KLM-PHASE-2"
+  ],
+  "evidence_claims": [
+    {
+      "id": "EC-001",
+      "class": "expected",
+      "statement": "KLM-WAR-0002's SAN engine and fixtures will exist before this parser lands (M1 prerequisite)",
+      "reference": "KLM-WAR-0002 is proposed in the same batch; its basis states the prerequisite relation"
+    },
+    {
+      "id": "EC-002",
+      "class": "expected",
+      "statement": "the viewer lane will run the consumer check",
+      "reference": "KLM-WAR-0010's stage plan names its consumer role in the relations"
+    }
+  ],
+  "durable_choices": [
+    {
+      "id": "DC-001",
+      "class": "seam",
+      "statement": "AnnotatedGame is a new type and seam; GameRecord stays annotation-free.",
+      "alternatives": [
+        "overload GameRecord with annotation fields",
+        "parse without a structural type"
+      ],
+      "rationale": [
+        "Corpus records must stay cheap and uniform; annotations are a presentation-layer concern."
+      ],
+      "proposed_adr_draft": "# ADR: AnnotatedGame is a new type, GameRecord stays flat\n\n## Context\n\nFull PGN fidelity needs comments, NAGs and recursive variations somewhere.\nGameRecord is the canonical cheap uniform record the corpus and packets\nconsume.\n\n## Decision\n\nA new `AnnotatedGame` type (SEAM `nota-annot`) carries annotations; the\nconversion path to GameRecord replays state but drops annotations\nexplicitly.\n\n## Consequences\n\nTwo related types instead of one fat record; the viewer holds the fidelity,\nthe corpus holds the speed. A planted check proves which path a record took."
+    }
+  ],
+  "unresolved_questions": [],
+  "risk_assessment": "Pathological real-world PGNs (unterminated iterations, wildly nested\nvariations) can diverge from the written standard; the battery targets the\npathologies found in Lichess-style exports and hand-crafted cases. Depth\nlimits on recursion are an interior choice the performer documents.",
+  "adequacy_attacks": [
+    "Could the writer be validated only by its own parser (a shared blind spot)? Partly \u2014 the differential python-chess oracle arrives with KLM-WAR-0004; until then OBL-001's evidence is self-referential and the shared blind spot is named here; the differential python-chess oracle arrives with KLM-WAR-0004."
+  ],
+  "diagnostics": []
+}

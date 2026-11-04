@@ -1,0 +1,40 @@
+schema: "oh.war/milestones/v1"
+
+milestones:
+  - id: "M1"
+    title: "Server serves the run-1 checkpoint"
+    stage_refs: ["STAGE-001"]
+    obligation_refs: ["OBL-001"]
+
+  - id: "M2"
+    title: "ModelPlayer wired; failures loud"
+    depends_on: ["M1"]
+    stage_refs: ["STAGE-002"]
+    obligation_refs: ["OBL-002", "OBL-003"]
+
+  - id: "M3"
+    title: "The demo: model vs SF19 through the whole stack; consumer check"
+    depends_on: ["M2"]
+    stage_refs: ["STAGE-003", "STAGE-004"]
+    obligation_refs: ["OBL-004", "OBL-005"]
+
+stages:
+  - id: "STAGE-001"
+    title: "server loads checkpoint; contract template smoke-tested"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-002"
+    title: "ModelPlayer + refusal battery"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-003"
+    title: "played session vs SF19 fixed depth"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-004"
+    title: "record the consumer check from the viewer lane"
+    executor_kind: "agent"
+    responsibility_tier: "T2"

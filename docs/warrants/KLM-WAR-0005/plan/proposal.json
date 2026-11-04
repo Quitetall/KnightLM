@@ -1,0 +1,98 @@
+{
+  "api_version": "oh.war/draft-proposal/v2",
+  "proposed_identity": {
+    "title": "Engine tooling: Stockfish 19 UCI client, label harness, and the boundary gate",
+    "profile": "delivery",
+    "assurance": "basic"
+  },
+  "operations": [
+    {
+      "op": "create_atom",
+      "role": "intent",
+      "ordinal": 10,
+      "path": "10-intent.md",
+      "body": "# Intent\n\nPut the engine boundary in the system as tooling, not as folklore: a tokio\nUCI client for Stockfish 19, a labeling harness that stamps engine version\nand depth on every label it produces, and the repo's first cargo gate\ndefinitions \u2014 so the corpus joins labels, the eval harness scores against a\nfixed opponent, and the viewer gets an analysis panel, all through one iron\nrule: the model's inference path never reaches an engine (KLM-SAS-RQ-009).\n\n## Out of scope\n\n- knightlm-uci and the model player \u2014 KLM-WAR-0006/0009.\n- Which positions get labeled and how splits are audited \u2014 KLM-WAR-0007.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "basis",
+      "ordinal": 20,
+      "path": "20-basis.md",
+      "body": "# Basis\n\n## Sources\n\n- KnightLM SAS revision 0.2.1: \u00a777 Phase 4 \u2014 Engine tooling; KLM-SAS-RQ-009\n  (\u00a7106).\n- Decisions of 2026-10-20: Stockfish 19 pinned (d15 evals, d8-10 sparring);\n  labels from lichess_db_eval joined by normalized position key with depth\n  floor 20 as primary corpus labels; own SF evals reserved for the eval set\n  and scoring. Recorded in `docs/sas/KnightLM_SAS.md` \u00a777 and this Warrant.\n- Lichess database facts (database.lichess.org, live 2026-10): the evals\n  export is 416M positions keyed by four-field FEN with heterogeneous depths\n  and `UCI_Chess960` PVs.\n- Sponsors' rule: no engine, model or dataset is ever auto-downloaded at\n  runtime; `STOCKFISH_PATH` is an operator-provided contract, like the rest\n  of `code/README.md`'s precedent.\n\n## Prerequisites\n\n- `knightlm-core` builds; no other lane blocks this one.\n\n## Open questions\n\nNone: engine boundary semantics were settled with the sponsor on 2026-10-20.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "work_order",
+      "ordinal": 40,
+      "path": "40-work-order.md",
+      "body": "# Work Order\n\n## Deliverables\n\n1. New crate `code/crates/engine/` (`knightlm-engine`): an async (tokio) UCI\n   client \u2014 spawn SF by `STOCKFISH_PATH`, handshake (uci/uciok,\n   isready/readyok), `position`, `go depth N` / `go nodes`, MultiPV, and a\n   stop/restart-safe teardown. Analysis results carry the engine version and\n   requested depth in type, not by comment.\n2. Label schema (`Label`): normalized position key, best move, cp or mate\n   value, pv, depth, engine name+version, tie policy (highest depth wins).\n   Serialization versioned.\n3. Labeling harness: takes an eval-set position file, produces label JSONL in\n   one resumable batch run; long jobs shard across processes.\n4. Gate definitions under `docs/gates/`: a cargo test/fmt/clippy gate for the\n   new and changed crates, with its plant battery, as a qualified local\n   candidate like the existing war-check gate.\n\n## Seams and who depends on them\n\n1. **SEAM `engine-analysis`** \u2014 `knightlm_engine::Engine::analyse(pos, depth)\n   -> Result<Analysis>`. Consumers: KLM-WAR-0007 (accuracy joins),\n   KLM-WAR-0008 (strength axis), KLM-WAR-0010 (viewer analysis panel:\n   Sf19 d15 on any position shown; entirely outside any model path).\n2. **SEAM `label-row`** \u2014 the Label row shape as written by the harness and\n   read by W-0007's joins and W-0008's eval. Consumers: 0007, 0008.\n3. **Contract `STOCKFISH_PATH`** \u2014 documented env contract; no binary search,\n   no download. Consumers: MLOps (KLM-WAR-0009 deployment).\n4. **Seam `engine-zero`** \u2014 crates/engine exposes no symbol reachable from\n   knightlm-model, the inference server or packet compilation. The boundary\n   is structural and checked, not sworn.\n\n## Owner's space\n\nProcess-pool design, restart policy, MultiPV bookkeeping, batch scheduling,\ngate battery authorship, error naming. Consumers see only Analysis values,\nLabel rows and the boundary's absence.\n\n## Premade instructions\n\n- Every label row must name engine + version + depth; a label without them is\n  a defect, not a row.\n- The engine sets quotes and analysis output for humans is the viewer's job \u2014\n  the client returns data, the panel formats it.\n\n## Autonomy and escalation\n\nTier T2. Escalate any dependency that would place the engine inside a model\npath (that is a sponsor-level architecture question, by construction this\none cannot arise inside the contracts, so escalation is a backstop).\n\n## Rollback\n\nDelete `code/crates/engine/`, the gate YAMLs, and any docs referencing the\nseams; no other crate imported it by contract.\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "milestones",
+      "ordinal": 45,
+      "path": "45-milestones.yaml",
+      "body": "schema: \"oh.war/milestones/v1\"\n\nmilestones:\n  - id: \"M1\"\n    title: \"UCI client completes handshake and fixed-depth analysis on fixtures\"\n    stage_refs: [\"STAGE-001\"]\n    obligation_refs: [\"OBL-001\", \"OBL-002\"]\n\n  - id: \"M2\"\n    title: \"Labeling harness produces versioned, stamped labels\"\n    depends_on: [\"M1\"]\n    stage_refs: [\"STAGE-002\"]\n    obligation_refs: [\"OBL-003\"]\n\n  - id: \"M3\"\n    title: \"Boundary and gates\"\n    depends_on: [\"M2\"]\n    stage_refs: [\"STAGE-003\"]\n    obligation_refs: [\"OBL-004\", \"OBL-005\"]\n\nstages:\n  - id: \"STAGE-001\"\n    title: \"build the client and prove handshake/analysis\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n\n  - id: \"STAGE-002\"\n    title: \"build the label harness; run its fixtures\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n\n  - id: \"STAGE-003\"\n    title: \"prove zero-boundary; author gate definitions with batteries\"\n    executor_kind: \"agent\"\n    responsibility_tier: \"T2\"\n"
+    },
+    {
+      "op": "create_atom",
+      "role": "assurance",
+      "ordinal": 60,
+      "path": "60-assurance.md",
+      "body": "# Assurance\n\n## Acceptance Obligations\n\n### OBL-001 \u2014 the client analyzes fixture positions at fixed depth with stamped output\n- **scope:** a fixture eval battery (hand-chosen FENs): handshake, `go depth N`, MultiPV,\nunresponsive-engine kill/restart\n- **evidence:** test log: per-position best move + value + pv + depth + engine name+version;\nrestart exercised by the battery (kill mid-search, re-handshake)\n### OBL-002 \u2014 a missing STOCKFISH_PATH is an explicit operator error\n- **scope:** no SF binary in PATH and no env for the client\n- **evidence:** the client refuses to start with a message naming STOCKFISH_PATH; no\ndownload attempt leaves a trace\n### OBL-003 \u2014 harness labels are stamped and resumable\n- **scope:** an eval-set sample through the harness\n- **evidence:** every row carries engine+version+depth; a run resumed mid-batch produces the\nsame rows as an uninterrupted one\n### OBL-004 \u2014 engine-zero: no path from model inference to the engine\n- **scope:** `knightlm-model`, the inference server and packet compilation must not\nimport crates/engine or link UCI tooling\n- **evidence:** dependency scan over workspace manifests (cargo tree --no-default-features\nevidence in repo docs) naming zero paths; the check itself is a repo test\n### OBL-005 \u2014 consumer check: the viewer lane's analysis panel runs\n- **scope:** the KLM-WAR-0010 integration stage uses engine-analysis unaided\n- **evidence:** cross-lane consumer check recorded from the viewer stage\n\n## Gate Adequacy\n\nRequired at `basic`.\n\n**Adversarial question:** Could a model's inference call an engine through a label or PV?\n\n- **outcome:** no \u2014 OBL-004 proves crates/engine is unreachable from the model path; the seam lives outside inference by construction, not honor.\n\n**Adversarial question:** Could labels emerge unversioned or inconsistent and still flow into joins?\n\n- **outcome:** no \u2014 OBL-003 makes stamping contract-level, with resume-equality proving consistency.\n\n\n## Residual Risk\n\nStockfish behavior can differ across builds/hardware; pinned SF 19 and a\nfixture battery keep surface drift visible. Async teardown races are the\ncrash risk the battery exercises. Gate-battery authorship quality is a\nknown limitation the admins' own known_blind_spots list is honest about \u2014\ndetection claims are scoped to the mutations planted.\n"
+    }
+  ],
+  "proposed_relations": [
+    "sas://KLM-SAS-RQ-009",
+    "roadmap://KLM-PHASE-4"
+  ],
+  "evidence_claims": [
+    {
+      "id": "EC-001",
+      "class": "existing",
+      "statement": "Stockfish 19 is the current stable version (2026-09-05) per the team's pin",
+      "reference": "docs/sas/KnightLM_SAS.md:104"
+    },
+    {
+      "id": "EC-002",
+      "class": "expected",
+      "statement": "the lichess evals export is 416M positions keyed by four-field FEN with heterogeneous depths",
+      "reference": "database.lichess.org evals export page, live-fetched on 2026-10; recorded in code/README.md warts"
+    }
+  ],
+  "durable_choices": [
+    {
+      "id": "DC-001",
+      "class": "pinned-tool",
+      "statement": "Stockfish 19 is pinned behind STOCKFISH_PATH; the repo never downloads an engine.",
+      "alternatives": [
+        "install-and-manage SF centrally with auto-update",
+        "bundle a vendored SF binary"
+      ],
+      "rationale": [
+        "The no-auto-download policy is a sponsor rule; paths come from the operator so provenance stays honest."
+      ],
+      "proposed_adr_draft": "# ADR STOCKFISH_PATH is an operator contract\n\n## Context\n\nEngines are provenance-bearing artifacts. Anything the repo downloads at\nruntime would be untraceable to the experiment record.\n\n## Decision\n\nThe client spawns the binary at `STOCKFISH_PATH` and refuses otherwise. MLOps\ndocuments how to install SF 19 locally.\n\n## Consequences\n\nOne env var per environment; first-run failure mode is explicit rather than\nsilent; CPU/SIMD choice belongs to the operator."
+    },
+    {
+      "id": "DC-002",
+      "class": "process",
+      "statement": "Boundary by construction: the engine crate is hippocratic, not advisory.",
+      "alternatives": [
+        "a lint rule wanting discipline",
+        "a doc-only policy"
+      ],
+      "rationale": [
+        "A sponsor rule must be checkable: manifests, not documentation, carry the proof."
+      ],
+      "proposed_adr_draft": "# ADR: the engine boundary is a dependency fact\n\n## Context\n\nRQ-009 forbids engine access inside the model's inference path. A \"don't\ncall it\" convention erodes silently.\n\n## Decision\n\ncrates/engine has no path from crates/model or the inference server; a repo\ntest scans manifests and prevents introduction. The check is OBL-004.\n\n## Consequences\n\nAdding an engine-assisted \"hint\" to inference requires amending this seam\nthrough the sponsor \u2014 visible before it can happen."
+    }
+  ],
+  "unresolved_questions": [],
+  "risk_assessment": "Stockfish behavior can differ across builds/hardware; pinned SF 19 and a\nfixture battery keep surface drift visible. Async teardown races are the\ncrash risk the battery exercises. Gate-battery authorship quality is a\nknown limitation the admins' own known_blind_spots list is honest about \u2014\ndetection claims are scoped to the mutations planted.",
+  "adequacy_attacks": [
+    "Could the boundary be kept by an unmeasured convention while everything else is enforced? No \u2014 OBL-004 turns the boundary into a checked dependency fact, checked by test.",
+    "Can the labeler produce labels whose provenance is unknowable? No \u2014 OBL-003 makes engine+version+depth fields contract-level on every row."
+  ],
+  "diagnostics": []
+}

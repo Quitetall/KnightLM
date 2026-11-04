@@ -1,0 +1,18 @@
+{
+  "api_version": "oh.war/draft-request/v1",
+  "user_request": "",
+  "namespace": "KLM",
+  "profile": "delivery",
+  "assurance": "basic",
+  "existing_warrants": [
+    "KLM-WAR-0001",
+    "KLM-WAR-0002",
+    "KLM-WAR-0003",
+    "KLM-WAR-0004",
+    "KLM-WAR-0005",
+    "KLM-WAR-0006",
+    "KLM-WAR-0007",
+    "KLM-WAR-0008"
+  ],
+  "existing_adrs": []
+}

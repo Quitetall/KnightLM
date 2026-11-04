@@ -1,0 +1,40 @@
+schema: "oh.war/milestones/v1"
+
+milestones:
+  - id: "M1"
+    title: "Harness green on a 1K-game dry run"
+    stage_refs: ["STAGE-001"]
+    obligation_refs: ["OBL-003"]
+
+  - id: "M2"
+    title: "Run 1 executed within cap with lineage"
+    depends_on: ["M1"]
+    stage_refs: ["STAGE-002"]
+    obligation_refs: ["OBL-001"]
+
+  - id: "M3"
+    title: "Per-axis eval report and the consumer handoff"
+    depends_on: ["M2"]
+    stage_refs: ["STAGE-003", "STAGE-004"]
+    obligation_refs: ["OBL-002", "OBL-004"]
+
+stages:
+  - id: "STAGE-001"
+    title: "draft structures converge; dry run passes"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-002"
+    title: "training run; receipts collected"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-003"
+    title: "eval battery + report generator"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-004"
+    title: "hand run-manifest to serving"
+    executor_kind: "agent"
+    responsibility_tier: "T2"

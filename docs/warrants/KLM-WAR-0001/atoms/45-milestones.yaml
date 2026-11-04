@@ -1,0 +1,24 @@
+schema: "oh.war/milestones/v1"
+
+milestones:
+  - id: "M1"
+    title: "The SAS is accepted and this Warrant is authorized"
+    stage_refs: ["STAGE-001"]
+    obligation_refs: ["OBL-001"]
+
+  - id: "M2"
+    title: "Evidence, verification, resolution"
+    depends_on: ["M1"]
+    stage_refs: ["STAGE-002"]
+    obligation_refs: ["OBL-002"]
+
+stages:
+  - id: "STAGE-001"
+    title: "propose the SAS; emit the authorization request"
+    executor_kind: "agent"
+    responsibility_tier: "T2"
+
+  - id: "STAGE-002"
+    title: "record evidence; request verification; request resolution"
+    executor_kind: "agent"
+    responsibility_tier: "T2"

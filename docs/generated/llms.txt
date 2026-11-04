@@ -1,0 +1,360 @@
+# KnightLM
+
+> OpenWarrant index (openwarrant/1.0). Generated; do not edit. Read any line's record with `war context <id>`.
+
+## AGENTS.md
+> -
+- md:AGENTS.md#tracking-work-with-tickets-optional · instruction · - · Tracking work with tickets (optional) · AGENTS.md:17
+- md:AGENTS.md#loading-context · instruction · - · Loading context · AGENTS.md:36
+- md:AGENTS.md#planning-with-a-warrant-optional · instruction · - · Planning with a Warrant (optional) · AGENTS.md:51
+- md:AGENTS.md#when-a-warrants-type-requires-sign-off · instruction · - · When a Warrant's type requires sign-off · AGENTS.md:101
+- md:AGENTS.md#tools · instruction · - · Tools · AGENTS.md:161
+
+## docs/sas/KnightLM_SAS.md
+> -
+- KLM-PHASE-1 · phase · - · - · docs/sas/KnightLM_SAS.md:1
+- KLM-PHASE-2 · phase · - · - · docs/sas/KnightLM_SAS.md:1
+- KLM-PHASE-3 · phase · - · - · docs/sas/KnightLM_SAS.md:1
+- KLM-PHASE-4 · phase · - · - · docs/sas/KnightLM_SAS.md:1
+- KLM-PHASE-5 · phase · - · - · docs/sas/KnightLM_SAS.md:1
+- KLM-PHASE-6 · phase · - · - · docs/sas/KnightLM_SAS.md:1
+- KLM-PHASE-7 · phase · - · - · docs/sas/KnightLM_SAS.md:1
+- KLM-SAS · spec · - · KnightLM — Software Architecture Specification · docs/sas/KnightLM_SAS.md:1
+- KLM-SAS-98 · section · - · Implementation phases · docs/sas/KnightLM_SAS.md:60
+- KLM-SAS-106 · section · - · Architecture requirements index · docs/sas/KnightLM_SAS.md:147
+- KLM-SAS-RQ-001 · requirement · - · This SAS is accepted by a human signature and every Warrant pins the accepted revision · docs/sas/KnightLM_SAS.md:154
+- KLM-SAS-RQ-002 · requirement · - · Every Warrant is authorized and resolved by a human, never by the performer · docs/sas/KnightLM_SAS.md:155
+- KLM-SAS-RQ-003 · requirement · - · Every resolution rests on an independent verification and recorded gate evidence · docs/sas/KnightLM_SAS.md:156
+- KLM-SAS-RQ-004 · requirement · - · Every supported notation normalizes to the canonical GameRecord/GameState or fails explicitly; nothing is silently repaired or invented · docs/sas/KnightLM_SAS.md:157
+- KLM-SAS-RQ-005 · requirement · - · Every supported export format round-trips: state, export, ingest, identical canonical state, proven on fixtures · docs/sas/KnightLM_SAS.md:158
+- KLM-SAS-RQ-006 · requirement · - · Every GameRecord carries source and history_complete as source assertions; a four-field FEN source never yields history_complete true · docs/sas/KnightLM_SAS.md:159
+- KLM-SAS-RQ-007 · requirement · - · Standard chess and Chess960/DFRC are first-class in ingest, replay, facts and export, in both UCI castling flavors · docs/sas/KnightLM_SAS.md:160
+- KLM-SAS-RQ-008 · requirement · - · The viewer is Rust-only, Leptos and axum compiled to WASM, with no JavaScript or TypeScript in the application · docs/sas/KnightLM_SAS.md:161
+- KLM-SAS-RQ-009 · requirement · - · An engine is reachable only as teacher labeler, post-decision scorer or opponent; the model's inference path never queries an engine · docs/sas/KnightLM_SAS.md:162
+- KLM-SAS-RQ-010 · requirement · - · The player is exposed as a UCI engine, and an illegal model move is a reported failure, never silently corrected · docs/sas/KnightLM_SAS.md:163
+- KLM-SAS-RQ-011 · requirement · - · Training corpora carry provenance and pass split audits before use; teacher labels are recorded as labels only · docs/sas/KnightLM_SAS.md:164
+- KLM-SAS-RQ-012 · requirement · - · Model ability is reported per scoring axis with bounded evidence; no composite winner score and no scored free prose · docs/sas/KnightLM_SAS.md:165
+- KLM-SAS-RQ-013 · requirement · - · A Burn-native model is admitted only through the parity gates, with reset isolation between inference passes · docs/sas/KnightLM_SAS.md:166
+- KLM-SAS-130 · section · - · Disciplines · docs/sas/KnightLM_SAS.md:168
+- KLM-SAS-140 · section · - · Technology pins · docs/sas/KnightLM_SAS.md:179
+- KLM-SAS-150 · section · - · Scope and non-goals · docs/sas/KnightLM_SAS.md:187
+
+## docs/tickets/t-0aaf.md
+> Tag, run all gates, record evidence and hand off signing.
+- t-0aaf · ticket · open · Release candidate and signing handoff · docs/tickets/t-0aaf.md:1
+
+## docs/tickets/t-0ba4.md
+> Implement deterministic alignment and change detection.
+- t-0ba4 · ticket · done · Structural diff: chapters, boards, trees, notes, arrows · docs/tickets/t-0ba4.md:1
+
+## docs/tickets/t-1315.md
+> Two model seats with live/pause/step and per-side reasoning.
+- t-1315 · ticket · done · Watch mode, pause/step and annotated PGN · docs/tickets/t-1315.md:1
+
+## docs/tickets/t-15fc.md
+> Create the pure context compiler with versioned sections, canonical rendering and SHA-256.
+- t-15fc · ticket · done · rbc-context crate, sections, canonical JSON and hash · docs/tickets/t-15fc.md:1
+
+## docs/tickets/t-1b87.md
+> Bring README/ROADMAP/MCP/study/context docs and packaging in line.
+- t-1b87 · ticket · done · Docs, installer and release checklist · docs/tickets/t-1b87.md:1
+
+## docs/tickets/t-230b.md
+> Configure OpenAI-compatible providers and keys without exposing secrets.
+- t-230b · ticket · open · Provider settings, keyring and local detect · docs/tickets/t-230b.md:1
+
+## docs/tickets/t-2883.md
+> Add the Assistant workspace kind, session list and restore.
+- t-2883 · ticket · done · Assistant tab, session rail and persistence · docs/tickets/t-2883.md:1
+
+## docs/tickets/t-2927.md
+> Portable bundles and compatibility adapters.
+- t-2927 · ticket · done · Study import/export: .rbcstudy, PGN, Lichess · docs/tickets/t-2927.md:1
+
+## docs/tickets/t-2bbf.md
+> Implement the standard-v1 rating pool with an auditable ledger.
+- t-2bbf · ticket · done · Glicko-2, ledger, anchors and unrated rules · docs/tickets/t-2bbf.md:1
+
+## docs/tickets/t-312c.md
+> Expose UUID, revision, parent, mutability and copy operations for boards/workspaces.
+- t-312c · ticket · done · Board and workspace repository API · docs/tickets/t-312c.md:1
+
+## docs/tickets/t-3241.md
+> Document setup and pin both transports end to end.
+- t-3241 · ticket · done · MCP docs and mock client tests · docs/tickets/t-3241.md:1
+
+## docs/tickets/t-376e.md
+> Make published content immutable and copies traceable.
+- t-376e · ticket · done · Publish, versions, lineage, copy and lock · docs/tickets/t-376e.md:1
+
+## docs/tickets/t-3a41.md
+> Store tournaments and resume without replaying or losing games.
+- t-3a41 · ticket · done · Tournament persistence, standings and combined PGN · docs/tickets/t-3a41.md:1
+
+## docs/tickets/t-4158.md
+> Run every gate, including the new AI suites.
+- t-4158 · ticket · in_progress · Full Rust and CDP suite, warning-free builds · docs/tickets/t-4158.md:1
+
+## docs/tickets/t-41af.md
+> Add the Compare tab and the compare scope.
+- t-41af · ticket · done · Compare workspace, selection and compact directory · docs/tickets/t-41af.md:1
+
+## docs/tickets/t-4200.md
+> Create studies with ordered chapters, primary/additional boards, versions, publish, copy and progress.
+- t-4200 · ticket · done · Study, chapter and version repository API · docs/tickets/t-4200.md:1
+
+## docs/tickets/t-4836.md
+> Define stable tool specs and the mode/origin policy engine.
+- t-4836 · ticket · done · Tool registry, schemas, effects and policy · docs/tickets/t-4836.md:1
+
+## docs/tickets/t-4bfb.md
+> Review, approve selected/all, deny and configure auto-approve.
+- t-4bfb · ticket · done · Approval and changeset UI · docs/tickets/t-4bfb.md:1
+
+## docs/tickets/t-4eb3.md
+> Add play/draw/annotate/note/create/copy tools with revision and mutability checks.
+- t-4eb3 · ticket · done · Board write tools, revisions, lock/copy · docs/tickets/t-4eb3.md:1
+
+## docs/tickets/t-5364.md
+> Create the shared match loop for human and model seats.
+- t-5364 · ticket · done · Match state machine, persistence and PGN · docs/tickets/t-5364.md:1
+
+## docs/tickets/t-5638.md
+> Build the Study tab and the manual editor.
+- t-5638 · ticket · done · Study editor: chapters, boards, tree, arrows, Markdown · docs/tickets/t-5638.md:1
+
+## docs/tickets/t-5774.md
+> Pin migration, reset, repository and frontend board behaviour with fixtures and CDP.
+- t-5774 · ticket · done · Foundation fixtures and regression tests · docs/tickets/t-5774.md:1
+
+## docs/tickets/t-5ede.md
+> Pin the study product end to end.
+- t-5ede · ticket · done · Study tests: CRUD, round-trip, progress, authoring · docs/tickets/t-5ede.md:1
+
+## docs/tickets/t-6096.md
+> Render messages, reasoning, tools, actions, retries and usage.
+- t-6096 · ticket · done · Transcript, streaming, tool and retry cards · docs/tickets/t-6096.md:1
+
+## docs/tickets/t-6498.md
+> Map the shared tool registry and expose read-only resources/prompts.
+- t-6498 · ticket · done · MCP tools, resources and prompts · docs/tickets/t-6498.md:1
+
+## docs/tickets/t-6584.md
+> Implement the first provider adapter with tools, SSE, usage and normalized errors.
+- t-6584 · ticket · done · Provider trait and OpenAI-compatible streaming · docs/tickets/t-6584.md:1
+
+## docs/tickets/t-69c9.md
+> Secrets, permissions, approvals and MCP auth.
+- t-69c9 · ticket · done · Security review · docs/tickets/t-69c9.md:1
+
+## docs/tickets/t-6abc.md
+> Wrap knightlm-core ContextPacket and add the default chess sections.
+- t-6abc · ticket · done · Position, ASCII, legal moves and history sections · docs/tickets/t-6abc.md:1
+
+## docs/tickets/t-6c55.md
+> Replace one-board workspaces with a board list, active board, board strip and left-rail tree.
+- t-6c55 · ticket · done · Frontend multi-board workspace model and navigation · docs/tickets/t-6c55.md:1
+
+## docs/tickets/t-745d.md
+> Expose RBC over MCP with local transports and auth.
+- t-745d · ticket · done · MCP server: stdio, HTTP, token auth and lifecycle · docs/tickets/t-745d.md:1
+
+## docs/tickets/t-7a66.md
+> Script streaming, tool calls, illegal moves, timeouts and approvals without network.
+- t-7a66 · ticket · done · Mock provider and runtime integration tests · docs/tickets/t-7a66.md:1
+
+## docs/tickets/t-7e84.md
+> Pin alignment, coverage, export and no-mutation.
+- t-7e84 · ticket · open · Compare tests and read-only guard · docs/tickets/t-7e84.md:1
+
+## docs/tickets/t-7e92.md
+> Drive a turn from context compilation through tool calls to a stored turn.
+- t-7e92 · ticket · done · Agent loop: tools, retries, cancellation and context hash · docs/tickets/t-7e92.md:1
+
+## docs/tickets/t-851f.md
+> Gate writes and make every call auditable.
+- t-851f · ticket · done · MCP approval jobs, polling and audit · docs/tickets/t-851f.md:1
+
+## docs/tickets/t-92ef.md
+> Render the compare view and read-only AI commentary.
+- t-92ef · ticket · done · Diff UI: side-by-side, navigation, AI summary · docs/tickets/t-92ef.md:1
+
+## docs/tickets/t-9c43.md
+> Persist the new multi-board session, restore it, and show the one-time reset notice.
+- t-9c43 · ticket · done · Session persistence v4 and reset notice · docs/tickets/t-9c43.md:1
+
+## docs/tickets/t-a004.md
+> Prove byte/hash stability across runs, platforms and input key order.
+- t-a004 · ticket · done · Context determinism and property tests · docs/tickets/t-a004.md:1
+
+## docs/tickets/t-a488.md
+> Show rating/RD/rank, metrics and enforce token/cost caps.
+- t-a488 · ticket · done · Leaderboard, metrics and budgets · docs/tickets/t-a488.md:1
+
+## docs/tickets/t-a98f.md
+> Pairings, rounds, byes, tiebreaks and draw handling.
+- t-a98f · ticket · done · Tournament scheduler: Swiss, knockout, round robin · docs/tickets/t-a98f.md:1
+
+## docs/tickets/t-a994.md
+> Create/running/finished tournament views and standings.
+- t-a994 · ticket · done · Tournament UI and end-to-end tests · docs/tickets/t-a994.md:1
+
+## docs/tickets/t-b1ab.md
+> Bind the read-only chess tools to existing engine/database services.
+- t-b1ab · ticket · done · Read tools: position, engine, openings, database, tablebase · docs/tickets/t-b1ab.md:1
+
+## docs/tickets/t-bb0e.md
+> Implement reviewable changesets and the async approval queue.
+- t-bb0e · ticket · done · Approval service: changesets, async jobs, policies and audit · docs/tickets/t-bb0e.md:1
+
+## docs/tickets/t-bb8b.md
+> Let agents create/edit studies through the shared tools and approval flow.
+- t-bb8b · ticket · done · AI/MCP study authoring tools and changesets · docs/tickets/t-bb8b.md:1
+
+## docs/tickets/t-bb94.md
+> Per-user completion, last visited and placeholder grading fields.
+- t-bb94 · ticket · done · Study progress overlay and manual completion · docs/tickets/t-bb94.md:1
+
+## docs/tickets/t-bc1a.md
+> Expose the compiler headlessly with JSON/JSONL and optional target/eval fields.
+- t-bc1a · ticket · done · rbc-context CLI: compile, batch, validate, hash · docs/tickets/t-bc1a.md:1
+
+## docs/tickets/t-bf2a.md
+> Implement deterministic budgeting and required-section fail-closed behavior.
+- t-bf2a · ticket · done · Token budget, truncation and tokenizer abstraction · docs/tickets/t-bf2a.md:1
+
+## docs/tickets/t-bf5d.md
+> Wire human moves, chat rules, reasoning toggles and clocks.
+- t-bf5d · ticket · done · Human vs AI casual and competitive · docs/tickets/t-bf5d.md:1
+
+## docs/tickets/t-c5a4.md
+> Measure 1M DB, long sessions, SSE and 16-model tournaments.
+- t-c5a4 · ticket · open · Performance and load · docs/tickets/t-c5a4.md:1
+
+## docs/tickets/t-c76d.md
+> Export Markdown/JSON and reserve R2 fields.
+- t-c76d · ticket · done · Diff export and forward-compatible Lua/progress fields · docs/tickets/t-c76d.md:1
+
+## docs/tickets/t-d0bf.md
+> Expose normalized events with event ids, reconnect and replay/diff.
+- t-d0bf · ticket · done · SSE event stream, replay and context diff · docs/tickets/t-d0bf.md:1
+
+## docs/tickets/t-dcb0.md
+> Translate and label the new surfaces; cover setup/no-session/error states.
+- t-dcb0 · ticket · open · Assistant i18n, a11y and empty/error states · docs/tickets/t-dcb0.md:1
+
+## docs/tickets/t-dfbc.md
+> Add engine, openings, database, tablebase, annotations, notes, siblings and compare evidence.
+- t-dfbc · ticket · done · Evidence sections and fingerprints · docs/tickets/t-dfbc.md:1
+
+## docs/tickets/t-e4fa.md
+> Slash commands, @-mentions, attachments, context chips, model picker, stop/regenerate.
+- t-e4fa · ticket · open · Composer bundle · docs/tickets/t-e4fa.md:1
+
+## docs/tickets/t-e777.md
+> Show exactly what the model saw and replay it.
+- t-e777 · ticket · done · Context inspector, pin/live and replay diff · docs/tickets/t-e777.md:1
+
+## docs/tickets/t-e7a7.md
+> Add the v4 tables, migration, legacy session backup and reset; bump SCHEMA_VERSION to 4.
+- t-e7a7 · ticket · done · Schema v4: workspaces, boards, studies, AI tables and reset · docs/tickets/t-e7a7.md:1
+
+## docs/tickets/t-e833.md
+> Create the AI domain crate with session/turn persistence and protocol DTOs.
+- t-e833 · ticket · done · rbc-ai crate, protocol, store and sessions · docs/tickets/t-e833.md:1
+
+## docs/tickets/t-f26f.md
+> Render the match panel in the Assistant center pane.
+- t-f26f · ticket · done · Match UI: cards, clocks, result and handoff · docs/tickets/t-f26f.md:1
+
+## docs/tickets/t-f436.md
+> Render the session board with workspace board navigation and target markers.
+- t-f436 · ticket · done · Center board, board strip and cross-board focus · docs/tickets/t-f436.md:1
+
+## docs/tickets/t-f44e.md
+> Pin legal/illegal/timeout/provider-error/resign/checkmate flows.
+- t-f44e · ticket · done · Match tests with scripted mock models · docs/tickets/t-f44e.md:1
+
+## docs/warrants/KLM-WAR-0001/manifest.toml
+> Adopt OpenWarrant in KnightLM
+- KLM-WAR-0001 · warrant · draft · Adopt OpenWarrant in KnightLM · docs/warrants/KLM-WAR-0001/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0002/manifest.toml
+> Universal state hub I: SAN engine and the thin Lichess PGN reader
+- KLM-WAR-0002 · warrant · draft · Universal state hub I: SAN engine and the thin Lichess PGN reader · docs/warrants/KLM-WAR-0002/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0003/manifest.toml
+> Universal state hub II: full PGN in and out, annotations preserved
+- KLM-WAR-0003 · warrant · draft · Universal state hub II: full PGN in and out, annotations preserved · docs/warrants/KLM-WAR-0003/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0004/manifest.toml
+> Universal state hub III: every named format, FRC first-class, parity proven
+- KLM-WAR-0004 · warrant · draft · Universal state hub III: every named format, FRC first-class, parity proven · docs/warrants/KLM-WAR-0004/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0005/manifest.toml
+> Engine tooling: Stockfish 19 UCI client, label harness, and the boundary gate
+- KLM-WAR-0005 · warrant · draft · Engine tooling: Stockfish 19 UCI client, label harness, and the boundary gate · docs/warrants/KLM-WAR-0005/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0006/manifest.toml
+> knightlm-uci: a compliant UCI engine with a random-legal baseline player
+- KLM-WAR-0006 · warrant · draft · knightlm-uci: a compliant UCI engine with a random-legal baseline player · docs/warrants/KLM-WAR-0006/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0007/manifest.toml
+> The run-1 corpus: ingest, join, split, and audit
+- KLM-WAR-0007 · warrant · draft · The run-1 corpus: ingest, join, split, and audit · docs/warrants/KLM-WAR-0007/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0008/manifest.toml
+> Track A run 1: SmolVLM LoRA harness, execution within cap, per-axis eval
+- KLM-WAR-0008 · warrant · draft · Track A run 1: SmolVLM LoRA harness, execution within cap, per-axis eval · docs/warrants/KLM-WAR-0008/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0009/manifest.toml
+> Serving: the model speaks, knightlm-uci plays, boundary intact
+- KLM-WAR-0009 · warrant · draft · Serving: the model speaks, knightlm-uci plays, boundary intact · docs/warrants/KLM-WAR-0009/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0010/manifest.toml
+> The Leptos viewer: any notation in, board and facts out, all formats back out
+- KLM-WAR-0010 · warrant · draft · The Leptos viewer: any notation in, board and facts out, all formats back out · docs/warrants/KLM-WAR-0010/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0011/manifest.toml
+> Track B seed: Burn environment, SmolVLM study, and an honest-red parity battery
+- KLM-WAR-0011 · warrant · draft · Track B seed: Burn environment, SmolVLM study, and an honest-red parity battery · docs/warrants/KLM-WAR-0011/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0012/manifest.toml
+> Foundation: schema v4, multi-board workspaces, studies, stable IDs and reset
+- KLM-WAR-0012 · warrant · draft · Foundation: schema v4, multi-board workspaces, studies, stable IDs and reset · docs/warrants/KLM-WAR-0012/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0013/manifest.toml
+> Deterministic context compiler and headless CLI
+- KLM-WAR-0013 · warrant · draft · Deterministic context compiler and headless CLI · docs/warrants/KLM-WAR-0013/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0014/manifest.toml
+> AI runtime: sessions, tools, providers, streaming and approvals
+- KLM-WAR-0014 · warrant · draft · AI runtime: sessions, tools, providers, streaming and approvals · docs/warrants/KLM-WAR-0014/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0015/manifest.toml
+> Assistant window: dedicated tab, board, chat, composer, context inspector
+- KLM-WAR-0015 · warrant · draft · Assistant window: dedicated tab, board, chat, composer, context inspector · docs/warrants/KLM-WAR-0015/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0016/manifest.toml
+> Play and arena: human vs AI, watch mode, match loop, PGN
+- KLM-WAR-0016 · warrant · draft · Play and arena: human vs AI, watch mode, match loop, PGN · docs/warrants/KLM-WAR-0016/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0017/manifest.toml
+> Tournaments and ratings: Swiss, knockout, round robin, Glicko-2
+- KLM-WAR-0017 · warrant · draft · Tournaments and ratings: Swiss, knockout, round robin, Glicko-2 · docs/warrants/KLM-WAR-0017/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0018/manifest.toml
+> Structured studies: editor, chapters, boards, versions, progress, import/export
+- KLM-WAR-0018 · warrant · draft · Structured studies: editor, chapters, boards, versions, progress, import/export · docs/warrants/KLM-WAR-0018/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0019/manifest.toml
+> Compare workspace and structural diff engine
+- KLM-WAR-0019 · warrant · draft · Compare workspace and structural diff engine · docs/warrants/KLM-WAR-0019/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0020/manifest.toml
+> Core MCP server: stdio, localhost HTTP, tools, resources, prompts, approvals
+- KLM-WAR-0020 · warrant · draft · Core MCP server: stdio, localhost HTTP, tools, resources, prompts, approvals · docs/warrants/KLM-WAR-0020/manifest.toml:1
+
+## docs/warrants/KLM-WAR-0021/manifest.toml
+> Release 1 hardening: performance, security, full suite, docs and RC
+- KLM-WAR-0021 · warrant · draft · Release 1 hardening: performance, security, full suite, docs and RC · docs/warrants/KLM-WAR-0021/manifest.toml:1

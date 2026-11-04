@@ -1,0 +1,67 @@
+schema = "oh.war/deliverables/v1"
+
+# §37.1 — declared by the performer. `war admin deliver` computes every
+# content_digest from the bytes on disk and records the provenance.
+
+[[deliverable]]
+id = "D-001"
+title = "Assistant tab and session rail"
+kind = "file"
+target_ref = "code/apps/rusty-brick-chess/frontend/src/views/assistant.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:117944cbad19009dcee7bd80218c0a4ab2a3c99a3df610c137433696b24fa4b3"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-002"
+title = "Streaming and context inspector UI"
+kind = "file"
+target_ref = "code/apps/rusty-brick-chess/frontend/src/views/analysis.rs"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:bcb8a08fe8ba5469181493d45cd1e56bcf8787fbb6f4b09fc067a8dccde2c631"
+media_type = "text/x-rust"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"
+
+[[deliverable]]
+id = "D-003"
+title = "Assistant CDP suites"
+kind = "file"
+target_ref = "code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_ai_rail.js"
+required = true
+content_addressed = true
+provenance_required = true
+
+[deliverable.provenance]
+producer = "claude"
+producing_attempt = "unrecorded"
+contract_digest = "unrecorded"
+tool_or_runtime_identity = "war 1.0.0-alpha.6 (unreleased, commit acf91804be76, dirty)"
+creation_method = "authored"
+content_digest = "sha256:bda59ad78969b21a7c8b00559f9aff28ac336a3ecf90b425bf6b51c89c23fa1e"
+media_type = "text/javascript"
+classification = "internal"
+retention = "repository-lifetime"
+source_holder = "git"

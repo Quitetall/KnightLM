@@ -1,0 +1,34 @@
+# Actor role assignments (SAS §27.4).
+# Written by `war init` on 2026-10-12T21:53:44Z from answers typed at a terminal by "QuiteTall".
+#
+# THE RULE FOR THIS FILE: a tool writes it only from a human's answers at a
+# terminal, once. No command edits it afterwards — every tool in this
+# workspace reads it, and `war init` refuses to touch one that exists.
+# Authority still enters from outside the system it governs: the answers
+# were a human's, the terminal gate is the one `war sign` uses (§27.2), and
+# a pseudo-terminal defeats it exactly as it defeats `war sign` — the
+# residual THREAT_MODEL entry 2 already accepts (OW-ADR-0021, Consequences).
+#
+# The human stated their key was loaded with `ssh-add -c`: yes.
+# `war` cannot check that; it is their statement, recorded as given.
+
+[[assignment]]
+actor = "QuiteTall"
+actor_kind = "human"
+roles = ["authorizer", "resolver", "risk_acceptor", "judge"]
+# Who granted this: the repository owner, naming themselves as the source of
+# their own authority — the honest record of a sole-owner project.
+assigned_by = "QuiteTall"
+effective_time = "2026-10-12T21:53:44Z"
+note = "Repository owner, from `war init`."
+ssh_principal = "quitetall"
+
+# The agent is a performer and nothing else (§27.1). No question in `war
+# init` can widen this; a human edits it, or nobody does.
+[[assignment]]
+actor = "claude"
+actor_kind = "agent"
+roles = ["performer"]
+assigned_by = "QuiteTall"
+effective_time = "2026-10-12T21:53:44Z"
+note = "Drafts and executes. Authorizes nothing, resolves nothing (§27.2)."
