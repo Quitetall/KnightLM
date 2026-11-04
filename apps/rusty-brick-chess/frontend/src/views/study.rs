@@ -154,12 +154,14 @@ pub fn StudyView(
                             <div class="chapter-actions">
                                 <input
                                     class="chapter-title"
+                                    prop:disabled=published
                                     placeholder=move || t("study.chapter_name")
                                     prop:value=move || new_chapter.get()
                                     on:input=move |event| new_chapter.set(event_target_value(&event))
                                 />
                                 <button
                                     class="chapter-add"
+                                    prop:disabled=published
                                     on:click={
                                         let study_id = study_id_add.clone();
                                         move |_| {
