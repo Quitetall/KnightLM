@@ -905,6 +905,7 @@ pub fn App() -> impl IntoView {
                 "openings" => Tab::Openings,
                 "puzzles" => Tab::Puzzles,
                 "assistant" => Tab::Assistant,
+                "play" => Tab::Play,
                 _ => Tab::Analysis,
             });
             return;
@@ -3518,6 +3519,7 @@ pub fn App() -> impl IntoView {
     let analysis_view = move || views::analysis::analysis(app_ctx);
 
     let assistant_view = move || views::assistant::assistant(app_ctx);
+    let play_view = move || views::play::play(app_ctx);
 
     let practice_view = move || views::practice::practice(app_ctx);
 
@@ -3533,7 +3535,7 @@ pub fn App() -> impl IntoView {
             <aside class="sidebar">
                 <div class="brand">"RustyBrickChess"</div>
                 <nav>
-                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Assistant, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
+                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Assistant, Tab::Play, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
                         .into_iter()
                         .map(|t| {
                             let key = match t {
@@ -3541,6 +3543,7 @@ pub fn App() -> impl IntoView {
                                 Tab::Database => "nav.database",
                                 Tab::Analysis => "nav.analysis",
                                 Tab::Assistant => "nav.assistant",
+                                Tab::Play => "nav.play",
                                 Tab::Practice => "nav.practice",
                                 Tab::Openings => "nav.openings",
                                 Tab::Puzzles => "nav.puzzles",
@@ -3599,6 +3602,7 @@ pub fn App() -> impl IntoView {
                     Tab::Database => database_view().into_any(),
                     Tab::Analysis => analysis_view().into_any(),
                     Tab::Assistant => assistant_view().into_any(),
+                    Tab::Play => play_view().into_any(),
                     Tab::Practice => practice_view().into_any(),
                     Tab::Openings => opening_view().into_any(),
                     Tab::Puzzles => puzzle_view().into_any(),

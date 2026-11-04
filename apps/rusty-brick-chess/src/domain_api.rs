@@ -1322,6 +1322,15 @@ pub struct MatchChatBody {
     pub message: String,
 }
 
+/// `GET /api/ai/matches`
+///
+/// Recent matches, for the match list.
+pub async fn list_matches(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<rbc_db::AiMatch>>, ApiError> {
+    Ok(Json(state.db.ai_matches(50)?))
+}
+
 /// `POST /api/ai/matches/{id}/model-move`
 ///
 /// Asks the seat a model holds for one move. The move is validated against the

@@ -387,3 +387,56 @@ pub async fn set_ai_permissions(
         Err(_) => Err(body),
     }
 }
+
+// --- matches ---------------------------------------------------------------
+
+/// Recent matches, newest first.
+pub async fn list_ai_matches() -> Result<Vec<serde_json::Value>, String> {
+    let resp = Request::get("/api/ai/matches").send().await.map_err(|e| e.to_string())?;
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    serde_json::from_str(&body).map_err(|_| body)
+}
+
+/// One match's live state.
+pub async fn get_ai_match(id: &str) -> Result<serde_json::Value, String> {
+    let resp = Request::get(&format!("/api/ai/matches/{id}")).send().await.map_err(|e| e.to_string())?;
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    serde_json::from_str(&body).map_err(|_| body)
+}
+
+/// Create a match from a config.
+pub async fn create_ai_match(config: serde_json::Value) -> Result<serde_json::Value, String> {
+    let resp = Request::post("/api/ai/matches")
+        .json(&serde_json::json!({ "config": config }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    match serde_json::from_str::<serde_json::Value>(&body) {
+        Ok(value) if value.get("error").is_none() => Ok(value),
+        Ok(value) => Err(value.get("error").and_then(|e| e.as_str()).unwrap_or("could not create the match").to_string()),
+        Err(_) => Err(body),
+    }
+}
+
+/// Post to a match sub-route: `move`, `model-move`, `takeback`, `chat`,
+/// `watch/step`, `watch/pause`, `watch/resume`, `watch/reset`.
+pub async fn match_action(
+    id: &str,
+    action: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let resp = Request::post(&format!("/api/ai/matches/{id}/{action}"))
+        .json(&body)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(value) if value.get("error").is_none() => Ok(value),
+        Ok(value) => Err(value.get("error").and_then(|e| e.as_str()).unwrap_or("the match refused").to_string()),
+        Err(_) => Err(text),
+    }
+}

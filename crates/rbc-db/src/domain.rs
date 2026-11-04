@@ -1463,6 +1463,20 @@ impl Db {
         self.ai_match(&id)?.context("AI match just inserted")
     }
 
+    /// Recent matches, newest first. A match list is what the Play tab shows,
+    /// so it comes from the database rather than from whatever this browser
+    /// happens to remember.
+    pub fn ai_matches(&self, limit: i64) -> Result<Vec<AiMatch>> {
+        let conn = self.conn.lock().expect("db lock");
+        let mut statement = conn.prepare(&format!(
+            "SELECT {AI_MATCH_COLUMNS} FROM ai_matches ORDER BY created DESC LIMIT ?1"
+        ))?;
+        let rows = statement
+            .query_map(params![limit.clamp(1, 200)], ai_match_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     pub fn ai_match(&self, id: &str) -> Result<Option<AiMatch>> {
         let conn = self.conn.lock().expect("db lock");
         Ok(conn

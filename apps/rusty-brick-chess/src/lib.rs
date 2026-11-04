@@ -103,7 +103,10 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/ai/approvals/{id}", get(domain_api::get_approval))
         .route("/api/ai/approvals/{id}/approve", post(domain_api::approve_approval))
         .route("/api/ai/approvals/{id}/deny", post(domain_api::deny_approval))
-        .route("/api/ai/matches", post(domain_api::create_match))
+        .route(
+            "/api/ai/matches",
+            get(domain_api::list_matches).post(domain_api::create_match),
+        )
         .route("/api/ai/matches/{id}", get(domain_api::get_match))
         .route("/api/ai/matches/{id}/move", post(domain_api::play_match_move))
         .route("/api/ai/matches/{id}/model-move", post(domain_api::model_match_move))
