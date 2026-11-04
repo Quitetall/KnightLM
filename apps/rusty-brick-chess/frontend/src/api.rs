@@ -1509,3 +1509,267 @@ pub async fn save_session(client: &str, payload: &str) -> Result<(), String> {
         Err(resp.text().await.unwrap_or_default())
     }
 }
+
+// --- Schema v4 domain: workspaces, boards, studies -------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceInfo {
+    pub id: String,
+    pub title: String,
+    pub kind: String,
+    pub position: i64,
+    pub active_board_id: Option<String>,
+    pub created: i64,
+    pub updated: i64,
+    pub archived: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BoardInfo {
+    pub id: String,
+    pub parent_kind: String,
+    pub parent_id: String,
+    pub kind: String,
+    pub title: String,
+    pub variant: String,
+    pub start_fen: String,
+    pub revision: i64,
+    pub mutability: String,
+    pub lifecycle: String,
+    pub content_json: String,
+    pub metadata_json: String,
+    pub created: i64,
+    pub updated: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StudyInfo {
+    pub id: String,
+    pub title: String,
+    pub description_md: String,
+    pub lifecycle: String,
+    pub current_version: i64,
+    pub tags_json: String,
+    pub metadata_json: String,
+    pub created: i64,
+    pub updated: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChapterInfo {
+    pub id: String,
+    pub study_id: String,
+    pub ordinal: i64,
+    pub title: String,
+    pub primary_board_id: String,
+    pub board_ids_json: String,
+    pub notes_md: String,
+    pub metadata_json: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StudyVersionInfo {
+    pub id: String,
+    pub study_id: String,
+    pub version: i64,
+    pub bundle_json: String,
+    pub provenance: Option<String>,
+    pub created: i64,
+    pub published: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StudyProgressInfo {
+    pub study_id: String,
+    pub chapter_id: String,
+    pub board_id: String,
+    pub user: String,
+    pub completed: bool,
+    pub attempts: i64,
+    pub score: Option<f64>,
+    pub hints: i64,
+    pub mastery: Option<f64>,
+    pub last_seen: i64,
+}
+
+async fn json_or_error<T: for<'de> Deserialize<'de>>(resp: gloo_net::http::Response) -> Result<T, String> {
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn list_workspaces() -> Result<Vec<WorkspaceInfo>, String> {
+    json_or_error(Request::get("/api/workspaces").send().await.map_err(|e| e.to_string())?).await
+}
+
+pub async fn create_workspace(title: &str, kind: &str) -> Result<WorkspaceInfo, String> {
+    let resp = Request::post("/api/workspaces")
+        .json(&serde_json::json!({"title": title, "kind": kind}))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+pub async fn list_boards(workspace_id: &str) -> Result<Vec<BoardInfo>, String> {
+    json_or_error(
+        Request::get(&format!("/api/workspaces/{workspace_id}/boards"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await
+}
+
+pub async fn create_board(
+    parent_kind: &str,
+    parent_id: &str,
+    kind: &str,
+    title: &str,
+    start_fen: &str,
+    content_json: &str,
+) -> Result<BoardInfo, String> {
+    let resp = Request::post("/api/boards")
+        .json(&serde_json::json!({
+            "parent_kind": parent_kind,
+            "parent_id": parent_id,
+            "kind": kind,
+            "title": title,
+            "start_fen": start_fen,
+            "content_json": content_json,
+        }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+pub async fn update_board(
+    id: &str,
+    expected_revision: i64,
+    content_json: &str,
+) -> Result<BoardInfo, String> {
+    let resp = Request::put(&format!("/api/boards/{id}"))
+        .json(&serde_json::json!({
+            "expected_revision": expected_revision,
+            "content_json": content_json,
+        }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+pub async fn copy_board(id: &str, title: Option<&str>) -> Result<BoardInfo, String> {
+    let resp = Request::post(&format!("/api/boards/{id}/copy"))
+        .json(&serde_json::json!({"title": title}))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+pub async fn lock_board(id: &str, locked: bool) -> Result<BoardInfo, String> {
+    let path = if locked { "lock" } else { "unlock" };
+    let resp = Request::post(&format!("/api/boards/{id}/{path}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+pub async fn list_studies() -> Result<Vec<StudyInfo>, String> {
+    json_or_error(Request::get("/api/studies").send().await.map_err(|e| e.to_string())?).await
+}
+
+pub async fn create_study(title: &str, description_md: &str) -> Result<StudyInfo, String> {
+    let resp = Request::post("/api/studies")
+        .json(&serde_json::json!({"title": title, "description_md": description_md}))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+pub async fn list_chapters(study_id: &str) -> Result<Vec<ChapterInfo>, String> {
+    json_or_error(
+        Request::get(&format!("/api/studies/{study_id}/chapters"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await
+}
+
+pub async fn create_chapter(
+    study_id: &str,
+    title: &str,
+    start_fen: &str,
+) -> Result<serde_json::Value, String> {
+    let resp = Request::post(&format!("/api/studies/{study_id}/chapters"))
+        .json(&serde_json::json!({"title": title, "start_fen": start_fen}))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+pub async fn publish_study(study_id: &str, expected_version: i64) -> Result<StudyVersionInfo, String> {
+    let resp = Request::post(&format!("/api/studies/{study_id}/publish"))
+        .json(&serde_json::json!({"expected_version": expected_version}))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+pub async fn copy_study(study_id: &str) -> Result<StudyInfo, String> {
+    let resp = Request::post(&format!("/api/studies/{study_id}/copy"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+pub async fn study_progress(study_id: &str, user: &str) -> Result<Vec<StudyProgressInfo>, String> {
+    json_or_error(
+        Request::get(&format!("/api/studies/{study_id}/progress?user={user}"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await
+}
+
+pub async fn set_study_progress(
+    study_id: &str,
+    chapter_id: &str,
+    board_id: &str,
+    user: &str,
+    completed: bool,
+) -> Result<(), String> {
+    let resp = Request::put(&format!("/api/studies/{study_id}/progress"))
+        .json(&serde_json::json!({
+            "chapter_id": chapter_id,
+            "board_id": board_id,
+            "user": user,
+            "completed": completed,
+        }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if resp.ok() {
+        Ok(())
+    } else {
+        Err(resp.text().await.unwrap_or_default())
+    }
+}

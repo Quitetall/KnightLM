@@ -8,6 +8,7 @@ pub enum Tab {
     Home,
     Database,
     Analysis,
+    Assistant,
     Practice,
     Openings,
     Puzzles,
@@ -18,6 +19,37 @@ pub enum Tab {
 pub fn default_workspace_kind() -> String {
     "analysis".into()
 }
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BoardRef {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub start_fen: String,
+    #[serde(default)]
+    pub content_json: String,
+    #[serde(default = "default_revision")]
+    pub revision: i64,
+    #[serde(default = "default_mutable")]
+    pub mutability: String,
+    #[serde(default = "default_draft")]
+    pub lifecycle: String,
+}
+
+fn default_revision() -> i64 {
+    1
+}
+
+fn default_mutable() -> String {
+    "mutable".into()
+}
+
+fn default_draft() -> String {
+    "draft".into()
+}
+
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Workspace {
@@ -31,6 +63,12 @@ pub struct Workspace {
     pub variant: String,
     pub preview_only: bool,
     pub moves: Vec<String>,
+    #[serde(default)]
+    pub boards: Vec<BoardRef>,
+    #[serde(default)]
+    pub active_board: usize,
+    #[serde(default)]
+    pub server_id: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -69,6 +107,7 @@ pub fn tab_name(tab: Tab) -> &'static str {
         Tab::Home => "home",
         Tab::Database => "database",
         Tab::Analysis => "analysis",
+        Tab::Assistant => "assistant",
         Tab::Practice => "practice",
         Tab::Openings => "openings",
         Tab::Puzzles => "puzzles",
@@ -82,6 +121,7 @@ pub fn tab_from_name(name: &str) -> Option<Tab> {
         "home" => Tab::Home,
         "database" => Tab::Database,
         "analysis" => Tab::Analysis,
+        "assistant" => Tab::Assistant,
         "practice" => Tab::Practice,
         "openings" => Tab::Openings,
         "puzzles" => Tab::Puzzles,

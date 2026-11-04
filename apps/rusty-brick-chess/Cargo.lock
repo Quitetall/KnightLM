@@ -2164,6 +2164,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rbc-ai"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "knightlm-core",
+ "rbc-db",
+ "serde",
+ "serde_json",
+ "shakmaty",
+]
+
+[[package]]
 name = "rbc-context"
 version = "0.1.0"
 dependencies = [
@@ -2366,6 +2378,7 @@ dependencies = [
  "knightlm-engine",
  "knightlm-notation",
  "parquet",
+ "rbc-ai",
  "rbc-context",
  "rbc-db",
  "rusqlite",

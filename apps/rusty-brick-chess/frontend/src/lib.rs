@@ -1,5 +1,6 @@
 //! RustyBrickChess frontend — a Leptos, En-Croissant-shaped app.
 
+pub mod ai_api;
 pub mod api;
 pub mod board;
 pub mod i18n;
@@ -579,6 +580,9 @@ pub fn App() -> impl IntoView {
                         variant: variant.clone(),
                         preview_only,
                         moves: moves.clone(),
+                        boards: Vec::new(),
+                        active_board: 0,
+                        server_id: None,
                     })
                 });
                 key
@@ -702,6 +706,9 @@ pub fn App() -> impl IntoView {
                 variant: "standard".into(),
                 preview_only: false,
                 moves: Vec::new(),
+                boards: Vec::new(),
+                active_board: 0,
+                server_id: None,
             })
         });
         active_ws.set(key);
@@ -754,6 +761,9 @@ pub fn App() -> impl IntoView {
                         variant: "standard".into(),
                         preview_only: false,
                         moves: Vec::new(),
+                        boards: Vec::new(),
+                        active_board: 0,
+                        server_id: None,
                     })
                 });
                 key
@@ -3117,6 +3127,8 @@ pub fn App() -> impl IntoView {
 
     let analysis_view = move || views::analysis::analysis(app_ctx);
 
+    let assistant_view = move || views::assistant::assistant(app_ctx);
+
     let practice_view = move || views::practice::practice(app_ctx);
 
     let opening_view = move || views::opening::opening(app_ctx);
@@ -3131,13 +3143,14 @@ pub fn App() -> impl IntoView {
             <aside class="sidebar">
                 <div class="brand">"RustyBrickChess"</div>
                 <nav>
-                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
+                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Assistant, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
                         .into_iter()
                         .map(|t| {
                             let key = match t {
                                 Tab::Home => "nav.home",
                                 Tab::Database => "nav.database",
                                 Tab::Analysis => "nav.analysis",
+                                Tab::Assistant => "nav.assistant",
                                 Tab::Practice => "nav.practice",
                                 Tab::Openings => "nav.openings",
                                 Tab::Puzzles => "nav.puzzles",
@@ -3177,6 +3190,7 @@ pub fn App() -> impl IntoView {
                     Tab::Home => home_view().into_any(),
                     Tab::Database => database_view().into_any(),
                     Tab::Analysis => analysis_view().into_any(),
+                    Tab::Assistant => assistant_view().into_any(),
                     Tab::Practice => practice_view().into_any(),
                     Tab::Openings => opening_view().into_any(),
                     Tab::Puzzles => puzzle_view().into_any(),

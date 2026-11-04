@@ -704,3 +704,138 @@ pub async fn replay_ai_turn(
         "sections": compiled.sections,
     })))
 }
+
+use rbc_ai::game::{Match, MatchConfig, MatchSnapshot, Player};
+
+#[derive(Deserialize)]
+pub struct CreateMatch {
+    pub config: MatchConfig,
+    pub session_id: Option<String>,
+}
+
+fn match_payload(id: &str, game: &Match) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "state": game.state(),
+        "fen": game.fen(),
+        "turn": if game.turn() == shakmaty::Color::White { "white" } else { "black" },
+        "moves": game.moves(),
+        "legal_moves": game.legal_moves(),
+        "result": game.result(),
+        "pgn": game.pgn(),
+    })
+}
+
+pub async fn create_match(
+    State(state): State<AppState>,
+    Json(body): Json<CreateMatch>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let game = Match::new(body.config.clone())?;
+    let config_json = serde_json::to_string(&body.config)?;
+    let white_json = serde_json::to_string(&body.config.white)?;
+    let black_json = serde_json::to_string(&body.config.black)?;
+    let row = state.db.create_ai_match(
+        body.session_id.as_deref(),
+        &white_json,
+        &black_json,
+        &config_json,
+    )?;
+    let snapshot = game.snapshot();
+    state.db.save_ai_match(
+        &row.id,
+        &serde_json::to_string(&snapshot)?,
+        &game.pgn(),
+        None,
+        None,
+        false,
+    )?;
+    Ok(Json(match_payload(&row.id, &game)))
+}
+
+pub async fn get_match(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
+    let game = Match::from_snapshot(snapshot)?;
+    Ok(Json(match_payload(&row.id, &game)))
+}
+
+#[derive(Deserialize)]
+pub struct MatchMoveBody {
+    pub mv: String,
+}
+
+pub async fn play_match_move(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<MatchMoveBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
+    let mut game = Match::from_snapshot(snapshot)?;
+    game.apply(&body.mv)?;
+    let finished = game.result().is_some();
+    let snapshot = game.snapshot();
+    let result_json = game
+        .result()
+        .map(serde_json::to_string)
+        .transpose()?;
+    let termination = game.result().map(|result| result.termination.clone());
+    state.db.save_ai_match(
+        &id,
+        &serde_json::to_string(&snapshot)?,
+        &game.pgn(),
+        result_json.as_deref(),
+        termination.as_deref(),
+        finished,
+    )?;
+    Ok(Json(match_payload(&id, &game)))
+}
+
+#[derive(Deserialize)]
+pub struct ResignBody {
+    pub color: String,
+}
+
+pub async fn resign_match(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ResignBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
+    let mut game = Match::from_snapshot(snapshot)?;
+    let color = match body.color.as_str() {
+        "white" => shakmaty::Color::White,
+        "black" => shakmaty::Color::Black,
+        other => return Err(ApiError::BadRequest(format!("unknown colour {other}"))),
+    };
+    game.resign(color);
+    let snapshot = game.snapshot();
+    let result_json = game
+        .result()
+        .map(serde_json::to_string)
+        .transpose()?;
+    state.db.save_ai_match(
+        &id,
+        &serde_json::to_string(&snapshot)?,
+        &game.pgn(),
+        result_json.as_deref(),
+        Some("resignation"),
+        true,
+    )?;
+    Ok(Json(match_payload(&id, &game)))
+}
+
+pub async fn match_pgn(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<String, ApiError> {
+    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    Ok(row.pgn)
+}
+
+#[allow(dead_code)]
+fn _players_are_serde(_p: &Player) {}

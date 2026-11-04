@@ -7,6 +7,7 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("nav.home", "Home", "Inicio"),
     ("nav.database", "Database", "Base de datos"),
     ("nav.analysis", "Analysis", "Análisis"),
+    ("nav.assistant", "Assistant", "Asistente"),
     ("nav.practice", "Practice", "Práctica"),
     ("nav.openings", "Openings", "Aperturas"),
     ("nav.puzzles", "Puzzles", "Puzzles"),
@@ -396,6 +397,18 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("account.enter_user", "enter a username first", "introduce un nombre de usuario primero"),
     ("practice.choose_game_first", "choose a game first", "elige una partida primero"),
     ("practice.no_moves", "that game has no moves", "esa partida no tiene jugadas"),
+    ("assistant.sessions", "Sessions", "Sesiones"),
+    ("assistant.new_chat", "New chat", "Nuevo chat"),
+    ("assistant.no_sessions", "No conversations yet", "Aún no hay conversaciones"),
+    ("assistant.board", "Board", "Tablero"),
+    ("assistant.chat", "Chat", "Chat"),
+    ("assistant.no_turns", "No messages yet. Ask about this position to get started.", "Aún no hay mensajes. Pregunta sobre esta posición para empezar."),
+    ("assistant.sending", "Thinking…", "Pensando…"),
+    ("assistant.send", "Send", "Enviar"),
+    ("assistant.no_context", "ctx — · no context yet", "ctx — · aún sin contexto"),
+    ("assistant.placeholder", "Ask about this position…", "Pregunta sobre esta posición…"),
+    ("assistant.composer_hint", "Enter sends · Shift+Enter adds a line", "Enter envía · Mayús+Enter añade una línea"),
+    ("assistant.no_session", "No conversation selected.", "Ninguna conversación seleccionada."),
 ];
 
 
