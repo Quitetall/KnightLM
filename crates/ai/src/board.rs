@@ -162,6 +162,12 @@ impl ToolHost for BoardWriteHost<'_> {
             "list_studies" => self.list_studies(call),
             "get_study" => self.get_study(call),
             "create_study" => self.create_study(call),
+            "add_chapter" => self.add_chapter(call),
+            "add_board_to_chapter" => self.add_board_to_chapter(call),
+            "reorder_chapters" => self.reorder_chapters(call),
+            "write_study_text" => self.write_study_text(call),
+            "publish_study" => self.publish_study(call),
+            "get_chapter" => self.get_chapter(call),
             other => refused(
                 call,
                 result_code::NOT_FOUND,
@@ -521,6 +527,268 @@ impl BoardWriteHost<'_> {
                 result_code::NOT_FOUND,
                 format!("no study with id {study_id}"),
             ),
+            Err(error) => refused(
+                call,
+                result_code::INTERNAL,
+                format!("could not read the study: {error}"),
+            ),
+        }
+    }
+
+    /// Refuse a write to a study that has been published.
+    ///
+    /// A published study is a snapshot people cite; changing it underneath them
+    /// is the same mistake as editing a locked board. The way forward is a copy,
+    /// which `create_study` plus `add_chapter` can build, so the refusal says so.
+    // The Err half is a full ToolResult, which is what a refusal is here; boxing
+    // it would only move the cost into every call site.
+    #[allow(clippy::result_large_err)]
+    fn study_is_writable(&self, call: &ToolCall, study_id: &str) -> Result<(), ToolResult> {
+        match self.db.study(study_id) {
+            // The lifecycle is the signal, not the version counter: adding a
+            // chapter bumps the version, and a draft is still a draft.
+            Ok(Some(study)) if study.lifecycle == "published" => Err(refused(
+                call,
+                result_code::CONFLICT,
+                format!(
+                    "study {study_id} is published at version {}; make a copy to change it",
+                    study.current_version
+                ),
+            )),
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Err(refused(
+                call,
+                result_code::NOT_FOUND,
+                format!("no study {study_id}"),
+            )),
+            Err(error) => Err(refused(
+                call,
+                result_code::INTERNAL,
+                format!("could not read the study: {error}"),
+            )),
+        }
+    }
+
+    fn add_chapter(&mut self, call: &ToolCall) -> ToolResult {
+        let Some(study_id) = string_arg(call, "study_id") else {
+            return refused(
+                call,
+                result_code::INVALID_ARGUMENTS,
+                "study_id is required".to_string(),
+            );
+        };
+        if let Err(refusal) = self.study_is_writable(call, &study_id) {
+            return refusal;
+        }
+        let Some(title) = string_arg(call, "title") else {
+            return refused(
+                call,
+                result_code::INVALID_ARGUMENTS,
+                "title is required for a chapter".to_string(),
+            );
+        };
+        let start_fen = string_arg(call, "start_fen")
+            .unwrap_or_else(|| knightlm_core::state::START_FEN.to_string());
+        let notes = string_arg(call, "notes").unwrap_or_default();
+        match self.db.add_chapter(&study_id, &title, &start_fen, &notes) {
+            Ok((chapter, board)) => ok(
+                call,
+                format!("added chapter {title}"),
+                serde_json::json!({
+                    "study_id": study_id,
+                    "chapter_id": chapter.id,
+                    "board_id": board.id,
+                    "revision": board.revision,
+                }),
+            ),
+            Err(error) => refused(
+                call,
+                result_code::INTERNAL,
+                format!("could not add the chapter: {error}"),
+            ),
+        }
+    }
+
+    fn add_board_to_chapter(&mut self, call: &ToolCall) -> ToolResult {
+        let Some(chapter_id) = string_arg(call, "chapter_id") else {
+            return refused(
+                call,
+                result_code::INVALID_ARGUMENTS,
+                "chapter_id is required".to_string(),
+            );
+        };
+        let Some(study_id) = string_arg(call, "study_id") else {
+            return refused(
+                call,
+                result_code::INVALID_ARGUMENTS,
+                "study_id is required".to_string(),
+            );
+        };
+        if let Err(refusal) = self.study_is_writable(call, &study_id) {
+            return refusal;
+        }
+        let title = string_arg(call, "title").unwrap_or_else(|| "Board".to_string());
+        let fen =
+            string_arg(call, "fen").unwrap_or_else(|| knightlm_core::state::START_FEN.to_string());
+        match self
+            .db
+            .add_board_to_chapter(&study_id, &chapter_id, &title, &fen, "{}")
+        {
+            Ok(board) => ok(
+                call,
+                format!("added board {title} to the chapter"),
+                serde_json::json!({
+                    "study_id": study_id,
+                    "chapter_id": chapter_id,
+                    "board_id": board.id,
+                    "revision": board.revision,
+                }),
+            ),
+            Err(error) => refused(
+                call,
+                result_code::INTERNAL,
+                format!("could not add the board: {error}"),
+            ),
+        }
+    }
+
+    fn reorder_chapters(&mut self, call: &ToolCall) -> ToolResult {
+        let Some(study_id) = string_arg(call, "study_id") else {
+            return refused(
+                call,
+                result_code::INVALID_ARGUMENTS,
+                "study_id is required".to_string(),
+            );
+        };
+        if let Err(refusal) = self.study_is_writable(call, &study_id) {
+            return refusal;
+        }
+        let Some(order) = call.arguments.get("chapter_ids").and_then(|v| v.as_array()) else {
+            return refused(
+                call,
+                result_code::INVALID_ARGUMENTS,
+                "chapter_ids is required".to_string(),
+            );
+        };
+        let ids: Vec<String> = order
+            .iter()
+            .filter_map(|value| value.as_str().map(str::to_string))
+            .collect();
+        match self.db.reorder_chapters(&study_id, &ids) {
+            Ok(()) => ok(
+                call,
+                format!("reordered {} chapters", ids.len()),
+                serde_json::json!({"study_id": study_id, "chapter_ids": ids}),
+            ),
+            Err(error) => refused(
+                call,
+                result_code::INTERNAL,
+                format!("could not reorder the chapters: {error}"),
+            ),
+        }
+    }
+
+    fn write_study_text(&mut self, call: &ToolCall) -> ToolResult {
+        let Some(study_id) = string_arg(call, "study_id") else {
+            return refused(
+                call,
+                result_code::INVALID_ARGUMENTS,
+                "study_id is required".to_string(),
+            );
+        };
+        if let Err(refusal) = self.study_is_writable(call, &study_id) {
+            return refusal;
+        }
+        let Some(text) = string_arg(call, "markdown") else {
+            return refused(
+                call,
+                result_code::INVALID_ARGUMENTS,
+                "markdown is required".to_string(),
+            );
+        };
+        let chapter_id = string_arg(call, "chapter_id");
+        match self
+            .db
+            .write_study_text(&study_id, chapter_id.as_deref(), &text)
+        {
+            Ok(()) => ok(
+                call,
+                "wrote the study text",
+                serde_json::json!({"study_id": study_id, "chapter_id": chapter_id}),
+            ),
+            Err(error) => refused(
+                call,
+                result_code::INTERNAL,
+                format!("could not write the text: {error}"),
+            ),
+        }
+    }
+
+    fn publish_study(&mut self, call: &ToolCall) -> ToolResult {
+        let Some(study_id) = string_arg(call, "study_id") else {
+            return refused(
+                call,
+                result_code::INVALID_ARGUMENTS,
+                "study_id is required".to_string(),
+            );
+        };
+        if let Err(refusal) = self.study_is_writable(call, &study_id) {
+            return refusal;
+        }
+        // Publishing twice without a new version is a conflict, which the
+        // repository reports; asking for the current version makes that explicit.
+        let expected = match self
+            .db
+            .study(&study_id)
+            .ok()
+            .flatten()
+            .map(|study| study.current_version)
+        {
+            Some(current) => current,
+            None => {
+                return refused(call, result_code::NOT_FOUND, format!("no study {study_id}"));
+            }
+        };
+        match self.db.publish_study(&study_id, expected) {
+            Ok(version) => ok(
+                call,
+                format!("published version {}", version.version),
+                serde_json::json!({
+                    "study_id": study_id,
+                    "version": version.version,
+                    "version_id": version.id,
+                }),
+            ),
+            Err(error) => refused(
+                call,
+                result_code::CONFLICT,
+                format!("could not publish: {error}"),
+            ),
+        }
+    }
+
+    fn get_chapter(&mut self, call: &ToolCall) -> ToolResult {
+        let Some(study_id) = string_arg(call, "study_id") else {
+            return refused(
+                call,
+                result_code::INVALID_ARGUMENTS,
+                "study_id is required".to_string(),
+            );
+        };
+        let chapter_id = string_arg(call, "chapter_id").unwrap_or_default();
+        match self.db.chapters(&study_id) {
+            Ok(chapters) => match chapters.into_iter().find(|c| c.id == chapter_id) {
+                Some(chapter) => ok(
+                    call,
+                    format!("chapter {}", chapter.title),
+                    serde_json::to_value(&chapter).unwrap_or(serde_json::Value::Null),
+                ),
+                None => refused(
+                    call,
+                    result_code::NOT_FOUND,
+                    format!("no chapter {chapter_id} in study {study_id}"),
+                ),
+            },
             Err(error) => refused(
                 call,
                 result_code::INTERNAL,

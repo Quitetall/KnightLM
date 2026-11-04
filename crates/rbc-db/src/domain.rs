@@ -702,6 +702,41 @@ impl Db {
         Ok(())
     }
 
+    /// Replace a study's description, or one chapter's markdown notes.
+    ///
+    /// The two live in different columns and mean different things: a study's
+    /// description introduces the whole thing, a chapter's notes belong to that
+    /// chapter. Passing a chapter id picks the second.
+    pub fn write_study_text(
+        &self,
+        study_id: &str,
+        chapter_id: Option<&str>,
+        markdown: &str,
+    ) -> Result<()> {
+        self.study(study_id)?
+            .with_context(|| format!("study {study_id} not found"))?;
+        let conn = self.conn.lock().expect("db lock");
+        match chapter_id {
+            Some(chapter_id) => {
+                let changed = conn.execute(
+                    "UPDATE study_chapters SET notes_md = ?1 WHERE id = ?2 AND study_id = ?3",
+                    params![markdown, chapter_id, study_id],
+                )?;
+                if changed == 0 {
+                    anyhow::bail!("no chapter {chapter_id} in study {study_id}");
+                }
+            }
+            None => {
+                conn.execute(
+                    "UPDATE studies SET description_md = ?1,
+                     updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?2",
+                    params![markdown, study_id],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn publish_study(&self, study_id: &str, expected_version: i64) -> Result<StudyVersion> {
         let study = self
             .study(study_id)?
