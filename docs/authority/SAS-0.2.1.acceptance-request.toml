@@ -1,0 +1,30 @@
+schema = "oh.war/sas-acceptance-request/v1"
+version = "0.2.1"
+source = "docs/sas/KnightLM_SAS.md"
+sha256 = "f634dbd65e4a476e02402afcd388dc185016346ee2c13ba6ff01019a086263e5"
+predecessor = "0.1.0"
+architecture_changing = true
+adr_required = true
+requirement_count = 13
+eligible_acceptors = ["QuiteTall"]
+
+[diff]
+added = [
+    "KLM-SAS-RQ-004",
+    "KLM-SAS-RQ-005",
+    "KLM-SAS-RQ-006",
+    "KLM-SAS-RQ-007",
+    "KLM-SAS-RQ-008",
+    "KLM-SAS-RQ-009",
+    "KLM-SAS-RQ-010",
+    "KLM-SAS-RQ-011",
+    "KLM-SAS-RQ-012",
+    "KLM-SAS-RQ-013",
+]
+removed = []
+retitled = []
+
+# SAS 0.2.1 at sha256:f634dbd65e4a — architecture-changing: true (an adr_ref is REQUIRED, §101.3)
+# May be accepted by: QuiteTall
+# Fill in accepted_by, acting_role, meaning, effective_time, then:
+#   war sign sas accept 0.2.1 --response <file>
