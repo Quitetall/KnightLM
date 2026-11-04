@@ -168,6 +168,10 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     let inspector_open = RwSignal::new(false);
     let inspector = RwSignal::new(None::<ai_api::AiCompiledContext>);
     let replay = RwSignal::new(None::<serde_json::Value>);
+    // Pinned shows the exact context that was sent; live rebuilds it for the
+    // position on the board right now, which is how drift becomes visible.
+    let context_live = RwSignal::new(false);
+    let live_context = RwSignal::new(None::<ai_api::AiCompiledContext>);
     let source = StoredValue::new(None::<web_sys::EventSource>);
     let transcript = NodeRef::<leptos::html::Div>::new();
 
@@ -390,6 +394,23 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
             }
         });
     };
+
+    // While the inspector is live, rebuild the context for the current board so
+    // it can be compared with what was actually sent.
+    Effect::new(move |_| {
+        if !context_live.get() || !inspector_open.get() {
+            return;
+        }
+        let fen = fen.get();
+        let fen = (!fen.trim().is_empty()).then_some(fen);
+        spawn_local(async move {
+            match ai_api::compile_context(fen.as_deref(), "chat", None, "chat-v1").await {
+                Ok(compiled) => live_context.set(Some(compiled)),
+                // The message signal, not the error binding.
+                Err(message) => error.set(message),
+            }
+        });
+    });
 
     // The board shows the current position the rest of the app is looking at.
     // With no FEN yet (fresh restore straight into Assistant), fall back to the
@@ -778,10 +799,51 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                     }}
                 </div>
                 {move || inspector_open.get().then(|| {
-                    let context = inspector.get();
                     view! {
                         <div class="context-inspector" style="max-height:220px;overflow-y:auto;font-size:.8rem;">
-                            {context.map(|context| {
+                            <div style="display:flex;gap:.35rem;align-items:center;">
+                                <button on:click=move |_| context_live.set(false)>
+                                    {move || i18n::t(&language.get(), "assistant.sent")}
+                                </button>
+                                <button on:click=move |_| context_live.set(true)>
+                                    {move || i18n::t(&language.get(), "assistant.live")}
+                                </button>
+                                <span class="muted">
+                                    {move || {
+                                        if context_live.get() {
+                                            i18n::t(&language.get(), "assistant.live_hint").to_string()
+                                        } else {
+                                            i18n::t(&language.get(), "assistant.sent_hint").to_string()
+                                        }
+                                    }}
+                                </span>
+                            </div>
+                            {move || {
+                                // Drift is only meaningful with both sides known.
+                                let sent = inspector
+                                    .get()
+                                    .map(|context| context.sha256)
+                                    .filter(|sha| !sha.is_empty());
+                                let live = live_context
+                                    .get()
+                                    .map(|context| context.sha256)
+                                    .filter(|sha| !sha.is_empty());
+                                match (sent, live) {
+                                    (Some(sent), Some(live)) if sent != live => Some(view! {
+                                        <div class="context-drift">
+                                            {move || i18n::t(&language.get(), "assistant.board_changed")}
+                                        </div>
+                                    }),
+                                    _ => None,
+                                }
+                            }}
+                            {move || {
+                                let context = if context_live.get() {
+                                    live_context.get()
+                                } else {
+                                    inspector.get()
+                                };
+                                context.map(|context| {
                                 let sha = sha8(&context.sha256);
                                 let tokens = context.tokens;
                                 let canonical = context
@@ -819,9 +881,10 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                         <pre style="white-space:pre-wrap;">{canonical}</pre>
                                     </details>
                                 }.into_any()
-                            }).unwrap_or_else(|| view! {
-                                <div class="muted">{move || i18n::t(&language.get(), "assistant.no_context")}</div>
-                            }.into_any())}
+                                }).unwrap_or_else(|| view! {
+                                    <div class="muted">{move || i18n::t(&language.get(), "assistant.no_context")}</div>
+                                }.into_any())
+                            }}
                             {move || replay.get().map(|value| {
                                 let identical = value.get("diff")
                                     .and_then(|diff| diff.get("identical"))

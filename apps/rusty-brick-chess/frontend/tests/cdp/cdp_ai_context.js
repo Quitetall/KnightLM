@@ -105,18 +105,35 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const opened = await clickText("button", "Context");
   await sleep(600);
   const sections = await ev(`document.querySelectorAll(".context-section").length`);
-  const header = await ev(`(()=>{const e=document.querySelector(".context-inspector .muted");return e?e.textContent.trim():"";})()`);
+  // The header is the sha/tokens row, not the mode hint next to the toggle.
+  const header = await ev(`(()=>{const e=[...document.querySelectorAll(".context-inspector .muted")].find(x=>/tokens/.test(x.textContent));return e?e.textContent.trim():"";})()`);
   const hasCanonical = await ev(`!!document.querySelector(".context-inspector pre")`);
+
+  // Switch to Live: the panel rebuilds the context for the current board.
+  const liveClicked = await clickText("button", "Live");
+  await sleep(1500);
+  const liveHeader = await ev(`(()=>{const rows=[...document.querySelectorAll(".context-inspector .muted")];const h=rows.find(x=>/tokens/.test(x.textContent));return h?h.textContent.trim():"";})()`);
+  const sentClicked = await clickText("button", "Sent");
+  await sleep(600);
+  const sentHeader = await ev(`(()=>{const rows=[...document.querySelectorAll(".context-inspector .muted")];const h=rows.find(x=>/tokens/.test(x.textContent));return h?h.textContent.trim():"";})()`);
+
+  // The drift warning must agree with the two contexts: present only when the
+  // live rebuild differs from what was sent.
+  const drift = await ev(`!!document.querySelector(".context-drift")`);
+  const shaOf = (text) => ((text || "").match(/^[0-9a-f]{8}/) || [""])[0];
+  const expectDrift = shaOf(liveHeader) !== shaOf(sentHeader) && shaOf(liveHeader) !== "" && shaOf(sentHeader) !== "";
 
   const replayed = await clickText("button", "Replay");
   await sleep(1500);
   const replayText = await ev(`(()=>{const e=[...document.querySelectorAll(".context-inspector .muted")].find(x=>x.textContent.includes("replay"));return e?e.textContent.trim():"";})()`);
 
-  const out = { opened, sections, header, hasCanonical, replayed, replayText };
+  const out = { opened, sections, header, hasCanonical, liveClicked, liveHeader, sentClicked, sentHeader, drift, expectDrift, replayed, replayText };
   console.log(JSON.stringify(out));
   // The header is "<sha8> · <tokens> tokens · <n> sections".
   const headerOk = /^[0-9a-f]{8} /.test(header) && /\d+ tokens/.test(header) && /\d+ sections/.test(header);
-  const ok = opened && sections > 0 && headerOk && hasCanonical && replayed && /identical|differs/.test(replayText);
+  const bothResolve = /tokens/.test(liveHeader) && /tokens/.test(sentHeader);
+  const ok = opened && sections > 0 && headerOk && hasCanonical && liveClicked && sentClicked
+    && bothResolve && drift === expectDrift && replayed && /identical|differs/.test(replayText);
   console.log(ok ? "AI_CONTEXT_PASS" : "AI_CONTEXT_FAIL");
   ws.close();
   chrome.kill();
