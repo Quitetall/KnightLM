@@ -90,6 +90,7 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/studies/{id}/branch", post(domain_api::branch_study))
         .route("/api/studies/{id}/versions", get(domain_api::list_study_versions))
         .route("/api/studies/{id}/bundle", get(domain_api::export_study_bundle))
+        .route("/api/compare", get(domain_api::compare_studies))
         .route("/api/studies/import", post(domain_api::import_study_bundle))
         .route("/api/studies/import-pgn", post(domain_api::import_study_pgn))
         .route(

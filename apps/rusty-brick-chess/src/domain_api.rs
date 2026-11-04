@@ -2123,3 +2123,23 @@ pub async fn import_study_pgn(
         "chapters": chapters,
     })))
 }
+
+/// `GET /api/compare?left=…&right=…&user=…` — the structural diff of two studies.
+///
+/// Read-only by construction: `rbc_ai::diff` takes `&Db` and has no write path.
+pub async fn compare_studies(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<std::collections::BTreeMap<String, String>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let left = query
+        .get("left")
+        .ok_or_else(|| ApiError::BadRequest("left is required".into()))?;
+    let right = query
+        .get("right")
+        .ok_or_else(|| ApiError::BadRequest("right is required".into()))?;
+    let report = rbc_ai::diff::diff_studies(&state.db, left, right, query.get("user").map(String::as_str))
+        .map_err(ApiError::Internal)?;
+    serde_json::to_value(&report)
+        .map(Json)
+        .map_err(|error| ApiError::Internal(anyhow::Error::new(error)))
+}
