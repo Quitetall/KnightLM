@@ -10,6 +10,7 @@
 //! 3. **An approval is answered once.** A second answer is refused, and a
 //!    refused write leaves the board alone.
 //! 4. **A locked board cannot be written** even through the tool path.
+#![cfg(feature = "provider")]
 mod common;
 
 use std::cell::Cell;
