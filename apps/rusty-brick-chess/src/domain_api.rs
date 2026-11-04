@@ -632,17 +632,18 @@ pub async fn send_ai_turn(
             let mut host = crate::ai_host::SessionHost::new(&db_for_turn, "assistant", engine_ref);
             let registry = rbc_ai::tools::ToolRegistry::builtin();
             let cancel = rbc_ai::provider::Cancellation::new();
-            let mut events = Vec::new();
+            // Each event is stored as it happens, so a client watching the
+            // stream sees a turn as it runs rather than all at once when it
+            // ends. Recording is best effort: a failing write must not lose
+            // the answer itself.
+            let log = rbc_ai::events::EventLog::new(&db_for_turn);
+            let stream = rbc_ai::events::StreamKey::session(plan_for_turn.session_id.clone());
             let outcome = AgentLoop::new(&provider, &registry, &mut host).run(
                 &plan_for_turn,
                 &cancel,
-                &mut |event| events.push(event),
-            );
-            // The stream is how the client watches a turn; recording it is
-            // best effort so a full disk cannot lose the answer itself.
-            rbc_ai::events::EventLog::new(&db_for_turn).append_all(
-                &rbc_ai::events::StreamKey::session(plan_for_turn.session_id.clone()),
-                &events,
+                &mut |event| {
+                    let _ = log.append(&stream, &event);
+                },
             );
             Ok(outcome)
         },
