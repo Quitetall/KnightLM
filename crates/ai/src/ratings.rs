@@ -244,10 +244,12 @@ pub fn metrics(db: &rbc_db::Db) -> Result<Vec<ModelMetrics>> {
         );
     }
     for row in db.ai_match_attempts()? {
-        let entry = by_model.entry(row.model.clone()).or_insert_with(|| ModelMetrics {
-            model: row.model.clone(),
-            ..ModelMetrics::default()
-        });
+        let entry = by_model
+            .entry(row.model.clone())
+            .or_insert_with(|| ModelMetrics {
+                model: row.model.clone(),
+                ..ModelMetrics::default()
+            });
         entry.plies += row.plies;
         entry.clean_plies += row.clean_plies;
     }

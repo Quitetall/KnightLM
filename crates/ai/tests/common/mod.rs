@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! A scriptable OpenAI-compatible endpoint, on localhost, in-process.
 //!
 //! The provider adapter is only really tested when something speaks HTTP at it:
@@ -99,6 +100,23 @@ impl Reply {
 pub struct Recorded {
     pub path: String,
     pub body: String,
+    /// Header names and values, lowercased names, in the order sent.
+    #[allow(dead_code)]
+    pub headers: Vec<(String, String)>,
+}
+
+impl Recorded {
+    /// One header's value, if it was sent.
+    ///
+    /// Only the security tests read headers; the others compare bodies, and a
+    /// dead-code warning per binary would be noise.
+    #[allow(dead_code)]
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
 }
 
 /// The scripted server.
@@ -192,6 +210,7 @@ fn read_request(stream: &mut TcpStream) -> Option<Recorded> {
     let path = request_line.split_whitespace().nth(1)?.to_string();
 
     let mut length = 0usize;
+    let mut headers = Vec::new();
     loop {
         let mut header = String::new();
         if reader.read_line(&mut header).ok()? == 0 {
@@ -201,10 +220,13 @@ fn read_request(stream: &mut TcpStream) -> Option<Recorded> {
         if header.is_empty() {
             break;
         }
-        if let Some((name, value)) = header.split_once(':')
-            && name.eq_ignore_ascii_case("content-length")
-        {
-            length = value.trim().parse().unwrap_or(0);
+        if let Some((name, value)) = header.split_once(':') {
+            let name = name.trim().to_ascii_lowercase();
+            let value = value.trim().to_string();
+            if name == "content-length" {
+                length = value.parse().unwrap_or(0);
+            }
+            headers.push((name, value));
         }
     }
     let mut body = vec![0u8; length];
@@ -214,6 +236,7 @@ fn read_request(stream: &mut TcpStream) -> Option<Recorded> {
     Some(Recorded {
         path,
         body: String::from_utf8_lossy(&body).to_string(),
+        headers,
     })
 }
 
