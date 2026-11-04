@@ -74,22 +74,30 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const gamesInDb = await ev(`fetch('/api/games?limit=5').then(r=>r.json()).then(v=>Array.isArray(v)?v.length:(v.games||[]).length)`);
 
   // Export must actually offer a file, and Open in Analysis must land on the board.
-  const exported = await ev(`(()=>{
+  // Keep the spy installed: the export fetches asynchronously and only then
+  // clicks the anchor, so restoring the prototype immediately misses it - the
+  // same trap cdp_tournament hit.
+  const exportClicked = await ev(`(()=>{
     window.__downloaded = null;
-    const original = HTMLAnchorElement.prototype.click;
+    window.__restoreClick = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function () { window.__downloaded = this.download; };
     const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "Export PGN");
-    if (!b) { HTMLAnchorElement.prototype.click = original; return "no button"; }
+    if (!b) { HTMLAnchorElement.prototype.click = window.__restoreClick; return "no button"; }
     b.click();
-    HTMLAnchorElement.prototype.click = original;
+    return "clicked";
+  })()`);
+  await sleep(1500);
+  const exported = await ev(`(()=>{
+    HTMLAnchorElement.prototype.click = window.__restoreClick;
     return window.__downloaded;
   })()`);
+
   await clickText("button", "Open in Analysis");
   await sleep(2500);
   const navAfterOpen = await ev(`(()=>{const n=document.querySelector(".nav.active");return n?n.textContent.trim():"";})()`);
-  const boardLoaded = await ev(`(()=>{const t=document.querySelector(".game-title, .movelist, .moves");return !!document.querySelector(".board");})()`);
+  const boardLoaded = await ev(`(()=>!!document.querySelector(".board"))()`);
 
-  console.log(JSON.stringify({ exported, navAfterOpen, boardLoaded, onPlay, hasHead, started, cards, plies, pgn: (pgn||"").slice(0,60), listCards, shortMatch, shortCard, resultLine, stepDisabled, beforeRematch, rematched, afterRematch, freshPlies, paused, afterPause, saved, message, gamesInDb }));
+  console.log(JSON.stringify({ exportClicked, exported, navAfterOpen, boardLoaded, onPlay, hasHead, started, cards, plies, pgn: (pgn||"").slice(0,60), listCards, shortMatch, shortCard, resultLine, stepDisabled, beforeRematch, rematched, afterRematch, freshPlies, paused, afterPause, saved, message, gamesInDb }));
   const ok = onPlay && hasHead && started && cards === 2 && plies.length >= 2
     && /1\./.test(pgn || "") && listCards >= 1
     && shortCard && /·/.test(resultLine || "") && stepDisabled === true

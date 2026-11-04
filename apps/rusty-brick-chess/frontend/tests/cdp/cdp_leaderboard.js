@@ -37,6 +37,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const hasBoard = await ev(`!!document.querySelector(".leaderboard")`);
   const hasTournaments = await ev(`!!document.querySelector(".tournaments")`);
 
+  // The create control is a form now (name, format, competitors) rather than a
+  // button with four hardcoded models, so fill it before creating.
+  const typeInto = async (selector, text) => await ev(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)return false;el.value=${JSON.stringify(text)};el.dispatchEvent(new Event("input",{bubbles:true}));return true;})()`);
+  const named = await typeInto(".tournament-name", "Leaderboard cup");
+  const typed = await typeInto(".tournament-competitors", "llm:a:v1, llm:b:v1, llm:c:v1, llm:d:v1");
   const created = await clickText("New round robin");
   await sleep(2000);
   const rows = await ev(`document.querySelectorAll(".tournament-list .tournament-row").length`);
@@ -50,7 +55,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const columns = await ev(`[...document.querySelectorAll(".leaderboard-table thead th")].map(t=>t.textContent.trim())`);
 
   console.log(JSON.stringify({ hasBoard, hasTournaments, created, rows, stepClicked, stepped, paused, afterPause, standings, columns }));
-  const ok = hasBoard && hasTournaments && created && rows >= 1 && stepClicked
+  const ok =
+    named && typed && hasBoard && hasTournaments && created && rows >= 1 && stepClicked
     && /started \d+ game/.test(stepped || "") && paused && /paused/.test(afterPause || "")
     && standings >= 2
     && columns.includes("Legal rate") && columns.includes("Turns") && columns.includes("Tokens");
