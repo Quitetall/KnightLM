@@ -6,7 +6,8 @@
 pub mod accounts;
 pub mod archive;
 pub mod pieces;
-pub mod api;
+pub mod ai_host;
+mod api;
 pub mod domain_api;
 pub mod console;
 pub mod importer;

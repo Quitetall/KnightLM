@@ -531,6 +531,10 @@ pub async fn send_ai_turn(
     Path(id): Path<String>,
     Json(body): Json<SendAiTurn>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    use rbc_ai::agent::{AgentLoop, TurnContext, TurnPlan};
+    use rbc_ai::policy::PermissionProfile;
+    use rbc_ai::protocol::{ModelRef, SessionMode};
+
     let session = state.db.ai_session(&id)?.ok_or(ApiError::NotFound)?;
     let settings = crate::api::effective(&state);
     let url = settings
@@ -578,31 +582,73 @@ pub async fn send_ai_turn(
         },
     )?;
 
-    let depth = body.depth.unwrap_or(settings.depth).clamp(1, 30);
-    let message = body.message;
-    let fen_for_model = fen.clone();
-    let settings_for_model = settings.clone();
-    let db_for_model = state.db.clone();
-    let reply = tokio::task::spawn_blocking(move || {
-        crate::api::chat_with_tools(
-            &url,
-            &message,
-            &fen_for_model,
-            depth,
-            &settings_for_model,
-            Some(db_for_model),
-            session.target_board_id.clone(),
-        )
-    })
+    let model: ModelRef = serde_json::from_str(&session.model_json)
+        .unwrap_or_else(|_| ModelRef::new("openai_compatible", "knightlm"));
+    let permissions: PermissionProfile =
+        serde_json::from_str(&session.permissions_json).unwrap_or_default();
+
+    let mut plan = TurnPlan::chat(
+        id.clone(),
+        format!("turn-{}", user_turn.seq),
+        model.clone(),
+        TurnContext {
+            system: compiled.prompt.clone(),
+            context_json: serde_json::to_string(&compiled.data).unwrap_or_default(),
+            context_sha256: compiled.sha256.clone(),
+            spec_version: format!("{}@{}", compiled.spec_id, compiled.spec_version),
+            template_version: "rbc-prompt-v1".into(),
+            tool_schema_version: "1".into(),
+            engine_fingerprint: None,
+            tokens_estimate: compiled.tokens,
+        },
+        body.message.clone(),
+    );
+    plan.seq = user_turn.seq as u64;
+    plan.mode = match session.mode.as_str() {
+        "play" => SessionMode::Play,
+        "watch" => SessionMode::Watch,
+        _ => SessionMode::Chat,
+    };
+    plan.permissions = permissions;
+    plan.history = history_messages(&state.db, &id, user_turn.seq);
+
+    let db_for_turn = state.db.clone();
+    let engine_path = settings.engine_path.clone();
+    let plan_for_turn = plan.clone();
+    let outcome = tokio::task::spawn_blocking(
+        move || -> Result<rbc_ai::agent::AgentOutcome, String> {
+            let config = rbc_ai::provider::ProviderConfig::openai_compatible(
+                &url,
+                "openai_compatible",
+                plan_for_turn.model.model.clone(),
+            );
+            let provider =
+                rbc_ai::provider::OpenAiProvider::new(config).map_err(|error| error.message)?;
+            let engine = engine_path
+                .and_then(|path| crate::ai_host::LocalEngine::spawn(&path, Default::default()).ok());
+            let engine_ref: Option<&dyn rbc_ai::reads::Engine> =
+                engine.as_ref().map(|engine| engine as &dyn rbc_ai::reads::Engine);
+            let mut host = crate::ai_host::SessionHost::new(&db_for_turn, "assistant", engine_ref);
+            let registry = rbc_ai::tools::ToolRegistry::builtin();
+            let cancel = rbc_ai::provider::Cancellation::new();
+            Ok(
+                AgentLoop::new(&provider, &registry, &mut host).run(
+                    &plan_for_turn,
+                    &cancel,
+                    &mut |_event| {},
+                ),
+            )
+        },
+    )
     .await
     .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?;
 
-    let reply = match reply {
-        Ok(reply) => reply,
-        Err(error) => {
+    let outcome = match outcome {
+        Ok(outcome) => outcome,
+        Err(message) => {
             let error_json = serde_json::json!({
                 "code": "provider_error",
-                "message": error.to_string(),
+                "message": message,
                 "retryable": true,
             })
             .to_string();
@@ -615,6 +661,7 @@ pub async fn send_ai_turn(
                     spec_version: format!("{}@{}", compiled.spec_id, compiled.spec_version),
                     template_version: "rbc-prompt-v1".into(),
                     tool_schema_version: "1".into(),
+                    engine_fingerprint: None,
                     model_json: session.model_json.clone(),
                     error_json: Some(error_json),
                     ..Default::default()
@@ -623,32 +670,67 @@ pub async fn send_ai_turn(
             return Ok(Json(serde_json::json!({
                 "user_turn": user_turn,
                 "assistant_turn": assistant_turn,
-                "error": error.to_string(),
+                "error": message,
             })));
         }
     };
 
+    // One assistant turn records the whole loop: final text, every tool call
+    // and result, the summed usage and any terminal error.
+    let calls: Vec<rbc_ai::protocol::ToolCall> = outcome
+        .drafts
+        .iter()
+        .flat_map(|draft| draft.tool_calls.clone())
+        .collect();
+    let reply = outcome.reply();
     let assistant_turn = state.db.append_ai_turn(
         &id,
         &rbc_db::AiTurnInput {
             role: "assistant".into(),
-            content: reply.reply.clone(),
-            tool_calls_json: serde_json::to_string(&reply.tools).unwrap_or_else(|_| "[]".into()),
-            tool_results_json: serde_json::to_string(&reply.actions).unwrap_or_else(|_| "[]".into()),
+            content: reply.clone(),
+            reasoning: outcome
+                .drafts
+                .iter()
+                .rev()
+                .find_map(|draft| draft.reasoning.clone()),
+            tool_calls_json: serde_json::to_string(&calls).unwrap_or_else(|_| "[]".into()),
+            tool_results_json: serde_json::to_string(&outcome.tool_results)
+                .unwrap_or_else(|_| "[]".into()),
             context_json: serde_json::to_string(&compiled.data).unwrap_or_default(),
             context_sha256: compiled.sha256.clone(),
             spec_version: format!("{}@{}", compiled.spec_id, compiled.spec_version),
             template_version: "rbc-prompt-v1".into(),
             tool_schema_version: "1".into(),
+            engine_fingerprint: None,
             model_json: session.model_json.clone(),
-            ..Default::default()
+            tokens_in: outcome.usage.tokens_in as i64,
+            tokens_out: outcome.usage.tokens_out as i64,
+            latency_ms: outcome.usage.latency_ms as i64,
+            error_json: outcome
+                .error
+                .as_ref()
+                .map(|error| serde_json::to_string(error).unwrap_or_default()),
         },
     )?;
 
+    if reply.trim().is_empty() {
+        if let Some(error) = &outcome.error {
+            return Ok(Json(serde_json::json!({
+                "user_turn": user_turn,
+                "assistant_turn": assistant_turn,
+                "error": error.message,
+            })));
+        }
+    }
+
     Ok(Json(serde_json::json!({
-        "reply": reply.reply,
-        "actions": reply.actions,
-        "tools": reply.tools,
+        "reply": reply,
+        "actions": [],
+        "tools": outcome
+            .tool_results
+            .iter()
+            .map(|result| result.tool.clone())
+            .collect::<Vec<_>>(),
         "user_turn": user_turn,
         "assistant_turn": assistant_turn,
         "context": {
@@ -659,6 +741,37 @@ pub async fn send_ai_turn(
             "sections": compiled.sections,
         },
     })))
+}
+
+/// The conversation before a turn, as provider messages.
+///
+/// Only text is replayed: tool calls and their results live on the stored turn
+/// for the transcript, and replaying them here would mean re-sending arguments
+/// the model no longer has context for. The window is bounded so a long
+/// session cannot grow the prompt without limit.
+fn history_messages(
+    db: &rbc_db::Db,
+    session_id: &str,
+    before_seq: i64,
+) -> Vec<rbc_ai::provider::ChatMessage> {
+    use rbc_ai::provider::ChatMessage;
+    const HISTORY_TURNS: usize = 20;
+    let Ok(turns) = db.ai_turns(session_id) else {
+        return Vec::new();
+    };
+    let mut messages: Vec<ChatMessage> = turns
+        .into_iter()
+        .filter(|turn| turn.seq < before_seq && !turn.content.trim().is_empty())
+        .filter_map(|turn| match turn.role.as_str() {
+            "user" => Some(ChatMessage::user(turn.content)),
+            "assistant" => Some(ChatMessage::assistant(turn.content)),
+            _ => None,
+        })
+        .collect();
+    if messages.len() > HISTORY_TURNS {
+        messages.drain(..messages.len() - HISTORY_TURNS);
+    }
+    messages
 }
 
 pub async fn replay_ai_turn(
