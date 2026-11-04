@@ -112,6 +112,10 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     let tournaments = RwSignal::new(Vec::<serde_json::Value>::new());
     let tournament_id = RwSignal::new(None::<String>);
     let tournament_detail = RwSignal::new(None::<serde_json::Value>);
+    let tour_name = RwSignal::new(String::new());
+    let tour_format = RwSignal::new("double-round-robin".to_string());
+    let tour_competitors = RwSignal::new(String::new());
+    let tour_log = RwSignal::new(Vec::<String>::new());
 
     let reload = move || {
         spawn_local(async move {
@@ -430,22 +434,51 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
 
                     <section class="tournaments">
                         <h3>{move || i18n::t(&language.get(), "play.tournaments")}</h3>
+                        <div class="tournament-form">
+                            <input
+                                class="tournament-name"
+                                placeholder=move || i18n::t(&language.get(), "play.tournament_name")
+                                prop:value=move || tour_name.get()
+                                on:input=move |event| tour_name.set(event_target_value(&event))
+                            />
+                            <select
+                                class="tournament-format"
+                                aria-label=move || i18n::t(&language.get(), "play.format")
+                                on:change=move |event| tour_format.set(event_target_value(&event))
+                            >
+                                <option value="double-round-robin">{move || i18n::t(&language.get(), "play.format_rr")}</option>
+                                <option value="swiss">{move || i18n::t(&language.get(), "play.format_swiss")}</option>
+                                <option value="knockout">{move || i18n::t(&language.get(), "play.format_knockout")}</option>
+                            </select>
+                            <input
+                                class="tournament-competitors"
+                                placeholder=move || i18n::t(&language.get(), "play.competitors_hint")
+                                prop:value=move || tour_competitors.get()
+                                on:input=move |event| tour_competitors.set(event_target_value(&event))
+                            />
+                        </div>
                         <div class="tournament-actions">
                             <button
                                 class="tournament-create"
                                 on:click=move |_| {
-                                    let competitors = vec![
-                                        "llm:a:v1".to_string(),
-                                        "llm:b:v1".to_string(),
-                                        "llm:c:v1".to_string(),
-                                        "llm:d:v1".to_string(),
-                                    ];
+                                    let name = tour_name.get_untracked();
+                                    let name = if name.trim().is_empty() { "Tournament".to_string() } else { name };
+                                    let format = tour_format.get_untracked();
+                                    let competitors: Vec<String> = tour_competitors
+                                        .get_untracked()
+                                        .split(',')
+                                        .map(str::trim)
+                                        .filter(|c| !c.is_empty())
+                                        .map(str::to_string)
+                                        .collect();
+                                    let log = tour_log;
                                     spawn_local(async move {
-                                        match ai_api::create_tournament("Round robin", "double-round-robin", &competitors).await {
+                                        match ai_api::create_tournament(&name, &format, &competitors).await {
                                             Ok(value) => {
                                                 reload_tournaments();
                                                 if let Some(id) = value.get("id").and_then(|id| id.as_str()) {
                                                     tournament_id.set(Some(id.to_string()));
+                                                    log.update(|lines| lines.push(format!("created {name} ({format})")));
                                                 }
                                             }
                                             Err(error) => message.set(error),
@@ -459,7 +492,12 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 if let Some(id) = tournament_id.get_untracked() {
                                     spawn_local(async move {
                                         if let Ok(value) = ai_api::tournament_action(&id, "step").await {
-                                            message.set(format!("started {} game(s)", value.get("started").and_then(|s| s.as_array()).map(|a| a.len()).unwrap_or(0)));
+                                            let started = value.get("started").and_then(|s| s.as_array()).map(|a| a.len()).unwrap_or(0);
+                                            message.set(format!("started {started} game(s)"));
+                                            tour_log.update(|lines| lines.push(format!("step: started {started} game(s)")));
+                                            if let Ok(detail) = ai_api::tournament_detail(&id).await {
+                                                tournament_detail.set(Some(detail));
+                                            }
                                         }
                                         reload_tournaments();
                                     });
@@ -471,18 +509,40 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 if let Some(id) = tournament_id.get_untracked() {
                                     spawn_local(async move {
                                         if let Ok(value) = ai_api::tournament_action(&id, "pause").await {
-                                            message.set(format!("tournament {}", value.get("status").and_then(|s| s.as_str()).unwrap_or("")));
+                                            let status = value.get("status").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                                            message.set(format!("tournament {status}"));
+                                            tour_log.update(|lines| lines.push(format!("pause: {status}")));
+                                            if let Ok(detail) = ai_api::tournament_detail(&id).await {
+                                                tournament_detail.set(Some(detail));
+                                            }
                                         }
                                     });
                                 }
                             }>
                                 {move || i18n::t(&language.get(), "play.pause")}
                             </button>
+                            <button class="tournament-export" on:click=move |_| {
+                                if let Some(id) = tournament_id.get_untracked() {
+                                    spawn_local(async move {
+                                        match ai_api::tournament_pgn(&id).await {
+                                            Ok(pgn) => download_pgn(&pgn),
+                                            Err(error) => message.set(error),
+                                        }
+                                    });
+                                }
+                            }>
+                                {move || i18n::t(&language.get(), "play.export")}
+                            </button>
                             <button class="tournament-resume" on:click=move |_| {
                                 if let Some(id) = tournament_id.get_untracked() {
                                     spawn_local(async move {
                                         if let Ok(value) = ai_api::tournament_action(&id, "resume").await {
-                                            message.set(format!("tournament {}", value.get("status").and_then(|s| s.as_str()).unwrap_or("")));
+                                            let status = value.get("status").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                                            message.set(format!("tournament {status}"));
+                                            tour_log.update(|lines| lines.push(format!("resume: {status}")));
+                                            if let Ok(detail) = ai_api::tournament_detail(&id).await {
+                                                tournament_detail.set(Some(detail));
+                                            }
                                         }
                                     });
                                 }
@@ -519,6 +579,44 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 }).collect_view().into_any()
                             }}
                         </ul>
+                        {move || tournament_detail.get().map(|detail| {
+                            let rounds = detail
+                                .get("tournament")
+                                .and_then(|t| t.get("schedule"))
+                                .and_then(|s| s.get("rounds"))
+                                .and_then(|r| r.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            let last = rounds.last().cloned().unwrap_or(serde_json::Value::Null);
+                            let pairings = last
+                                .get("games")
+                                .and_then(|g| g.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            view! {
+                                <ol class="pairings">
+                                    {pairings.into_iter().map(|game| {
+                                        let white = game.get("white").and_then(|w| w.as_str()).unwrap_or("").to_string();
+                                        let black = game.get("black").and_then(|b| b.as_str()).unwrap_or("").to_string();
+                                        let outcome = match game.get("outcome").and_then(|o| o.as_str()) {
+                                            Some("White") => "1-0",
+                                            Some("Black") => "0-1",
+                                            Some("Draw") => "½-½",
+                                            _ => "·",
+                                        };
+                                        view! { <li class="pairing">{format!("{white} — {black}  {outcome}")}</li> }
+                                    }).collect_view()}
+                                </ol>
+                            }.into_any()
+                        })}
+                        {move || {
+                            let lines = tour_log.get();
+                            (!lines.is_empty()).then(|| view! {
+                                <ul class="tournament-log">
+                                    {lines.into_iter().map(|line| view! { <li>{line}</li> }).collect_view()}
+                                </ul>
+                            })
+                        }}
                         {move || tournament_detail.get().map(|detail| {
                             let rows = detail.get("standings").and_then(|s| s.as_array()).cloned().unwrap_or_default();
                             view! {

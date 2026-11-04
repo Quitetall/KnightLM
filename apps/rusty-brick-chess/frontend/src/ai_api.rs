@@ -535,3 +535,14 @@ pub async fn tournament_detail(id: &str) -> Result<serde_json::Value, String> {
     let body = resp.text().await.map_err(|e| e.to_string())?;
     serde_json::from_str(&body).map_err(|_| body)
 }
+
+pub async fn tournament_pgn(id: &str) -> Result<String, String> {
+    let resp = Request::get(&format!("/api/ai/tournaments/{id}/pgn"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    resp.text().await.map_err(|e| e.to_string())
+}
