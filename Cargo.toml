@@ -16,5 +16,6 @@ shakmaty = { version = "=0.30.2", features = ["variant"] }
 pgn-reader = "0.29"
 vampirc-uci = "0.11"
 ureq = { version = "3", features = ["json"] }
+sha2 = "0.10"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 burn = { version = "=0.21.0", default-features = false, features = ["std", "ndarray", "autodiff"] }

@@ -3,6 +3,7 @@
 use axum::{
     Json,
     extract::{Path, Query, State},
+    response::sse::{Event, KeepAlive, Sse},
 };
 use rbc_db::{Board, BoardWriteError, Chapter, Study, StudyProgress, StudyVersion, Workspace};
 use serde::Deserialize;
@@ -631,13 +632,19 @@ pub async fn send_ai_turn(
             let mut host = crate::ai_host::SessionHost::new(&db_for_turn, "assistant", engine_ref);
             let registry = rbc_ai::tools::ToolRegistry::builtin();
             let cancel = rbc_ai::provider::Cancellation::new();
-            Ok(
-                AgentLoop::new(&provider, &registry, &mut host).run(
-                    &plan_for_turn,
-                    &cancel,
-                    &mut |_event| {},
-                ),
-            )
+            let mut events = Vec::new();
+            let outcome = AgentLoop::new(&provider, &registry, &mut host).run(
+                &plan_for_turn,
+                &cancel,
+                &mut |event| events.push(event),
+            );
+            // The stream is how the client watches a turn; recording it is
+            // best effort so a full disk cannot lose the answer itself.
+            rbc_ai::events::EventLog::new(&db_for_turn).append_all(
+                &rbc_ai::events::StreamKey::session(plan_for_turn.session_id.clone()),
+                &events,
+            );
+            Ok(outcome)
         },
     )
     .await
@@ -806,10 +813,14 @@ pub async fn replay_ai_turn(
             ..Default::default()
         },
     )?;
+    let stored_context: serde_json::Value =
+        serde_json::from_str(&turn.context_json).unwrap_or(serde_json::Value::Null);
+    let diff = rbc_ai::context_diff::diff_contexts(&stored_context, &compiled.data);
     Ok(Json(serde_json::json!({
         "seq": seq,
         "stored_sha256": turn.context_sha256,
         "stored_spec": turn.spec_version,
+        "diff": diff,
         "rebuilt_sha256": compiled.sha256,
         "rebuilt_spec": format!("{}@{}", compiled.spec_id, compiled.spec_version),
         "match": turn.context_sha256 == compiled.sha256,
@@ -952,3 +963,79 @@ pub async fn match_pgn(
 
 #[allow(dead_code)]
 fn _players_are_serde(_p: &Player) {}
+
+#[derive(Deserialize)]
+pub struct StreamQuery {
+    /// The last event id the client saw; 0 or absent replays from the start.
+    #[serde(default)]
+    pub after: Option<u64>,
+}
+
+/// `GET /api/ai/sessions/{id}/stream?after=<event id>`
+///
+/// Server-sent events carrying the normalized turn stream. The `id:` of each
+/// event is its cursor, so a browser `EventSource` reconnects with
+/// `Last-Event-ID` and only receives what it missed. Events are read from the
+/// stored log rather than pushed from the running turn, which means a client
+/// that connects late, or reconnects after a drop, sees exactly the same stream.
+pub async fn stream_ai_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<StreamQuery>,
+) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>>>, ApiError>
+{
+    if state.db.ai_session(&id)?.is_none() {
+        return Err(ApiError::NotFound);
+    }
+    let db = state.db.clone();
+    let (sender, receiver) = tokio::sync::mpsc::channel(64);
+    let mut cursor = query.after.unwrap_or(0);
+
+    tokio::spawn(async move {
+        use rbc_ai::events::{EventLog, StreamKey};
+        let stream = StreamKey::session(id);
+        // Polling the log keeps this stateless: the turn being streamed is one
+        // request on another connection, and a finished turn needs no live
+        // channel to exist any more.
+        let mut quiet_polls = 0u32;
+        loop {
+            match EventLog::new(&db).replay(&stream, cursor) {
+                Ok(events) if !events.is_empty() => {
+                    quiet_polls = 0;
+                    for event in events {
+                        cursor = event.event_id;
+                        let data = match serde_json::to_string(&event) {
+                            Ok(data) => data,
+                            Err(_) => continue,
+                        };
+                        let item = Ok(Event::default()
+                            .event("ai")
+                            .id(cursor.to_string())
+                            .data(data));
+                        if sender.send(item).await.is_err() {
+                            return; // the client went away
+                        }
+                    }
+                }
+                Ok(_) => {
+                    quiet_polls += 1;
+                    if quiet_polls % 20 == 0 {
+                        let keep = Ok(Event::default().comment("keep-alive"));
+                        if sender.send(keep).await.is_err() {
+                            return;
+                        }
+                    }
+                    // About two minutes of silence closes an abandoned tab.
+                    if quiet_polls > 480 {
+                        return;
+                    }
+                }
+                Err(_) => return,
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+    });
+
+    Ok(Sse::new(tokio_stream::wrappers::ReceiverStream::new(receiver))
+        .keep_alive(KeepAlive::default()))
+}

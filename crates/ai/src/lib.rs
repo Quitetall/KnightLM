@@ -21,6 +21,9 @@ pub mod tools;
 pub mod game;
 
 #[cfg(feature = "provider")]
+pub mod context_diff;
+
+#[cfg(feature = "provider")]
 pub mod provider;
 
 #[cfg(feature = "provider")]
@@ -28,6 +31,9 @@ pub mod agent;
 
 #[cfg(feature = "host")]
 pub mod board;
+
+#[cfg(feature = "host")]
+pub mod events;
 
 #[cfg(feature = "host")]
 pub mod reads;

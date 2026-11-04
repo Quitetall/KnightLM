@@ -987,6 +987,28 @@ fn ai_turn_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AiTurn> {
     })
 }
 
+/// One stored, replayable stream event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiEventRow {
+    pub stream_kind: String,
+    pub stream_id: String,
+    pub event_id: i64,
+    pub payload_json: String,
+    pub created: i64,
+}
+
+fn ai_event_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AiEventRow> {
+    Ok(AiEventRow {
+        stream_kind: row.get(0)?,
+        stream_id: row.get(1)?,
+        event_id: row.get(2)?,
+        payload_json: row.get(3)?,
+        created: row.get(4)?,
+    })
+}
+
+const AI_EVENT_COLUMNS: &str = "stream_kind, stream_id, event_id, payload_json, created";
+
 const AI_SESSION_COLUMNS: &str = "id, title, mode, home_board_id, target_board_id, model_json,     context_spec_json, permissions_json, created, updated, archived";
 
 const AI_TURN_COLUMNS: &str = "id, session_id, seq, role, content, reasoning, tool_calls_json,     tool_results_json, context_json, context_sha256, spec_version, template_version,     tool_schema_version, engine_fingerprint, model_json, tokens_in, tokens_out, latency_ms,     error_json, created";
@@ -1148,6 +1170,75 @@ impl Db {
         Ok(stmt
             .query_map(params![session_id], ai_turn_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Append one event to a stream's replay log.
+    ///
+    /// The event id is assigned here, so two writers on the same stream cannot
+    /// hand a client two different events with the same id.
+    pub fn append_ai_event(
+        &self,
+        stream_kind: &str,
+        stream_id: &str,
+        payload_json: &str,
+    ) -> Result<AiEventRow> {
+        let conn = self.conn.lock().expect("db lock");
+        let event_id: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(event_id), 0) + 1 FROM ai_events
+             WHERE stream_kind = ?1 AND stream_id = ?2",
+            params![stream_kind, stream_id],
+            |row| row.get(0),
+        )?;
+        conn.execute(
+            &format!(
+                "INSERT INTO ai_events (stream_kind, stream_id, event_id, payload_json, created)
+                 VALUES (?1, ?2, ?3, ?4, {NOW})"
+            ),
+            params![stream_kind, stream_id, event_id, payload_json],
+        )?;
+        Ok(conn.query_row(
+            &format!(
+                "SELECT {AI_EVENT_COLUMNS} FROM ai_events
+                 WHERE stream_kind = ?1 AND stream_id = ?2 AND event_id = ?3"
+            ),
+            params![stream_kind, stream_id, event_id],
+            ai_event_row,
+        )?)
+    }
+
+    /// Every event on a stream after `after`, in order.
+    ///
+    /// `after = 0` replays the stream from the beginning, which is what a
+    /// client does when it has no cursor.
+    pub fn ai_events(
+        &self,
+        stream_kind: &str,
+        stream_id: &str,
+        after: i64,
+    ) -> Result<Vec<AiEventRow>> {
+        let conn = self.conn.lock().expect("db lock");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {AI_EVENT_COLUMNS} FROM ai_events
+             WHERE stream_kind = ?1 AND stream_id = ?2 AND event_id > ?3
+             ORDER BY event_id"
+        ))?;
+        Ok(stmt
+            .query_map(
+                params![stream_kind, stream_id, after],
+                ai_event_row,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// The highest event id on a stream, or 0 when nothing was written.
+    pub fn latest_ai_event_id(&self, stream_kind: &str, stream_id: &str) -> Result<i64> {
+        let conn = self.conn.lock().expect("db lock");
+        Ok(conn.query_row(
+            "SELECT COALESCE(MAX(event_id), 0) FROM ai_events
+             WHERE stream_kind = ?1 AND stream_id = ?2",
+            params![stream_kind, stream_id],
+            |row| row.get(0),
+        )?)
     }
 }
 

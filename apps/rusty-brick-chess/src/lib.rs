@@ -91,6 +91,7 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/ai/sessions/{id}/turns", get(domain_api::list_ai_turns).post(domain_api::append_ai_turn))
         .route("/api/ai/sessions/{id}/send", post(domain_api::send_ai_turn))
         .route("/api/ai/sessions/{id}/replay/{seq}", get(domain_api::replay_ai_turn))
+        .route("/api/ai/sessions/{id}/stream", get(domain_api::stream_ai_session))
         .route("/api/ai/matches", post(domain_api::create_match))
         .route("/api/ai/matches/{id}", get(domain_api::get_match))
         .route("/api/ai/matches/{id}/move", post(domain_api::play_match_move))

@@ -10,7 +10,7 @@ description = "Assistant domain: sessions, tools, providers, matches, ratings an
 default = ["protocol"]
 protocol = []
 core = ["protocol", "dep:knightlm-core", "dep:shakmaty", "dep:anyhow"]
-provider = ["core", "dep:ureq"]
+provider = ["core", "dep:ureq", "dep:sha2"]
 host = ["provider", "dep:rbc-db"]
 
 [dependencies]
@@ -21,3 +21,4 @@ rbc-db = { path = "../rbc-db", optional = true }
 knightlm-core = { path = "../core", optional = true }
 shakmaty = { workspace = true, optional = true }
 ureq = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }

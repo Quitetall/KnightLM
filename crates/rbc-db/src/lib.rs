@@ -2146,7 +2146,7 @@ fn moves_to_san(fen: &str, moves: &str) -> String {
 /// Additive migrations for databases created by older builds.
 /// Current schema version. Bump this and add a `migrate_vN` step for changes
 /// that `CREATE ... IF NOT EXISTS` cannot express.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -2176,6 +2176,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if version < 4 {
         migrate_v4(conn)?;
         version = 4;
+    }
+    if version < 5 {
+        migrate_v5(conn)?;
+        version = 5;
     }
     conn.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
@@ -2474,6 +2478,28 @@ fn migrate_v4(conn: &Connection) -> Result<()> {
          INSERT OR IGNORE INTO legacy_sessions (client, payload, updated)
              SELECT client, payload, updated FROM sessions;
          DELETE FROM sessions;",
+    )?;
+    Ok(())
+}
+
+
+/// v5: the replayable event log behind `GET .../stream`.
+///
+/// One row per emitted event, ordered by `event_id` within a stream. A stream
+/// is a session or a match, named by `stream_kind`; the id is the client's
+/// reconnect cursor.
+fn migrate_v5(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS ai_events (
+             stream_kind TEXT NOT NULL,
+             stream_id TEXT NOT NULL,
+             event_id INTEGER NOT NULL,
+             payload_json TEXT NOT NULL,
+             created INTEGER NOT NULL,
+             PRIMARY KEY (stream_kind, stream_id, event_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_ai_events_stream
+             ON ai_events(stream_kind, stream_id, event_id);",
     )?;
     Ok(())
 }

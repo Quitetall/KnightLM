@@ -4130,6 +4130,7 @@ dependencies = [
  "rbc-db",
  "serde",
  "serde_json",
+ "sha2",
  "shakmaty",
  "ureq 3.4.2",
 ]
