@@ -24,6 +24,9 @@ pub mod game;
 pub mod context_diff;
 
 #[cfg(feature = "provider")]
+pub mod play;
+
+#[cfg(feature = "provider")]
 pub mod provider;
 
 #[cfg(feature = "provider")]

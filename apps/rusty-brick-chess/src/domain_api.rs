@@ -1285,3 +1285,160 @@ pub async fn cancel_ai_turn(
         "cancelled": cancelled,
     })))
 }
+
+
+// --- playing a match -------------------------------------------------------
+
+/// Casual games are the unrated ones; a rated match is competitive, so the
+/// moves-only policy follows from the config a match was created with.
+fn play_policy(game: &Match) -> rbc_ai::play::PlayPolicy {
+    if game.config().rated {
+        rbc_ai::play::PlayPolicy::competitive()
+    } else {
+        rbc_ai::play::PlayPolicy::casual()
+    }
+}
+
+fn save_match_after(
+    state: &AppState,
+    id: &str,
+    game: &Match,
+) -> Result<(), ApiError> {
+    let result_json = game.result().map(serde_json::to_string).transpose()?;
+    let termination = game.result().map(|result| result.termination.clone());
+    state.db.save_ai_match(
+        id,
+        &serde_json::to_string(&game.snapshot())?,
+        &game.pgn(),
+        result_json.as_deref(),
+        termination.as_deref(),
+        game.result().is_some(),
+    )?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct MatchChatBody {
+    pub message: String,
+}
+
+/// `POST /api/ai/matches/{id}/model-move`
+///
+/// Asks the seat a model holds for one move. The move is validated against the
+/// real position before the match records it, so a model that answers with
+/// something illegal is retried, not trusted.
+pub async fn model_match_move(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let settings = crate::api::effective(&state);
+    let url = settings
+        .model_url
+        .clone()
+        .ok_or(ApiError::Unavailable("model URL is not set"))?;
+    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
+    let mut game = Match::from_snapshot(snapshot)?;
+    let policy = play_policy(&game);
+    let Some(seat) = rbc_ai::play::model_seat(game.config()) else {
+        return Err(ApiError::BadRequest(
+            "this match has no model seat".to_string(),
+        ));
+    };
+
+    let playing = tokio::task::spawn_blocking(move || {
+        let config = rbc_ai::provider::ProviderConfig::openai_compatible(
+            &url,
+            "openai_compatible",
+            seat.model.clone(),
+        );
+        let provider = rbc_ai::provider::OpenAiProvider::new(config)
+            .map_err(|error| error.message)?;
+        let cancel = rbc_ai::provider::Cancellation::new();
+        rbc_ai::play::request_move(&mut game, &provider, &seat, &policy, &cancel)
+            .map(|played| (game, played))
+            .map_err(|error| error.message)
+    })
+    .await
+    .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?
+    .map_err(ApiError::BadRequest)?;
+
+    let (game, played) = playing;
+    save_match_after(&state, &id, &game)?;
+    Ok(Json(serde_json::json!({
+        "match": match_payload(&id, &game),
+        "move": played.mv,
+        "reasoning": played.reasoning,
+        "attempts": played.attempts,
+    })))
+}
+
+/// `POST /api/ai/matches/{id}/takeback`
+///
+/// Allowed in a casual game and refused in a competitive one.
+pub async fn takeback_match_move(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
+    let mut game = Match::from_snapshot(snapshot)?;
+    let policy = play_policy(&game);
+    if let Some(refusal) = policy.check(rbc_ai::play::PlayAction::Takeback) {
+        return Err(ApiError::BadRequest(refusal.message));
+    }
+    let taken = game
+        .takeback()
+        .ok_or_else(|| ApiError::BadRequest("there is no move to take back".to_string()))?;
+    save_match_after(&state, &id, &game)?;
+    Ok(Json(serde_json::json!({
+        "match": match_payload(&id, &game),
+        "taken_back": taken,
+    })))
+}
+
+/// `POST /api/ai/matches/{id}/chat`
+///
+/// Talking about a game is a casual-game thing; a competitive match refuses it
+/// before the model is asked anything.
+pub async fn chat_match(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<MatchChatBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let settings = crate::api::effective(&state);
+    let url = settings
+        .model_url
+        .clone()
+        .ok_or(ApiError::Unavailable("model URL is not set"))?;
+    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
+    let game = Match::from_snapshot(snapshot)?;
+    let policy = play_policy(&game);
+    if let Some(refusal) = policy.check(rbc_ai::play::PlayAction::Chat) {
+        return Err(ApiError::BadRequest(refusal.message));
+    }
+    let Some(seat) = rbc_ai::play::model_seat(game.config()) else {
+        return Err(ApiError::BadRequest(
+            "this match has no model seat".to_string(),
+        ));
+    };
+    let message = body.message;
+    let reply = tokio::task::spawn_blocking(move || {
+        let config = rbc_ai::provider::ProviderConfig::openai_compatible(
+            &url,
+            "openai_compatible",
+            seat.model.clone(),
+        );
+        let provider = rbc_ai::provider::OpenAiProvider::new(config)
+            .map_err(|error| error.message)?;
+        let cancel = rbc_ai::provider::Cancellation::new();
+        rbc_ai::play::request_chat(&game, &provider, &seat, &policy, &message, &cancel)
+            .map_err(|error| error.message)
+    })
+    .await
+    .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?
+    .map_err(ApiError::BadRequest)?;
+
+    Ok(Json(serde_json::json!({ "reply": reply })))
+}

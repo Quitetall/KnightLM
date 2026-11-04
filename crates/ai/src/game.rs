@@ -374,6 +374,32 @@ impl Match {
         }
     }
 
+    /// Take back the last move, returning it.
+    ///
+    /// The position is rebuilt from the move list rather than reversed, so a
+    /// takeback cannot leave a half-applied move behind. The clock is untouched:
+    /// time already spent is time spent, which is what a casual game wants.
+    pub fn takeback(&mut self) -> Option<MatchMove> {
+        if matches!(self.state, MatchState::Finished | MatchState::Aborted) {
+            return None;
+        }
+        let mut taken = self.moves.pop()?;
+        let replay: Vec<String> = self.moves.iter().map(|mv| mv.uci.clone()).collect();
+        let clock = self.clock;
+        let mut rebuilt = Match::new(self.config.clone()).ok()?;
+        for uci in replay {
+            rebuilt.apply(&uci).ok()?;
+        }
+        self.position = rebuilt.position;
+        self.mode = rebuilt.mode;
+        self.moves = rebuilt.moves;
+        self.state = rebuilt.state;
+        self.result = rebuilt.result;
+        self.clock = clock;
+        taken.comment = None;
+        Some(taken)
+    }
+
     /// Attach a comment to an already-played ply, shown in the PGN export.
     ///
     /// Returns whether the ply exists; a comment on a ply that was never played
