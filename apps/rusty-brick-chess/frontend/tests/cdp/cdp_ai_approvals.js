@@ -137,12 +137,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(1200);
   const rows = await ev(`document.querySelectorAll(".approval-row").length`);
   const tool = await ev(`(()=>{const e=document.querySelector(".approval-row .tool-chip");return e?e.textContent.trim():"";})()`);
+  const notes = await ev(`(()=>{const e=[...document.querySelectorAll(".approval-row .muted")].map(x=>x.textContent.trim());return e.join(" | ");})()`);
   const approved = await ev(`(()=>{const b=[...document.querySelectorAll(".approval-row button")].find(x=>x.textContent.trim()==="Approve");if(!b)return false;b.click();return true;})()`);
-  await sleep(1500);
+  await sleep(2000);
   const rowsAfter = await ev(`document.querySelectorAll(".approval-row").length`);
+  const message = await ev(`(()=>{const e=[...document.querySelectorAll(".approval-queue .muted")].map(x=>x.textContent.trim()).filter(Boolean);return e.join(" | ");})()`);
+  // The board must actually have the move on it now.
+  const board_state = await ev(`(async()=>{
+    const boardId = ${JSON.stringify(board)};
+    const b = await fetch('/api/boards/' + boardId).then(r=>r.json());
+    return { revision: b.revision, content: b.content_json };
+  })()`);
 
-  console.log(JSON.stringify({ board, opened, rows, tool, approved, rowsAfter }));
-  const ok = !!board && opened && rows >= 1 && tool === "play_move" && approved && rowsAfter === rows - 1;
+  console.log(JSON.stringify({ board, opened, rows, tool, notes, approved, rowsAfter, message, board_state }));
+  const applied = board_state && board_state.revision === 2 && /"moves":\["e4"\]/.test(board_state.content || "");
+  const ok = !!board && opened && rows >= 1 && tool === "play_move" && approved && rowsAfter === rows - 1
+    && applied && /applied/.test(message || "");
   console.log(ok ? "AI_APPROVALS_PASS" : "AI_APPROVALS_FAIL");
   ws.close();
   chrome.kill();

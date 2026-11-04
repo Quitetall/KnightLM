@@ -90,29 +90,45 @@ impl ToolHost for SessionHost<'_> {
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_string();
-        let (title, revision, before) = match self.db.board(&board_id) {
+        let (title, revision, before, start_fen) = match self.db.board(&board_id) {
             Ok(Some(board)) => (
                 board.title.clone(),
                 board.revision,
                 BoardContent::parse(&board.content_json).unwrap_or_default(),
+                board.start_fen.clone(),
             ),
-            _ => (String::new(), 0, BoardContent::default()),
+            _ => (String::new(), 0, BoardContent::default(), String::new()),
         };
+        // Show the board as it would be where that is cheap to compute; a
+        // preview that cannot be built falls back to the current board rather
+        // than guessing.
+        let after = match call.name.as_str() {
+            "play_move" => call
+                .arguments
+                .get("move")
+                .and_then(|mv| mv.as_str())
+                .and_then(|text| before.with_move(&start_fen, text).ok()),
+            _ => None,
+        }
+        .unwrap_or_else(|| before.clone());
         let mut changeset = Changeset::for_board(
             &board_id,
             title,
             revision,
             call.name.clone(),
-            before.clone(),
             before,
+            after,
         )
         .with_arguments(call.arguments.clone());
         changeset.summary = summary;
-        changeset.notes = vec![format!(
-            "requested {} {}",
-            call.name,
-            serde_json::to_string(&call.arguments).unwrap_or_default()
-        )];
+        if changeset.notes == ["no visible change"] {
+            // Nothing to diff; say what was asked instead.
+            changeset.notes = vec![format!(
+                "requested {} {}",
+                call.name,
+                serde_json::to_string(&call.arguments).unwrap_or_default()
+            )];
+        }
         self.approvals
             .request(
                 self.origin,

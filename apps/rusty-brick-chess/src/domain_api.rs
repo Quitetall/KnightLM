@@ -1177,12 +1177,44 @@ fn resolve_approval(
         store.deny(id, now)
     };
     match resolved {
-        Ok(request) => Ok(Json(serde_json::json!(request))),
+        Ok(request) => {
+            // Approving means "do it": the reviewed call is replayed here, with
+            // the arguments the person saw. A refused write leaves the approval
+            // approved (the decision stands) and reports why nothing was
+            // written, so the answer is never a silent no-op.
+            let result = if approve {
+                execute_approved(&state.db, &request)
+            } else {
+                None
+            };
+            Ok(Json(serde_json::json!({
+                "approval": request,
+                "result": result,
+            })))
+        }
         Err(ApprovalError::NotFound(_)) => Err(ApiError::NotFound),
         Err(error @ ApprovalError::AlreadyResolved(_)) | Err(error @ ApprovalError::Expired) => {
             Err(ApiError::BadRequest(error.to_string()))
         }
     }
+}
+
+/// Replay the call an approval was granted for.
+///
+/// The tool and its arguments come from the stored changeset, not from the
+/// request, so what runs is exactly what was reviewed. Board and study writes
+/// go through the same host the agent loop uses, which means the revision
+/// checks still apply: an approval for a board that moved since is a conflict,
+/// not a blind overwrite.
+fn execute_approved(
+    db: &rbc_db::Db,
+    request: &rbc_ai::protocol::ApprovalRequest,
+) -> Option<rbc_ai::protocol::ToolResult> {
+    let changeset = rbc_ai::approval::changeset_of(request)?;
+    let arguments = changeset.arguments?;
+    let call = rbc_ai::protocol::ToolCall::new(request.id.clone(), request.tool.clone(), arguments);
+    let mut host = rbc_ai::board::BoardWriteHost::new(db, "approval");
+    Some(rbc_ai::agent::ToolHost::call(&mut host, &call))
 }
 
 

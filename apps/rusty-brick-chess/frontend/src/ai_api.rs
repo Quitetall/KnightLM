@@ -346,16 +346,20 @@ pub async fn list_approvals() -> Result<Vec<ApprovalInfo>, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Answer a pending approval.
-pub async fn resolve_approval(id: &str, approve: bool) -> Result<(), String> {
+/// Answer a pending approval. The answer carries what the approved write did.
+pub async fn resolve_approval(id: &str, approve: bool) -> Result<serde_json::Value, String> {
     let path = if approve { "approve" } else { "deny" };
     let resp = Request::post(&format!("/api/ai/approvals/{id}/{path}"))
         .send()
         .await
         .map_err(|e| e.to_string())?;
     let body = resp.text().await.map_err(|e| e.to_string())?;
-    if body.contains("\"error\"") {
-        return Err(body);
+    let value: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(value) => value,
+        Err(_) => return Err(body),
+    };
+    if let Some(error) = value.get("error").and_then(|error| error.as_str()) {
+        return Err(error.to_string());
     }
-    Ok(())
+    Ok(value)
 }

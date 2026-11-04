@@ -108,6 +108,22 @@ impl BoardContent {
         Ok(position)
     }
 
+    /// The content after playing `text`, without storing anything.
+    ///
+    /// This is what an approval shows: the board as it would be. It validates
+    /// the move exactly as the real write does, so a preview cannot promise
+    /// something `play_move` would refuse.
+    pub fn with_move(&self, start_fen: &str, text: &str) -> Result<Self, String> {
+        let position = self.position(start_fen)?;
+        let mode = parse_position(start_fen)?.1;
+        let mv = resolve_move(&position, mode, text)
+            .ok_or_else(|| format!("{text} is not a legal move in this position"))?;
+        let san = SanPlus::from_move(position, mv).to_string();
+        let mut next = self.clone();
+        next.moves.push(san);
+        Ok(next)
+    }
+
     /// The current FEN.
     pub fn fen(&self, start_fen: &str) -> Result<String, String> {
         Ok(fen_of(&self.position(start_fen)?))

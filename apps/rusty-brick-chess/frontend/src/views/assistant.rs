@@ -864,9 +864,22 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                         <div style="display:flex;gap:.3rem;">
                                             <button on:click=move |_| {
                                                 let id = id_approve.clone();
+                                                let msg = msg;
                                                 spawn_local(async move {
                                                     match ai_api::resolve_approval(&id, true).await {
-                                                        Ok(()) => approve.update(|list| list.retain(|a| a.id != id)),
+                                                        Ok(report) => {
+                                                            approve.update(|list| list.retain(|a| a.id != id));
+                                                            let applied = report
+                                                                .get("result")
+                                                                .filter(|result| !result.is_null())
+                                                                .map(|result| {
+                                                                    let ok = result.get("ok").and_then(|ok| ok.as_bool()).unwrap_or(false);
+                                                                    let summary = result.get("summary").and_then(|s| s.as_str()).unwrap_or("");
+                                                                    if ok { format!("applied · {summary}") } else { format!("refused · {summary}") }
+                                                                })
+                                                                .unwrap_or_else(|| "approved".to_string());
+                                                            msg.set(applied);
+                                                        }
                                                         Err(error) => msg.set(error),
                                                     }
                                                 });
@@ -877,7 +890,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                                 let id = id_deny.clone();
                                                 spawn_local(async move {
                                                     match ai_api::resolve_approval(&id, false).await {
-                                                        Ok(()) => deny.update(|list| list.retain(|a| a.id != id)),
+                                                        Ok(_) => deny.update(|list| list.retain(|a| a.id != id)),
                                                         Err(error) => msg.set(error),
                                                     }
                                                 });
@@ -888,6 +901,32 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                     </div>
                                 }
                             }).collect_view().into_any()
+                        }}
+                        {move || {
+                            let list = approvals.get();
+                            (!list.is_empty()).then(|| view! {
+                                <button on:click=move |_| {
+                                    let ids: Vec<String> = approvals.get_untracked().iter().map(|a| a.id.clone()).collect();
+                                    let msg = approvals_msg;
+                                    spawn_local(async move {
+                                        let mut failed = 0;
+                                        for id in ids {
+                                            if ai_api::resolve_approval(&id, true).await.is_err() {
+                                                failed += 1;
+                                            }
+                                        }
+                                        match ai_api::list_approvals().await {
+                                            Ok(list) => approvals.set(list),
+                                            Err(error) => msg.set(error),
+                                        }
+                                        if failed > 0 {
+                                            msg.set(format!("{failed} approval(s) could not be answered"));
+                                        }
+                                    });
+                                }>
+                                    {move || i18n::t(&language.get(), "approvals.approve_all")}
+                                </button>
+                            })
                         }}
                         <div class="muted">{move || approvals_msg.get()}</div>
                     </div>
