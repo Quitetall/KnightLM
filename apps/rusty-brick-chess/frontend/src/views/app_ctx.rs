@@ -220,10 +220,22 @@ pub struct AppCtx {
     pub vs_engine: RwSignal<bool>,
     pub workspaces: RwSignal<Vec<Workspace>>,
     pub active_ws: RwSignal<u32>,
+    /// Whether a board request is in flight.
+    pub boards_busy: RwSignal<bool>,
+    /// The last board error, shown in the strip.
+    pub boards_msg: RwSignal<String>,
     pub renaming_ws: RwSignal<Option<u32>>,
     pub rename_text: RwSignal<String>,
     pub new_tab_kind: RwSignal<String>,
     pub activate_workspace: UnsyncCallback<u32, ()>,
+    /// Open one of the workspace's stored boards by index.
+    pub select_board: UnsyncCallback<usize, ()>,
+    /// Create a board in the active workspace's server side.
+    pub new_board: UnsyncCallback<(), ()>,
+    /// Copy the open board, keeping provenance.
+    pub copy_active_board: UnsyncCallback<(), ()>,
+    /// Lock or unlock the open board.
+    pub toggle_active_board_lock: UnsyncCallback<(), ()>,
     pub close_workspace: UnsyncCallback<u32, ()>,
     pub commit_rename: UnsyncCallback<(), ()>,
     pub move_workspace: UnsyncCallback<(u32, i32), ()>,

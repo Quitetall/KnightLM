@@ -601,6 +601,207 @@ pub fn App() -> impl IntoView {
         active_ws.set(key);
     };
 
+    // --- stored boards of a workspace ------------------------------------
+    //
+    // A workspace's boards live on the server; the local `boards` list is a
+    // cached view of them. Everything here goes through the repository so the
+    // same revision checks apply as for the assistant.
+    let boards_msg = RwSignal::new(String::new());
+    let boards_busy = RwSignal::new(false);
+
+    // Map a server board onto the shape the strip renders.
+    fn to_board_ref(info: &api::BoardInfo) -> BoardRef {
+        BoardRef {
+            id: info.id.clone(),
+            title: info.title.clone(),
+            kind: info.kind.clone(),
+            start_fen: info.start_fen.clone(),
+            content_json: info.content_json.clone(),
+            revision: info.revision,
+            mutability: info.mutability.clone(),
+            lifecycle: info.lifecycle.clone(),
+        }
+    }
+
+    // Re-read a workspace's boards from the server into the local cache.
+    let reload_boards = move |key: u32, server_id: String| {
+        boards_busy.set(true);
+        spawn_local(async move {
+            match api::list_boards(&server_id).await {
+                Ok(list) => {
+                    let refs: Vec<BoardRef> = list.iter().map(to_board_ref).collect();
+                    workspaces.update(|all| {
+                        if let Some(ws) = all.iter_mut().find(|w| w.key == key) {
+                            ws.boards = refs;
+                            if ws.active_board >= ws.boards.len() {
+                                ws.active_board = 0;
+                            }
+                        }
+                    });
+                    boards_msg.set(String::new());
+                }
+                Err(error) => boards_msg.set(error),
+            }
+            boards_busy.set(false);
+        });
+    };
+
+    // The server workspace behind a local one, created on first use.
+    let ensure_workspace = move |key: u32| {
+        let Some(ws) = workspaces
+            .get_untracked()
+            .into_iter()
+            .find(|w| w.key == key)
+        else {
+            return;
+        };
+        if let Some(server_id) = ws.backend().map(str::to_string) {
+            reload_boards(key, server_id);
+            return;
+        }
+        boards_busy.set(true);
+        let title = ws.title.clone();
+        let kind = ws.kind.clone();
+        spawn_local(async move {
+            match api::create_workspace(&title, &kind).await {
+                Ok(info) => {
+                    let server_id = info.id.clone();
+                    workspaces.update(|all| {
+                        if let Some(ws) = all.iter_mut().find(|w| w.key == key) {
+                            ws.server_id = Some(server_id.clone());
+                        }
+                    });
+                    reload_boards(key, info.id);
+                }
+                Err(error) => {
+                    boards_msg.set(error);
+                    boards_busy.set(false);
+                }
+            }
+        });
+    };
+
+    let select_board = move |index: usize| {
+        let key = active_ws.get_untracked();
+        workspaces.update(|all| {
+            if let Some(ws) = all.iter_mut().find(|w| w.key == key) {
+                ws.active_board = index;
+            }
+        });
+        let Some(ws) = workspaces
+            .get_untracked()
+            .into_iter()
+            .find(|w| w.key == key)
+        else {
+            return;
+        };
+        let Some(board) = ws.boards.get(index).cloned() else {
+            return;
+        };
+        // Opening a board loads its own line, not the workspace's.
+        let moves = board.moves();
+        let pgn = line_pgn(board.start(), &moves, &ws.variant);
+        selected_pgn.set(pgn);
+        selected_title.set(board.title.clone());
+        selected_game_id.set(None);
+        selected_moves.set(moves);
+        variant_only.set(board.kind == "puzzle");
+        tree_ply.set(0);
+        goto_sig.set(Some((goto_seq.get_untracked() + 1, 0)));
+        boards_msg.set(String::new());
+    };
+
+    let new_board = move || {
+        let key = active_ws.get_untracked();
+        let Some(ws) = workspaces
+            .get_untracked()
+            .into_iter()
+            .find(|w| w.key == key)
+        else {
+            return;
+        };
+        let fen = fen.get_untracked();
+        let title = format!("{} {}", ws.title, ws.boards.len() + 1);
+        let kind = ws.kind.clone();
+        let server_id = ws.backend().map(str::to_string);
+        boards_busy.set(true);
+        spawn_local(async move {
+            let Some(server_id) = server_id else {
+                boards_msg.set("the workspace has no server side yet".to_string());
+                boards_busy.set(false);
+                return;
+            };
+            match api::create_board("workspace", &server_id, &kind, &title, &fen, "").await {
+                Ok(_) => reload_boards(key, server_id),
+                Err(error) => {
+                    boards_msg.set(error);
+                    boards_busy.set(false);
+                }
+            }
+        });
+    };
+
+    let copy_active_board = move || {
+        let key = active_ws.get_untracked();
+        let Some(ws) = workspaces
+            .get_untracked()
+            .into_iter()
+            .find(|w| w.key == key)
+        else {
+            return;
+        };
+        let Some(board) = ws.active_board_ref() else {
+            boards_msg.set("there is no board to copy".to_string());
+            return;
+        };
+        let id = board.id.clone();
+        let server_id = ws.backend().map(str::to_string);
+        boards_busy.set(true);
+        spawn_local(async move {
+            match api::copy_board(&id, Some("copy")).await {
+                Ok(_) => match server_id {
+                    Some(server_id) => reload_boards(key, server_id),
+                    None => boards_busy.set(false),
+                },
+                Err(error) => {
+                    boards_msg.set(error);
+                    boards_busy.set(false);
+                }
+            }
+        });
+    };
+
+    let toggle_active_board_lock = move || {
+        let key = active_ws.get_untracked();
+        let Some(ws) = workspaces
+            .get_untracked()
+            .into_iter()
+            .find(|w| w.key == key)
+        else {
+            return;
+        };
+        let Some(board) = ws.active_board_ref() else {
+            boards_msg.set("there is no open board".to_string());
+            return;
+        };
+        let id = board.id.clone();
+        let locked = board.locked();
+        let server_id = ws.backend().map(str::to_string);
+        boards_busy.set(true);
+        spawn_local(async move {
+            match api::lock_board(&id, !locked).await {
+                Ok(_) => match server_id {
+                    Some(server_id) => reload_boards(key, server_id),
+                    None => boards_busy.set(false),
+                },
+                Err(error) => {
+                    boards_msg.set(error);
+                    boards_busy.set(false);
+                }
+            }
+        });
+    };
+
     let activate_workspace = move |key: u32| {
         save_workspace();
         let Some(ws) = workspaces
@@ -611,6 +812,8 @@ pub fn App() -> impl IntoView {
             return;
         };
         active_ws.set(key);
+        // The strip shows whatever the server holds for this workspace.
+        ensure_workspace(key);
         if ws.kind != "analysis" {
             tab.set(match ws.kind.as_str() {
                 "database" => Tab::Database,
@@ -3050,10 +3253,18 @@ pub fn App() -> impl IntoView {
         vs_engine,
         workspaces,
         active_ws,
+        boards_busy,
+        boards_msg,
         renaming_ws,
         rename_text,
         new_tab_kind,
         activate_workspace: views::app_ctx::view_callback(activate_workspace),
+        select_board: views::app_ctx::view_callback(select_board),
+        new_board: views::app_ctx::view_callback(move |_: ()| new_board()),
+        copy_active_board: views::app_ctx::view_callback(move |_: ()| copy_active_board()),
+        toggle_active_board_lock: views::app_ctx::view_callback(move |_: ()| {
+            toggle_active_board_lock()
+        }),
         close_workspace: views::app_ctx::view_callback(close_workspace),
         commit_rename: views::app_ctx::view_callback(move |_: ()| commit_rename()),
         move_workspace: views::app_ctx::view_callback(move |(a, b): (u32, i32)| move_workspace(a, b)),
@@ -3186,6 +3397,7 @@ pub fn App() -> impl IntoView {
                     <span class="status" aria-live="polite">{move || status.get()}</span>
                 </header>
                 {views::workspaces::workspaces_bar(app_ctx)}
+                {views::boards::boards_bar(app_ctx)}
                 {move || match tab.get() {
                     Tab::Home => home_view().into_any(),
                     Tab::Database => database_view().into_any(),

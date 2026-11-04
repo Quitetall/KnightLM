@@ -38,6 +38,51 @@ pub struct BoardRef {
     pub lifecycle: String,
 }
 
+impl BoardRef {
+    /// The board's moves, as stored in its content.
+    pub fn moves(&self) -> Vec<String> {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&self.content_json) else {
+            return Vec::new();
+        };
+        value
+            .get("moves")
+            .and_then(|moves| moves.as_array())
+            .map(|moves| {
+                moves
+                    .iter()
+                    .filter_map(|mv| mv.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Whether the board refuses writes and has to be copied first.
+    pub fn locked(&self) -> bool {
+        self.mutability == "locked" || self.lifecycle == "published"
+    }
+
+    /// The position the board starts from.
+    pub fn start(&self) -> &str {
+        if self.start_fen.is_empty() {
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        } else {
+            &self.start_fen
+        }
+    }
+}
+
+impl Workspace {
+    /// The board this workspace is looking at, if it has any.
+    pub fn active_board_ref(&self) -> Option<&BoardRef> {
+        self.boards.get(self.active_board)
+    }
+
+    /// The server id, created on first use.
+    pub fn backend(&self) -> Option<&str> {
+        self.server_id.as_deref()
+    }
+}
+
 fn default_revision() -> i64 {
     1
 }
