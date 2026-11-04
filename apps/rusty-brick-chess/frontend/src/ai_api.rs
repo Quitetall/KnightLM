@@ -312,3 +312,50 @@ pub async fn replay_ai_turn(id: &str, seq: i64) -> Result<serde_json::Value, Str
     let body = resp.text().await.map_err(|e| e.to_string())?;
     serde_json::from_str(&body).map_err(|_| body)
 }
+
+/// One queued approval, as the queue API returns it.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ApprovalInfo {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub tool: String,
+    #[serde(default)]
+    pub action: String,
+    #[serde(default)]
+    pub changeset_summary: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub target_id: Option<String>,
+    #[serde(default)]
+    pub changeset: Option<serde_json::Value>,
+    #[serde(default)]
+    pub created_at: i64,
+}
+
+/// Everything waiting for a person, oldest first.
+pub async fn list_approvals() -> Result<Vec<ApprovalInfo>, String> {
+    let resp = Request::get("/api/ai/approvals")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|_| body.clone())?;
+    serde_json::from_value(value.get("pending").cloned().unwrap_or(serde_json::json!([])))
+        .map_err(|e| e.to_string())
+}
+
+/// Answer a pending approval.
+pub async fn resolve_approval(id: &str, approve: bool) -> Result<(), String> {
+    let path = if approve { "approve" } else { "deny" };
+    let resp = Request::post(&format!("/api/ai/approvals/{id}/{path}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    if body.contains("\"error\"") {
+        return Err(body);
+    }
+    Ok(())
+}

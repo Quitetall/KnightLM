@@ -172,6 +172,10 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     // position on the board right now, which is how drift becomes visible.
     let context_live = RwSignal::new(false);
     let live_context = RwSignal::new(None::<ai_api::AiCompiledContext>);
+    // The approval queue: writes waiting for a person.
+    let approvals_open = RwSignal::new(false);
+    let approvals = RwSignal::new(Vec::<ai_api::ApprovalInfo>::new());
+    let approvals_msg = RwSignal::new(String::new());
     let source = StoredValue::new(None::<web_sys::EventSource>);
     let transcript = NodeRef::<leptos::html::Div>::new();
 
@@ -394,6 +398,22 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
             }
         });
     };
+
+    // Load the queue whenever the panel is opened.
+    Effect::new(move |_| {
+        if !approvals_open.get() {
+            return;
+        }
+        spawn_local(async move {
+            match ai_api::list_approvals().await {
+                Ok(list) => {
+                    approvals.set(list);
+                    approvals_msg.set(String::new());
+                }
+                Err(error) => approvals_msg.set(error),
+            }
+        });
+    });
 
     // While the inspector is live, rebuild the context for the current board so
     // it can be compared with what was actually sent.
@@ -768,6 +788,13 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                     {move || i18n::t(&language.get(), "assistant.expand_reasoning")}
                 </label>
                 <div style="display:flex;gap:.4rem;align-items:center;">
+                    <button on:click=move |_| approvals_open.update(|open| *open = !*open)>
+                        {move || {
+                            // The count is only known once the queue has been
+                            // read; the label stays useful before that.
+                            format!("{} ({})", i18n::t(&language.get(), "approvals.title"), approvals.get().len())
+                        }}
+                    </button>
                     <button on:click=move |_| inspector_open.update(|open| *open = !*open)>
                         {move || i18n::t(&language.get(), "assistant.context")}
                     </button>
@@ -798,6 +825,73 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                         }.into_any()
                     }}
                 </div>
+                {move || approvals_open.get().then(|| view! {
+                    <div class="approval-queue" style="max-height:200px;overflow-y:auto;font-size:.8rem;">
+                        {move || {
+                            let list = approvals.get();
+                            if list.is_empty() {
+                                return view! {
+                                    <div class="muted">{move || i18n::t(&language.get(), "approvals.empty")}</div>
+                                }.into_any();
+                            }
+                            list.into_iter().map(|approval| {
+                                let id_approve = approval.id.clone();
+                                let id_deny = approval.id.clone();
+                                let tool = approval.tool.clone();
+                                let summary = approval.changeset_summary.clone();
+                                let notes = approval
+                                    .changeset
+                                    .as_ref()
+                                    .and_then(|changeset| changeset.get("notes"))
+                                    .and_then(|notes| notes.as_array())
+                                    .map(|notes| {
+                                        notes
+                                            .iter()
+                                            .filter_map(|note| note.as_str().map(str::to_string))
+                                            .collect::<Vec<_>>()
+                                    })
+                                    .unwrap_or_default();
+                                let approve = approvals;
+                                let deny = approvals;
+                                let msg = approvals_msg;
+                                view! {
+                                    <div class="approval-row">
+                                        <div class="tool-chip">{tool}</div>
+                                        <div>{summary}</div>
+                                        {(!notes.is_empty()).then(|| view! {
+                                            <div class="muted">{notes.join(" · ")}</div>
+                                        })}
+                                        <div style="display:flex;gap:.3rem;">
+                                            <button on:click=move |_| {
+                                                let id = id_approve.clone();
+                                                spawn_local(async move {
+                                                    match ai_api::resolve_approval(&id, true).await {
+                                                        Ok(()) => approve.update(|list| list.retain(|a| a.id != id)),
+                                                        Err(error) => msg.set(error),
+                                                    }
+                                                });
+                                            }>
+                                                {move || i18n::t(&language.get(), "approvals.approve")}
+                                            </button>
+                                            <button on:click=move |_| {
+                                                let id = id_deny.clone();
+                                                spawn_local(async move {
+                                                    match ai_api::resolve_approval(&id, false).await {
+                                                        Ok(()) => deny.update(|list| list.retain(|a| a.id != id)),
+                                                        Err(error) => msg.set(error),
+                                                    }
+                                                });
+                                            }>
+                                                {move || i18n::t(&language.get(), "approvals.deny")}
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            }).collect_view().into_any()
+                        }}
+                        <div class="muted">{move || approvals_msg.get()}</div>
+                    </div>
+                })}
                 {move || inspector_open.get().then(|| {
                     view! {
                         <div class="context-inspector" style="max-height:220px;overflow-y:auto;font-size:.8rem;">
