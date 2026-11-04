@@ -27,6 +27,15 @@ pub fn StudyView(
     let notes = RwSignal::new(String::new());
     let preview = RwSignal::new(false);
     let new_chapter = RwSignal::new(String::new());
+    let board = RwSignal::new(None::<api::BoardInfo>);
+    let board_moves = RwSignal::new(Vec::<String>::new());
+    let board_arrows = RwSignal::new(Vec::<brick_chess::Shape>::new());
+    let goto_ply = RwSignal::new(None::<(u32, usize)>);
+    let annotations = RwSignal::new(Vec::<String>::new());
+    // Bumped whenever the chapters reload. The board effect watches it as well as
+    // the selection, because reloading a chapter can bring a new revision of a
+    // board whose id has not changed.
+    let board_tick = RwSignal::new(0u32);
 
     let reload_studies = move || {
         spawn_local(async move {
@@ -47,14 +56,15 @@ pub fn StudyView(
                     let chosen = still_there.or_else(|| list.first().map(|c| c.id.clone()));
                     if let Some(chapter) = list.iter().find(|c| Some(c.id.clone()) == chosen) {
                         notes.set(chapter.notes_md.clone());
-                        let board = board_ids_of(chapter)
+                        let chosen_board = board_ids_of(chapter)
                             .first()
                             .cloned()
                             .unwrap_or_else(|| chapter.primary_board_id.clone());
-                        active_board.set(Some(board));
+                        active_board.set(Some(chosen_board));
                     }
                     active_chapter.set(chosen);
                     chapters.set(list);
+                    board_tick.update(|tick| *tick = tick.wrapping_add(1));
                 }
                 Err(error) => message.set(error),
             }
@@ -62,6 +72,58 @@ pub fn StudyView(
     };
 
     reload_studies();
+
+    // The middle column follows the selected board. One effect keeps the board,
+    // its moves, its shapes and its annotations together, so the tree and the
+    // position can never describe different revisions.
+    Effect::new(move |_| {
+        board_tick.track();
+        let Some(id) = active_board.get() else {
+            board.set(None);
+            board_moves.set(Vec::new());
+            board_arrows.set(Vec::new());
+            annotations.set(Vec::new());
+            return;
+        };
+        spawn_local(async move {
+            match api::get_board(&id).await {
+                Ok(loaded) => {
+                    let content: serde_json::Value =
+                        serde_json::from_str(&loaded.content_json).unwrap_or(serde_json::Value::Null);
+                    let moves: Vec<String> = content
+                        .get("moves")
+                        .and_then(|m| m.as_array())
+                        .map(|moves| {
+                            moves
+                                .iter()
+                                .filter_map(|m| m.as_str().map(str::to_string))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let shapes = crate::board::shapes_from_content(&content);
+                    let notes: Vec<String> = content
+                        .get("annotations")
+                        .and_then(|a| a.as_array())
+                        .map(|items| {
+                            items
+                                .iter()
+                                .filter_map(|item| {
+                                    item.get("comment")
+                                        .and_then(|c| c.as_str())
+                                        .map(str::to_string)
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    board_moves.set(moves);
+                    board_arrows.set(shapes);
+                    annotations.set(notes);
+                    board.set(Some(loaded));
+                }
+                Err(error) => message.set(error),
+            }
+        });
+    });
 
     let t = move |key: &'static str| i18n::t(&language.get(), key);
 
@@ -202,17 +264,28 @@ pub fn StudyView(
                                                 on:click={
                                                     let id = chapter.id.clone();
                                                     move |_| {
-                                                        if let Some(study) = open_study.get_untracked() {
-                                                            let _ = &study;
-                                                        }
                                                         active_chapter.set(Some(id.clone()));
-                                                        let notes_text = chapters
+                                                        let found = chapters
                                                             .get_untracked()
-                                                            .iter()
-                                                            .find(|c| c.id == id)
+                                                            .into_iter()
+                                                            .find(|c| c.id == id);
+                                                        let notes_text = found
+                                                            .as_ref()
                                                             .map(|c| c.notes_md.clone())
                                                             .unwrap_or_default();
                                                         notes.set(notes_text);
+                                                        // Selecting a chapter selects its first
+                                                        // board and reloads it: the tree and the
+                                                        // position belong to the chapter you are
+                                                        // looking at, not the one you left.
+                                                        if let Some(chapter) = found {
+                                                            let first = board_ids_of(&chapter)
+                                                                .first()
+                                                                .cloned()
+                                                                .unwrap_or(chapter.primary_board_id.clone());
+                                                            active_board.set(Some(first));
+                                                        }
+                                                        board_tick.update(|tick| *tick = tick.wrapping_add(1));
                                                     }
                                                 }
                                             >
@@ -402,12 +475,55 @@ pub fn StudyView(
                                 >{move || t("study.set_primary")}</button>
                             </div>
                             <div class="study-board-slot">
-                                <p class="board-hint">
-                                    {move || match active_board.get() {
-                                        Some(board) => format!("board {board}"),
-                                        None => "no board selected".to_string(),
+                                {move || match board.get() {
+                                    Some(loaded) => {
+                                        let pgn = crate::board::pgn_for(&loaded, &board_moves.get());
+                                        let title = loaded.title.clone();
+                                        view! {
+                                            <crate::board::Board
+                                                pgn=Signal::derive(move || pgn.clone())
+                                                title=Signal::derive(move || title.clone())
+                                                goto=Signal::derive(move || goto_ply.get())
+                                                shapes=Signal::derive(move || board_arrows.get())
+                                                animate_last=Signal::derive(|| true)
+                                                animation_ms=Signal::derive(|| 120)
+                                            />
+                                        }.into_any()
+                                    }
+                                    None => view! {
+                                        <p class="board-hint">{t("study.no_board")}</p>
+                                    }.into_any(),
+                                }}
+                                <ol class="move-tree">
+                                    {move || {
+                                        let moves = board_moves.get();
+                                        moves.chunks(2).enumerate().map(|(row, pair)| {
+                                            let number = row + 1;
+                                            let white = pair.first().cloned().unwrap_or_default();
+                                            let black = pair.get(1).cloned().unwrap_or_default();
+                                            let white_ply = idx_of(&moves, row * 2);
+                                            let black_ply = idx_of(&moves, row * 2 + 1);
+                                            view! {
+                                                <li class="move-row">
+                                                    <span class="move-number">{format!("{number}.")}</span>
+                                                    <button
+                                                        class="move-san"
+                                                        on:click=move |_| goto_ply.set(Some(white_ply))
+                                                    >{white}</button>
+                                                    <button
+                                                        class="move-san"
+                                                        on:click=move |_| goto_ply.set(Some(black_ply))
+                                                    >{black}</button>
+                                                </li>
+                                            }
+                                        }).collect_view()
                                     }}
-                                </p>
+                                </ol>
+                                <ul class="annotation-rows">
+                                    {move || annotations.get().into_iter().map(|text| {
+                                        view! { <li class="annotation-row">{text}</li> }
+                                    }).collect_view()}
+                                </ul>
                                 <a
                                     class="board-open"
                                     href=move || format!("/#board={}", active_board.get().unwrap_or_default())
@@ -565,6 +681,11 @@ pub fn StudyView(
             </section>
         </div>
     }
+}
+
+/// A ply index for the move at `index`, as the board's `goto` expects.
+fn idx_of(moves: &[String], index: usize) -> (u32, usize) {
+    (0, index.min(moves.len().saturating_sub(1)))
 }
 
 /// The boards a chapter lists, read out of its JSON column.

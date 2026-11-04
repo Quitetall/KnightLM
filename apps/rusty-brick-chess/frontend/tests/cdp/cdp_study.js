@@ -72,12 +72,54 @@ function getJson(port, path) {
   await sleep(1200);
   const tags = await ev(`document.querySelector(".study-tags")?.value`);
 
+  // Seed the active board with two moves and an arrow, through the same API the
+  // editor uses, then check the move tree and the annotations that render from it.
+  const seededOk = await ev(`(async () => {
+    // Find the board through the API: the study list gives the ids.
+    const studies = await (await fetch("/api/studies")).json();
+    const study = studies[0];
+    const chapters = await (await fetch("/api/studies/" + study.id + "/chapters")).json();
+    const chapter = chapters[0];
+    const ids = JSON.parse(chapter.board_ids_json || "[]");
+    if (!ids.length) return false;
+    // Seed every board in the chapter: which one the strip has selected is the
+    // UI's business, and the assertion is about whatever is on screen.
+    const boardId = ids[0];
+    const board = await (await fetch("/api/boards/" + boardId)).json();
+    const content = {
+      moves: ["e4", "e5"],
+      arrows: [{ from: "e2", to: "e4" }],
+      circles: [{ square: "e5" }],
+      annotations: [{ ply: 0, comment: "a note on the first move" }],
+    };
+    let ok = true;
+    for (const id of ids) {
+      const current = await (await fetch("/api/boards/" + id)).json();
+      const put = await fetch("/api/boards/" + id, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          expected_revision: current.revision,
+          content_json: JSON.stringify(content),
+        }),
+      });
+      ok = ok && put.ok;
+    }
+    return ok;
+  })()`);
+  // Reload the chapter so the panel picks the new revision up.
+  await ev(`document.querySelector(".chapter-row")?.click()`);
+  await sleep(1600);
+  const moves = await ev(`[...document.querySelectorAll(".move-san")].map(m=>m.textContent.trim()).filter(Boolean)`);
+  const notesRows = await ev(`document.querySelectorAll(".annotation-row").length`);
+  const boardHtml = await ev(`document.querySelector(".study-board-slot")?.innerHTML?.slice(0,120) || ""`);
+
   const published = await click(".study-publish");
   await sleep(1600);
   const lifecycle = await ev(`document.querySelector(".study-lifecycle")?.textContent.trim()`);
   const disabledAfter = await ev(`document.querySelector(".chapter-add")?.disabled`);
 
-  console.log(JSON.stringify({ hasView, created, studies, chapters, duplicated, afterDuplicate, moved, afterMove, boardAdded, boards, primary, primaryMarked, saved, headings, items, bold, tags, published, lifecycle, disabledAfter }));
+  console.log(JSON.stringify({ hasView, created, studies, chapters, duplicated, afterDuplicate, moved, afterMove, boardAdded, boards, primary, primaryMarked, saved, headings, items, bold, tags, seededOk, moves, notesRows, boardHtml, published, lifecycle, disabledAfter }));
   const ok = hasView && created && studies >= 1
     && chapters.length === 2 && chapters[0] === "Openings"
     && duplicated && afterDuplicate.length === 3 && afterDuplicate.some((t) => t.includes("copy"))
@@ -85,6 +127,7 @@ function getJson(port, path) {
     && boardAdded && boards >= 1 && primary && primaryMarked
     && saved && headings === 1 && items === 2 && bold === 1
     && tags === "opening, tactics"
+    && seededOk === true && moves.join(" ") === "e4 e5" && notesRows === 1
     && published && lifecycle === "published"
     && disabledAfter === true;
   console.log(ok ? "AI_STUDY_PASS" : "AI_STUDY_FAIL");

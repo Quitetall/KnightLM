@@ -1635,6 +1635,17 @@ pub async fn create_workspace(title: &str, kind: &str) -> Result<WorkspaceInfo, 
     json_or_error(resp).await
 }
 
+/// One board, with its content and revision.
+pub async fn get_board(id: &str) -> Result<BoardInfo, String> {
+    json_or_error(
+        Request::get(&format!("/api/boards/{id}"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await
+}
+
 pub async fn list_boards(workspace_id: &str) -> Result<Vec<BoardInfo>, String> {
     json_or_error(
         Request::get(&format!("/api/workspaces/{workspace_id}/boards"))
