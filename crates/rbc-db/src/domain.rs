@@ -92,6 +92,9 @@ pub struct Study {
     pub metadata_json: String,
     pub created: i64,
     pub updated: i64,
+    /// A manual lock, independent of whether the study has been published.
+    #[serde(default)]
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,6 +177,7 @@ fn study_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Study> {
         metadata_json: row.get(6)?,
         created: row.get(7)?,
         updated: row.get(8)?,
+        locked: row.get::<_, i64>(9)? != 0,
     })
 }
 
@@ -194,7 +198,7 @@ const BOARD_COLUMNS: &str = "id, parent_kind, parent_id, kind, title, variant, s
     revision, mutability, lifecycle, content_json, metadata_json, created, updated";
 
 const STUDY_COLUMNS: &str = "id, title, description_md, lifecycle, current_version, \
-    tags_json, metadata_json, created, updated";
+    tags_json, metadata_json, created, updated, locked";
 
 const CHAPTER_COLUMNS: &str = "id, study_id, ordinal, title, primary_board_id, \
     board_ids_json, notes_md, metadata_json";
@@ -742,6 +746,89 @@ impl Db {
             ],
         )?;
         Ok(study)
+    }
+
+    /// Lock or unlock a study.
+    ///
+    /// A lock is independent of publishing: a published study already refuses
+    /// edits, and a draft can be locked while it is still a draft.
+    pub fn lock_study(&self, id: &str, locked: bool) -> Result<Study> {
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                "UPDATE studies SET locked = ?1,
+                 updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?2",
+                params![i64::from(locked), id],
+            )?;
+        }
+        self.study(id)?
+            .with_context(|| format!("study {id} not found"))
+    }
+
+    /// Branch a new draft study from a published version.
+    ///
+    /// The new study gets its own id, its chapters and their board links copied
+    /// from the version's bundle, and a `branched_from` record in its metadata so
+    /// the lineage is a fact in the data rather than a convention. The boards are
+    /// shared: a branch that cloned every position would double the database on
+    /// every edit.
+    pub fn branch_study_from_version(&self, study_id: &str, version: i64) -> Result<Study> {
+        let parent = self
+            .study(study_id)?
+            .with_context(|| format!("study {study_id} not found"))?;
+        let bundle_json: String = {
+            let conn = self.conn.lock().expect("db lock");
+            conn.query_row(
+                "SELECT bundle_json FROM study_versions WHERE study_id = ?1 AND version = ?2",
+                params![study_id, version],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("no version {version} of study {study_id}"))?
+        };
+        let bundle: serde_json::Value = serde_json::from_str(&bundle_json)?;
+        let metadata = serde_json::json!({
+            "branched_from": {"study_id": study_id, "version": version},
+        })
+        .to_string();
+        let draft =
+            self.create_study(&format!("{} (draft)", parent.title), &parent.description_md)?;
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                "UPDATE studies SET metadata_json = ?1 WHERE id = ?2",
+                params![metadata, draft.id],
+            )?;
+        }
+        if let Some(chapters) = bundle.get("chapters").and_then(|c| c.as_array()) {
+            for entry in chapters {
+                let Some(chapter) = entry.get("chapter") else {
+                    continue;
+                };
+                let title = chapter
+                    .get("title")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("Chapter");
+                let notes = chapter
+                    .get("notes_md")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or_default();
+                let primary = chapter
+                    .get("primary_board_id")
+                    .and_then(|p| p.as_str())
+                    .unwrap_or_default();
+                let (added, _) = self.add_chapter(
+                    &draft.id,
+                    title,
+                    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                    notes,
+                )?;
+                if !primary.is_empty() {
+                    let _ = self.set_chapter_primary_board(&draft.id, &added.id, primary);
+                }
+            }
+        }
+        self.study(&draft.id)?
+            .with_context(|| format!("branched study {} disappeared", draft.id))
     }
 
     /// Delete a study, its chapters and the versions snapshotted from it.

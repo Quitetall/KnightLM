@@ -1893,3 +1893,71 @@ pub async fn set_chapter_primary(
         .map(Json)
         .map_err(ApiError::Internal)
 }
+
+/// `POST /api/studies/{id}/lock` — a manual lock, independent of publishing.
+pub async fn lock_study(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<rbc_db::Study>, ApiError> {
+    let locked = body
+        .get("locked")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    state
+        .db
+        .lock_study(&id, locked)
+        .map(Json)
+        .map_err(ApiError::Internal)
+}
+
+/// `POST /api/studies/{id}/branch` — a new draft from a published version.
+pub async fn branch_study(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<rbc_db::Study>, ApiError> {
+    let version = body
+        .get("version")
+        .and_then(|value| value.as_i64())
+        .unwrap_or(0);
+    let version = if version > 0 {
+        version
+    } else {
+        // The latest version is the useful default.
+        state
+            .db
+            .study(&id)?
+            .map(|study| study.current_version)
+            .unwrap_or(0)
+    };
+    state
+        .db
+        .branch_study_from_version(&id, version)
+        .map(Json)
+        .map_err(ApiError::Internal)
+}
+
+/// `GET /api/studies/{id}/versions` — the versions a study has.
+pub async fn list_study_versions(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+    let versions = state
+        .db
+        .study_versions(&id)
+        .map_err(ApiError::Internal)?;
+    Ok(Json(
+        versions
+            .into_iter()
+            .map(|version| {
+                serde_json::json!({
+                    "id": version.id,
+                    "version": version.version,
+                    "provenance": version.provenance,
+                    "created": version.created,
+                })
+            })
+            .collect(),
+    ))
+}

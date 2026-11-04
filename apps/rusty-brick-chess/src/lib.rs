@@ -86,6 +86,9 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/studies/{id}/publish", post(domain_api::publish_study))
         .route("/api/studies/{id}/copy", post(domain_api::copy_study))
         .route("/api/studies/{id}/progress", get(domain_api::get_progress).put(domain_api::put_progress))
+        .route("/api/studies/{id}/lock", post(domain_api::lock_study))
+        .route("/api/studies/{id}/branch", post(domain_api::branch_study))
+        .route("/api/studies/{id}/versions", get(domain_api::list_study_versions))
         .route(
             "/api/studies/{id}",
             get(domain_api::get_study)

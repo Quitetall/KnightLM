@@ -545,8 +545,14 @@ impl BoardWriteHost<'_> {
     #[allow(clippy::result_large_err)]
     fn study_is_writable(&self, call: &ToolCall, study_id: &str) -> Result<(), ToolResult> {
         match self.db.study(study_id) {
-            // The lifecycle is the signal, not the version counter: adding a
-            // chapter bumps the version, and a draft is still a draft.
+            // Two different decisions refuse a write: a manual lock ("do not
+            // change this") and publishing ("this is a snapshot people cite").
+            // Neither is the version counter, which moves on every chapter.
+            Ok(Some(study)) if study.locked => Err(refused(
+                call,
+                result_code::CONFLICT,
+                format!("study {study_id} is locked; unlock it to change it"),
+            )),
             Ok(Some(study)) if study.lifecycle == "published" => Err(refused(
                 call,
                 result_code::CONFLICT,

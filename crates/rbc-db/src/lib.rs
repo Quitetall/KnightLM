@@ -2249,7 +2249,7 @@ fn moves_to_san(fen: &str, moves: &str) -> String {
 /// Additive migrations for databases created by older builds.
 /// Current schema version. Bump this and add a `migrate_vN` step for changes
 /// that `CREATE ... IF NOT EXISTS` cannot express.
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -2303,6 +2303,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if version < 10 {
         migrate_v10(conn)?;
         version = 10;
+    }
+    if version < 11 {
+        migrate_v11(conn)?;
+        version = 11;
     }
     conn.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
@@ -2631,6 +2635,18 @@ fn migrate_v5(conn: &Connection) -> Result<()> {
 /// The v4 table knew an approval's origin, target, action and changeset. The
 /// service also needs the tool that asked, the one-line summary a queue shows,
 /// and when an untouched request stops being actionable.
+/// v11: a manual lock on a study, independent of whether it is published.
+///
+/// Lifecycle already says whether a study has versions; a lock says "do not
+/// change this", which is a different decision and can be taken at any time.
+fn migrate_v11(conn: &Connection) -> Result<()> {
+    let _ = conn.execute(
+        "ALTER TABLE studies ADD COLUMN locked INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
+    Ok(())
+}
+
 /// v10: the audit log. `ToolResult.audit_id` has been a field since the protocol
 /// landed with nothing behind it; every approval transition and every write a
 /// person approved now leaves a row here.

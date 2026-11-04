@@ -203,3 +203,40 @@ fn every_study_tool_the_registry_advertises_is_implemented() {
         );
     }
 }
+
+#[test]
+fn a_locked_study_refuses_a_tool_write() {
+    // A lock is the manual "do not change this", independent of publishing: the
+    // study is still a draft and still refuses.
+    let db = rbc_db::Db::open_memory().expect("db");
+    let mut host = BoardWriteHost::new(&db, "test");
+    let created = call(
+        &mut host,
+        "create_study",
+        serde_json::json!({"title": "Locked", "description": ""}),
+    );
+    let study_id = data(&created)["study_id"].as_str().expect("id").to_string();
+    db.lock_study(&study_id, true).expect("lock");
+
+    let refusal = call(
+        &mut host,
+        "add_chapter",
+        serde_json::json!({"study_id": study_id, "title": "Nope", "start_fen": START}),
+    );
+    assert!(!refusal.ok, "a locked study takes no new chapter");
+    assert_eq!(refusal.code, result_code::CONFLICT);
+    assert!(
+        refusal.summary.contains("locked"),
+        "the refusal names the rule: {}",
+        refusal.summary
+    );
+
+    // Unlocking lets the same call through.
+    db.lock_study(&study_id, false).expect("unlock");
+    let allowed = call(
+        &mut host,
+        "add_chapter",
+        serde_json::json!({"study_id": study_id, "title": "Now yes", "start_fen": START}),
+    );
+    assert!(allowed.ok, "{}", allowed.summary);
+}
