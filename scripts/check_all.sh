@@ -99,6 +99,9 @@ fi
 
 # --- browser ---------------------------------------------------------------
 
+step "check_studies.sh (study tests in one place)"
+(cd "$ROOT" && timeout 600 ./scripts/check_studies.sh) || fail "check_studies.sh"
+
 step "check_mcp.sh (MCP transports end to end)"
 (cd "$ROOT" && timeout 300 ./scripts/check_mcp.sh) || fail "check_mcp.sh"
 
