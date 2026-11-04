@@ -68,12 +68,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const badgeAfter = await ev(`!!document.querySelector(".board-target-badge")`);
   const activeChip = await ev(`(()=>{const c=document.querySelector(".board-chip.active");return c?c.textContent.trim():"";})()`);
 
-  console.log(JSON.stringify({ setup, chips, setTarget, markedAfterSet, switched, badge, badgeClicked, badgeAfter, activeChip }));
+  // The left-rail board tree lists the same boards and selects them.
+  const tree = await ev(`[...document.querySelectorAll(".board-tree .tree-board")].map(b=>b.textContent.trim())`);
+  const treeWorkspaces = await ev(`document.querySelectorAll(".board-tree .tree-ws").length`);
+  const treeClicked = await ev(`(()=>{const boards=[...document.querySelectorAll(".board-tree .tree-board")];const other=boards.find(b=>!b.classList.contains("active"));if(!other)return false;other.click();return true;})()`);
+  await sleep(1000);
+  const activeChipAfterTree = await ev(`(()=>{const c=document.querySelector(".board-chip.active");return c?c.textContent.trim():"";})()`);
+
+  console.log(JSON.stringify({ tree, treeWorkspaces, treeClicked, activeChipAfterTree, setup, chips, setTarget, markedAfterSet, switched, badge, badgeClicked, badgeAfter, activeChip }));
   const ok = chips && chips.length >= 2 && setTarget && markedAfterSet.length === 1
     && /AI target/.test(markedAfterSet[0] || "")
     && switched && /AI → /.test(badge)
     && badgeClicked && badgeAfter === false
-    && /AI target/.test(activeChip || "");
+    && /AI target/.test(activeChip || "")
+    && tree.length >= 2 && treeWorkspaces >= 1 && treeClicked
+    && activeChipAfterTree !== activeChip;
   console.log(ok ? "AI_CROSS_BOARD_PASS" : "AI_CROSS_BOARD_FAIL");
   ws.close(); chrome.kill(); process.exit(ok ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(1); });

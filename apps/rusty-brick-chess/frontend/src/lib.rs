@@ -3561,6 +3561,56 @@ pub fn App() -> impl IntoView {
                         })
                         .collect_view()}
                 </nav>
+                // The board tree: every workspace and the boards it holds, so a
+                // board can be reached without first switching to its tab.
+                <div class="side-boards">
+                    <div class="side-boards-title">
+                        {move || i18n::t(&language.get(), "boards.label")}
+                    </div>
+                    <ul class="board-tree">
+                        {move || {
+                            let list = workspaces.get();
+                            let current_ws = active_ws.get();
+                            list.into_iter().map(|ws| {
+                                let ws_key = ws.key;
+                                let ws_active = ws_key == current_ws;
+                                let title = ws.title.clone();
+                                let boards = ws.boards.clone();
+                                let active_index = ws.active_board;
+                                view! {
+                                    <li class=if ws_active { "tree-ws active" } else { "tree-ws" }>
+                                        <button
+                                            class="tree-ws-name"
+                                            on:click=move |_| active_ws.set(ws_key)
+                                        >
+                                            {title}
+                                        </button>
+                                        <ul class="tree-boards">
+                                            {boards.into_iter().enumerate().map(|(index, board)| {
+                                                let label = format!("{}  r{}", board.title, board.revision);
+                                                let is_active = ws_active && index == active_index;
+                                                let select = select_board;
+                                                view! {
+                                                    <li>
+                                                        <button
+                                                            class=if is_active { "tree-board active" } else { "tree-board" }
+                                                            on:click=move |_| {
+                                                                active_ws.set(ws_key);
+                                                                select(index);
+                                                            }
+                                                        >
+                                                            {label}
+                                                        </button>
+                                                    </li>
+                                                }
+                                            }).collect_view()}
+                                        </ul>
+                                    </li>
+                                }
+                            }).collect_view()
+                        }}
+                    </ul>
+                </div>
                 <div class="side-foot">"AGPL-3.0 · BrickChess"</div>
             </aside>
             <main class="main" id="app-main">
