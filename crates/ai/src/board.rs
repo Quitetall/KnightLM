@@ -20,6 +20,7 @@ use shakmaty::{
 
 use crate::agent::ToolHost;
 use crate::protocol::{ErrorInfo, ToolCall, ToolResult, result_code};
+use crate::result::{applied, internal, ok, refused, refused_with};
 use rbc_db::{Board, BoardWriteError, Db};
 
 /// One arrow drawn on the board.
@@ -188,12 +189,7 @@ impl BoardWriteHost<'_> {
 
         content.moves.push(san.clone());
         let fen = fen_of(&played);
-        let mut result = self.commit(
-            call,
-            &board,
-            &content,
-            format!("played {san}"),
-        );
+        let mut result = self.commit(call, &board, &content, format!("played {san}"));
         if result.ok {
             if let Some(data) = result.data.as_mut().and_then(Value::as_object_mut) {
                 data.insert("san".into(), Value::String(san));
@@ -364,7 +360,7 @@ impl BoardWriteHost<'_> {
         match self.db.set_board_mutability(&board_id, mutability) {
             Ok(board) => {
                 let mut result =
-                    ok_result(call, format!("board is now {mutability}"), board_data(&board));
+                    ok(call, format!("board is now {mutability}"), board_data(&board));
                 result.revision = Some(board.revision as u64);
                 result
             }
@@ -379,7 +375,7 @@ impl BoardWriteHost<'_> {
     fn get_board(&mut self, call: &ToolCall) -> ToolResult {
         match self.load(call) {
             Ok(board) => {
-                let mut result = ok_result(call, format!("read {}", board.title), board_data(&board));
+                let mut result = ok(call, format!("read {}", board.title), board_data(&board));
                 result.revision = Some(board.revision as u64);
                 result
             }
@@ -417,7 +413,7 @@ impl BoardWriteHost<'_> {
         match boards {
             Ok(boards) => {
                 let rows: Vec<Value> = boards.iter().map(board_data).collect();
-                ok_result(
+                ok(
                     call,
                     format!("{} board(s)", rows.len()),
                     Value::Array(rows),
@@ -444,7 +440,7 @@ impl BoardWriteHost<'_> {
                         })
                     })
                     .collect();
-                ok_result(
+                ok(
                     call,
                     format!("{} study/studies", rows.len()),
                     Value::Array(rows),
@@ -485,7 +481,7 @@ impl BoardWriteHost<'_> {
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
-                ok_result(
+                ok(
                     call,
                     format!("read study {}", study.title),
                     serde_json::json!({
@@ -520,7 +516,7 @@ impl BoardWriteHost<'_> {
         };
         let description = string_arg(call, "description").unwrap_or_default();
         match self.db.create_study(&title, &description) {
-            Ok(study) => ok_result(
+            Ok(study) => ok(
                 call,
                 format!("created study {title}"),
                 serde_json::json!({"study_id": study.id, "title": study.title}),
@@ -600,7 +596,7 @@ impl BoardWriteHost<'_> {
                         object.insert("fen".into(), Value::String(fen));
                     }
                 }
-                let mut result = ok_result(call, summary, data);
+                let mut result = ok(call, summary, data);
                 result.revision = Some(updated.revision as u64);
                 result
             }
@@ -682,58 +678,13 @@ fn board_data(board: &Board) -> Value {
     })
 }
 
-fn ok_result(call: &ToolCall, summary: String, data: Value) -> ToolResult {
-    ToolResult {
-        call_id: call.id.clone(),
-        tool: call.name.clone(),
-        ok: true,
-        code: result_code::APPLIED.to_string(),
-        summary,
-        data: Some(data),
-        revision: None,
-        audit_id: None,
-        error: None,
-    }
-}
 
+/// A newly created or copied board, reported as an applied write.
 fn created(call: &ToolCall, board: &Board) -> ToolResult {
-    let mut result = ok_result(
+    applied(
         call,
+        board.revision as u64,
         format!("created board {}", board.title),
         board_data(board),
-    );
-    result.revision = Some(board.revision as u64);
-    result
-}
-
-fn refused(call: &ToolCall, code: &str, summary: String) -> ToolResult {
-    refused_with(call, code, summary, Value::Null)
-}
-
-fn refused_with(call: &ToolCall, code: &str, summary: String, data: Value) -> ToolResult {
-    ToolResult {
-        call_id: call.id.clone(),
-        tool: call.name.clone(),
-        ok: false,
-        code: code.to_string(),
-        summary,
-        data: (!data.is_null()).then_some(data),
-        revision: None,
-        audit_id: None,
-        error: None,
-    }
-}
-
-fn internal(call: &ToolCall, error: ErrorInfo) -> ToolResult {
-    ToolResult {
-        call_id: call.id.clone(),
-        tool: call.name.clone(),
-        ok: false,
-        code: error.code.clone(),
-        summary: error.message.clone(),
-        data: None,
-        revision: None,
-        audit_id: None,
-        error: Some(error),
-    }
+    )
 }

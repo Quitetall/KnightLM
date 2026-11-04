@@ -14,6 +14,7 @@
 
 pub mod policy;
 pub mod protocol;
+pub mod result;
 pub mod tools;
 
 #[cfg(feature = "core")]
@@ -27,6 +28,9 @@ pub mod agent;
 
 #[cfg(feature = "host")]
 pub mod board;
+
+#[cfg(feature = "host")]
+pub mod reads;
 
 #[cfg(feature = "host")]
 pub mod store;

@@ -262,6 +262,8 @@ pub mod result_code {
     pub const NOT_FOUND: &str = "not_found";
     pub const INVALID_ARGUMENTS: &str = "invalid_arguments";
     pub const INTERNAL: &str = "internal";
+    /// The tool exists but the service behind it is not configured here.
+    pub const UNAVAILABLE: &str = "unavailable";
 }
 
 /// A named assistant conversation.
