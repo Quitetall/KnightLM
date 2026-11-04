@@ -1754,6 +1754,129 @@ pub async fn create_chapter(
     json_or_error(resp).await
 }
 
+/// Duplicate a chapter; the boards are shared, so an edit shows in both.
+pub async fn duplicate_chapter(study_id: &str, chapter_id: &str) -> Result<serde_json::Value, String> {
+    json_or_error(
+        Request::post(&format!("/api/studies/{study_id}/chapters/{chapter_id}/duplicate"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await
+}
+
+/// Delete a chapter; its boards stay in the database.
+pub async fn delete_chapter(study_id: &str, chapter_id: &str) -> Result<serde_json::Value, String> {
+    json_or_error(
+        Request::delete(&format!("/api/studies/{study_id}/chapters/{chapter_id}"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await
+}
+
+/// Save a chapter's markdown notes, or its title.
+pub async fn update_chapter(
+    study_id: &str,
+    chapter_id: &str,
+    title: Option<&str>,
+    notes_md: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let mut body = serde_json::Map::new();
+    if let Some(title) = title {
+        body.insert("title".into(), serde_json::json!(title));
+    }
+    if let Some(notes) = notes_md {
+        body.insert("notes_md".into(), serde_json::json!(notes));
+    }
+    let resp = Request::put(&format!("/api/studies/{study_id}/chapters/{chapter_id}"))
+        .json(&serde_json::Value::Object(body))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+/// The full chapter order, as ids.
+pub async fn reorder_chapters(study_id: &str, chapter_ids: &[String]) -> Result<serde_json::Value, String> {
+    let resp = Request::post(&format!("/api/studies/{study_id}/chapters/reorder"))
+        .json(&serde_json::json!({"chapter_ids": chapter_ids}))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+/// A new board inside a chapter, which joins the strip.
+pub async fn add_chapter_board(
+    study_id: &str,
+    chapter_id: &str,
+    title: &str,
+    fen: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let mut body = serde_json::json!({"title": title});
+    if let Some(fen) = fen {
+        body["fen"] = serde_json::json!(fen);
+    }
+    let resp = Request::post(&format!("/api/studies/{study_id}/chapters/{chapter_id}/boards"))
+        .json(&body)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+/// Make one board of a chapter its primary.
+pub async fn set_chapter_primary(
+    study_id: &str,
+    chapter_id: &str,
+    board_id: &str,
+) -> Result<serde_json::Value, String> {
+    let resp = Request::post(&format!("/api/studies/{study_id}/chapters/{chapter_id}/primary"))
+        .json(&serde_json::json!({"board_id": board_id}))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+/// Change a study's own fields.
+pub async fn update_study(
+    study_id: &str,
+    title: Option<&str>,
+    description_md: Option<&str>,
+) -> Result<StudyInfo, String> {
+    let mut body = serde_json::Map::new();
+    if let Some(title) = title {
+        body.insert("title".into(), serde_json::json!(title));
+    }
+    if let Some(description) = description_md {
+        body.insert("description_md".into(), serde_json::json!(description));
+    }
+    let resp = Request::put(&format!("/api/studies/{study_id}"))
+        .json(&serde_json::Value::Object(body))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+pub async fn delete_study(study_id: &str) -> Result<serde_json::Value, String> {
+    json_or_error(
+        Request::delete(&format!("/api/studies/{study_id}"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await
+}
+
 pub async fn publish_study(study_id: &str, expected_version: i64) -> Result<StudyVersionInfo, String> {
     let resp = Request::post(&format!("/api/studies/{study_id}/publish"))
         .json(&serde_json::json!({"expected_version": expected_version}))

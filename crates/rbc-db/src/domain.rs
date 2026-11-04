@@ -702,6 +702,188 @@ impl Db {
         Ok(())
     }
 
+    /// Update a study's own fields: title, description, tags and lifecycle.
+    ///
+    /// `None` leaves a field as it is, so a caller can change one thing without
+    /// having to send the whole object back.
+    pub fn update_study(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        description_md: Option<&str>,
+        tags: Option<&[String]>,
+        lifecycle: Option<&str>,
+    ) -> Result<Study> {
+        let mut study = self
+            .study(id)?
+            .with_context(|| format!("study {id} not found"))?;
+        if let Some(title) = title {
+            study.title = title.to_string();
+        }
+        if let Some(description) = description_md {
+            study.description_md = description.to_string();
+        }
+        if let Some(tags) = tags {
+            study.tags_json = serde_json::to_string(tags).unwrap_or_else(|_| "[]".into());
+        }
+        if let Some(lifecycle) = lifecycle {
+            study.lifecycle = lifecycle.to_string();
+        }
+        let conn = self.conn.lock().expect("db lock");
+        conn.execute(
+            "UPDATE studies SET title = ?1, description_md = ?2, tags_json = ?3,
+             lifecycle = ?4, updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?5",
+            params![
+                study.title,
+                study.description_md,
+                study.tags_json,
+                study.lifecycle,
+                id
+            ],
+        )?;
+        Ok(study)
+    }
+
+    /// Delete a study, its chapters and the versions snapshotted from it.
+    ///
+    /// The boards a chapter created are left alone: they may be referenced from
+    /// elsewhere, and deleting chess positions because a document went away is
+    /// the kind of surprise a person does not forgive.
+    pub fn delete_study(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().expect("db lock");
+        let changed = conn.execute("DELETE FROM studies WHERE id = ?1", params![id])?;
+        if changed > 0 {
+            conn.execute(
+                "DELETE FROM study_chapters WHERE study_id = ?1",
+                params![id],
+            )?;
+            conn.execute(
+                "DELETE FROM study_versions WHERE study_id = ?1",
+                params![id],
+            )?;
+            conn.execute(
+                "DELETE FROM study_progress WHERE study_id = ?1",
+                params![id],
+            )?;
+        }
+        Ok(changed > 0)
+    }
+
+    /// Change a chapter's title or markdown notes.
+    pub fn update_chapter(
+        &self,
+        study_id: &str,
+        chapter_id: &str,
+        title: Option<&str>,
+        notes_md: Option<&str>,
+    ) -> Result<Chapter> {
+        let conn = self.conn.lock().expect("db lock");
+        if let Some(title) = title {
+            conn.execute(
+                "UPDATE study_chapters SET title = ?1 WHERE id = ?2 AND study_id = ?3",
+                params![title, chapter_id, study_id],
+            )?;
+        }
+        if let Some(notes) = notes_md {
+            conn.execute(
+                "UPDATE study_chapters SET notes_md = ?1 WHERE id = ?2 AND study_id = ?3",
+                params![notes, chapter_id, study_id],
+            )?;
+        }
+        drop(conn);
+        self.chapters(study_id)?
+            .into_iter()
+            .find(|chapter| chapter.id == chapter_id)
+            .with_context(|| format!("no chapter {chapter_id} in study {study_id}"))
+    }
+
+    /// Remove a chapter; its boards stay in the database.
+    pub fn delete_chapter(&self, study_id: &str, chapter_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().expect("db lock");
+        Ok(conn.execute(
+            "DELETE FROM study_chapters WHERE id = ?1 AND study_id = ?2",
+            params![chapter_id, study_id],
+        )? > 0)
+    }
+
+    /// Copy a chapter, its notes and its board links, placed after the original.
+    ///
+    /// The boards themselves are shared, not cloned: duplicating a chapter is
+    /// "show me this again", and two chapters pointing at one board is how a
+    /// person would expect an edit to either to be visible in both.
+    pub fn duplicate_chapter(&self, study_id: &str, chapter_id: &str) -> Result<Chapter> {
+        let chapters = self.chapters(study_id)?;
+        let original = chapters
+            .iter()
+            .find(|chapter| chapter.id == chapter_id)
+            .with_context(|| format!("no chapter {chapter_id} in study {study_id}"))?
+            .clone();
+        let ordinal = original.ordinal + 1;
+        // Make room: everything at or after the new ordinal shifts down.
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                "UPDATE study_chapters SET ordinal = ordinal + 1
+                 WHERE study_id = ?1 AND ordinal >= ?2",
+                params![study_id, ordinal],
+            )?;
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        let board_ids_json = original.board_ids_json.clone();
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                "INSERT INTO study_chapters
+                 (id, study_id, ordinal, title, primary_board_id, board_ids_json, notes_md, metadata_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    id,
+                    study_id,
+                    ordinal,
+                    format!("{} (copy)", original.title),
+                    original.primary_board_id,
+                    board_ids_json,
+                    original.notes_md,
+                    "{}"
+                ],
+            )?;
+        }
+        self.chapters(study_id)?
+            .into_iter()
+            .find(|chapter| chapter.id == id)
+            .context("the duplicated chapter disappeared")
+    }
+
+    /// Make one of a chapter's boards its primary.
+    pub fn set_chapter_primary_board(
+        &self,
+        study_id: &str,
+        chapter_id: &str,
+        board_id: &str,
+    ) -> Result<Chapter> {
+        let chapter = self
+            .chapters(study_id)?
+            .into_iter()
+            .find(|chapter| chapter.id == chapter_id)
+            .with_context(|| format!("no chapter {chapter_id} in study {study_id}"))?;
+        let board_ids: Vec<String> =
+            serde_json::from_str(&chapter.board_ids_json).unwrap_or_default();
+        if !board_ids.iter().any(|id| id == board_id) {
+            anyhow::bail!("board {board_id} is not in chapter {chapter_id}");
+        }
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                "UPDATE study_chapters SET primary_board_id = ?1 WHERE id = ?2 AND study_id = ?3",
+                params![board_id, chapter_id, study_id],
+            )?;
+        }
+        self.chapters(study_id)?
+            .into_iter()
+            .find(|chapter| chapter.id == chapter_id)
+            .context("the chapter disappeared")
+    }
+
     /// Replace a study's description, or one chapter's markdown notes.
     ///
     /// The two live in different columns and mean different things: a study's

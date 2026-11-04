@@ -255,7 +255,9 @@ pub async fn list_chapters(
 #[derive(Deserialize)]
 pub struct CreateChapter {
     pub title: String,
-    pub start_fen: String,
+    /// Defaults to the start position.
+    #[serde(default)]
+    pub start_fen: Option<String>,
     #[serde(default)]
     pub notes_md: String,
 }
@@ -265,9 +267,15 @@ pub async fn create_chapter(
     Path(id): Path<String>,
     Json(body): Json<CreateChapter>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // The start position is the default: a person adding a chapter rarely wants
+    // to spell out the opening FEN, and the UI never sends it.
+    let start_fen = body
+        .start_fen
+        .filter(|fen| !fen.trim().is_empty())
+        .unwrap_or_else(|| "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string());
     let (chapter, board) = state
         .db
-        .add_chapter(&id, &body.title, &body.start_fen, &body.notes_md)?;
+        .add_chapter(&id, &body.title, &start_fen, &body.notes_md)?;
     Ok(Json(serde_json::json!({
         "chapter": chapter,
         "board": board,
@@ -1748,4 +1756,140 @@ pub async fn tournament_pgn(
         &running.schedule.rounds,
         &[],
     ))
+}
+
+// --- studies: editor operations -------------------------------------------
+
+/// `PUT /api/studies/{id}` — a study's own fields.
+pub async fn update_study(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<rbc_db::Study>, ApiError> {
+    let title = body.get("title").and_then(|v| v.as_str());
+    let description = body.get("description_md").and_then(|v| v.as_str());
+    let lifecycle = body.get("lifecycle").and_then(|v| v.as_str());
+    let tags: Option<Vec<String>> = body
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|values| values.iter().filter_map(|v| v.as_str().map(str::to_string)).collect());
+    state
+        .db
+        .update_study(&id, title, description, tags.as_deref(), lifecycle)
+        .map(Json)
+        .map_err(ApiError::Internal)
+}
+
+/// `DELETE /api/studies/{id}`.
+pub async fn delete_study(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let removed = state.db.delete_study(&id).map_err(ApiError::Internal)?;
+    Ok(Json(serde_json::json!({ "removed": removed })))
+}
+
+/// `PUT /api/studies/{id}/chapters/{chapter_id}` — title and notes.
+pub async fn update_chapter(
+    State(state): State<AppState>,
+    Path((id, chapter_id)): Path<(String, String)>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<rbc_db::Chapter>, ApiError> {
+    state
+        .db
+        .update_chapter(
+            &id,
+            &chapter_id,
+            body.get("title").and_then(|v| v.as_str()),
+            body.get("notes_md").and_then(|v| v.as_str()),
+        )
+        .map(Json)
+        .map_err(ApiError::Internal)
+}
+
+/// `DELETE /api/studies/{id}/chapters/{chapter_id}`.
+pub async fn delete_chapter(
+    State(state): State<AppState>,
+    Path((id, chapter_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let removed = state
+        .db
+        .delete_chapter(&id, &chapter_id)
+        .map_err(ApiError::Internal)?;
+    Ok(Json(serde_json::json!({ "removed": removed })))
+}
+
+/// `POST /api/studies/{id}/chapters/{chapter_id}/duplicate`.
+pub async fn duplicate_chapter(
+    State(state): State<AppState>,
+    Path((id, chapter_id)): Path<(String, String)>,
+) -> Result<Json<rbc_db::Chapter>, ApiError> {
+    state
+        .db
+        .duplicate_chapter(&id, &chapter_id)
+        .map(Json)
+        .map_err(ApiError::Internal)
+}
+
+/// `POST /api/studies/{id}/chapters/reorder` — the full order, as ids.
+pub async fn reorder_chapters(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let ids: Vec<String> = body
+        .get("chapter_ids")
+        .and_then(|v| v.as_array())
+        .map(|values| values.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    state
+        .db
+        .reorder_chapters(&id, &ids)
+        .map_err(ApiError::Internal)?;
+    Ok(Json(serde_json::json!({ "chapter_ids": ids })))
+}
+
+/// `POST /api/studies/{id}/chapters/{chapter_id}/boards` — a board in the strip.
+#[derive(serde::Deserialize)]
+pub struct ChapterBoardBody {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub fen: Option<String>,
+    #[serde(default)]
+    pub content_json: Option<String>,
+}
+
+pub async fn add_chapter_board(
+    State(state): State<AppState>,
+    Path((id, chapter_id)): Path<(String, String)>,
+    Json(body): Json<ChapterBoardBody>,
+) -> Result<Json<rbc_db::Board>, ApiError> {
+    let title = body.title.unwrap_or_else(|| "Board".to_string());
+    let fen = body
+        .fen
+        .unwrap_or_else(|| "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string());
+    let content = body.content_json.unwrap_or_else(|| "{}".to_string());
+    state
+        .db
+        .add_board_to_chapter(&id, &chapter_id, &title, &fen, &content)
+        .map(Json)
+        .map_err(ApiError::Internal)
+}
+
+/// `POST /api/studies/{id}/chapters/{chapter_id}/primary`.
+pub async fn set_chapter_primary(
+    State(state): State<AppState>,
+    Path((id, chapter_id)): Path<(String, String)>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<rbc_db::Chapter>, ApiError> {
+    let board_id = body
+        .get("board_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::BadRequest("board_id is required".into()))?;
+    state
+        .db
+        .set_chapter_primary_board(&id, &chapter_id, board_id)
+        .map(Json)
+        .map_err(ApiError::Internal)
 }
