@@ -1961,3 +1961,165 @@ pub async fn list_study_versions(
             .collect(),
     ))
 }
+
+/// `GET /api/studies/{id}/bundle` — the study as a `.rbcstudy` document.
+pub async fn export_study_bundle(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<axum::response::Response, ApiError> {
+    let bundle = rbc_ai::study_bundle::export(&state.db, &id).map_err(ApiError::Internal)?;
+    let body = serde_json::to_string_pretty(&bundle).map_err(|error| {
+        ApiError::Internal(anyhow::Error::new(error))
+    })?;
+    let mut response = axum::response::IntoResponse::into_response(body);
+    let headers = response.headers_mut();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        axum::http::HeaderValue::from_static("attachment; filename=\"study.rbcstudy\""),
+    );
+    Ok(response)
+}
+
+/// `POST /api/studies/import` — create a study from a `.rbcstudy` document.
+pub async fn import_study_bundle(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let parsed = rbc_ai::study_bundle::parse(&body)
+        .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    let study = state
+        .db
+        .create_study(&parsed.title, &parsed.description_md)
+        .map_err(ApiError::Internal)?;
+    let mut imported_chapters = 0usize;
+    let mut imported_boards = 0usize;
+    for chapter in &parsed.chapters {
+        let (added, _) = state
+            .db
+            .add_chapter(
+                &study.id,
+                &chapter.title,
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                &chapter.notes_md,
+            )
+            .map_err(ApiError::Internal)?;
+        imported_chapters += 1;
+        for board in &chapter.boards {
+            // The bundle carries moves as PGN; the tokens are what a board stores.
+            let san: Vec<String> = board
+                .pgn
+                .lines()
+                .filter(|line| !line.starts_with('['))
+                .flat_map(|line| line.split_whitespace())
+                .filter(|token| !token.chars().all(|c| c.is_ascii_digit() || c == '.'))
+                .filter(|token| !matches!(*token, "1-0" | "0-1" | "1/2-1/2" | "*"))
+                .map(str::to_string)
+                .collect();
+            let content = serde_json::json!({
+                "moves": san,
+                "arrows": board.arrows,
+                "circles": board.circles,
+                "notes_md": board.notes_md,
+            });
+            let created = state
+                .db
+                .add_board_to_chapter(
+                    &study.id,
+                    &added.id,
+                    "Imported",
+                    board.fen.as_deref().unwrap_or(
+                        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                    ),
+                    "{}",
+                )
+                .map_err(ApiError::Internal)?;
+            state
+                .db
+                .update_board_content(&created.id, 1, &content.to_string(), Some("import"))
+                .map_err(|error| ApiError::Internal(anyhow::Error::new(error)))?;
+            imported_boards += 1;
+        }
+    }
+    Ok(Json(serde_json::json!({
+        "study_id": study.id,
+        "title": study.title,
+        "chapters": imported_chapters,
+        "boards": imported_boards,
+        "unknown_fields": parsed.other.keys().collect::<Vec<_>>(),
+    })))
+}
+
+/// `POST /api/studies/import-pgn` — a Lichess study export, or any PGN with one
+/// game per chapter.
+///
+/// A Lichess study exports as PGN with the chapters numbered, so the adapter is
+/// "one game, one chapter": the game's headers become the chapter title and its
+/// movetext becomes the chapter board. Reading a study over Lichess's API instead
+/// needs a token and a network call, which belongs to a settings-driven fetch
+/// rather than to an import that must work offline.
+#[derive(serde::Deserialize)]
+pub struct ImportStudyPgn {
+    pub pgn: String,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+pub async fn import_study_pgn(
+    State(state): State<AppState>,
+    Json(body): Json<ImportStudyPgn>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let games = knightlm_notation::pgn::parse_all(body.pgn.as_bytes())
+        .map_err(|error| ApiError::BadRequest(format!("not a PGN: {error}")))?;
+    if games.is_empty() {
+        return Err(ApiError::BadRequest("the PGN carries no games".into()));
+    }
+    let title = body
+        .title
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or_else(|| "Imported study".to_string());
+    let study = state
+        .db
+        .create_study(&title, "")
+        .map_err(ApiError::Internal)?;
+    let mut chapters = 0usize;
+    for (index, raw) in games.iter().enumerate() {
+        let headers = &raw.tags;
+        let chapter_title = headers
+            .get("Event")
+            .map(|event| event.to_string())
+            .filter(|event| !event.trim().is_empty() && event != "?")
+            .unwrap_or_else(|| format!("Chapter {}", index + 1));
+        let start_fen = headers
+            .get("FEN")
+            .map(|fen| fen.to_string())
+            .unwrap_or_else(|| {
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string()
+            });
+        let (chapter, board) = state
+            .db
+            .add_chapter(&study.id, &chapter_title, &start_fen, "")
+            .map_err(ApiError::Internal)?;
+        // The movetext is the board's content, as SAN.
+        let movetext = raw
+            .movetext
+            .iter()
+            .map(|node| node.san.clone())
+            .collect::<Vec<_>>();
+        let content = serde_json::json!({"moves": movetext, "arrows": [], "circles": [], "notes_md": ""});
+        state
+            .db
+            .update_board_content(&board.id, 1, &content.to_string(), Some("import"))
+            .map_err(|error| ApiError::Internal(anyhow::Error::new(error)))?;
+        let _ = chapter;
+        chapters += 1;
+    }
+    Ok(Json(serde_json::json!({
+        "study_id": study.id,
+        "title": study.title,
+        "chapters": chapters,
+    })))
+}

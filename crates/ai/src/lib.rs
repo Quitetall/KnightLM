@@ -32,6 +32,9 @@ pub mod tournament_store;
 #[cfg(feature = "host")]
 pub mod ratings;
 
+#[cfg(feature = "host")]
+pub mod study_bundle;
+
 #[cfg(feature = "core")]
 pub mod game;
 
