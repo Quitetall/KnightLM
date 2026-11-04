@@ -4,11 +4,13 @@
 //!
 //! - `protocol` (default): serde DTOs that are safe to compile for the frontend.
 //! - `core`: context integration, tools and policy.
-//! - `host`: provider I/O, storage and engine adapters.
+//! - `provider`: model adapters — the [`provider::Provider`] trait, SSE parsing
+//!   and the OpenAI-compatible implementation.
+//! - `host`: storage and engine adapters on top of `provider`.
 //!
 //! Only the protocol, tool registry and policy layers are implemented in this
-//! slice (PKG-020 and PKG-021, partial). There is intentionally no network,
-//! database, filesystem or engine access here.
+//! slice (PKG-020 and PKG-021, partial). Nothing outside `provider` and
+//! `store` touches the network, the database or the filesystem.
 
 pub mod policy;
 pub mod protocol;
@@ -16,6 +18,9 @@ pub mod tools;
 
 #[cfg(feature = "core")]
 pub mod game;
+
+#[cfg(feature = "provider")]
+pub mod provider;
 
 #[cfg(feature = "host")]
 pub mod store;

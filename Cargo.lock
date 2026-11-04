@@ -4131,6 +4131,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shakmaty",
+ "ureq 3.4.2",
 ]
 
 [[package]]
