@@ -13,7 +13,7 @@ fn study_with_content(db: &Db) -> String {
         .expect("study");
     // A chapter comes with a board of its own; that is the one a study usually
     // authors, so the fixture uses it rather than adding a second.
-    let (chapter, board) = db
+    let (_chapter, board) = db
         .add_chapter(&study.id, "Morphy", START, "## notes")
         .expect("chapter");
     db.update_board_content(
