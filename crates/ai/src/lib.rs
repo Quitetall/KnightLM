@@ -22,6 +22,9 @@ pub mod game;
 #[cfg(feature = "provider")]
 pub mod provider;
 
+#[cfg(feature = "provider")]
+pub mod agent;
+
 #[cfg(feature = "host")]
 pub mod store;
 
