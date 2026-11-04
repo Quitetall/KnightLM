@@ -1442,3 +1442,142 @@ pub async fn chat_match(
 
     Ok(Json(serde_json::json!({ "reply": reply })))
 }
+
+
+// --- watching two models ---------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct WatchRunBody {
+    /// How many plies to play; defaults to one.
+    #[serde(default)]
+    pub plies: Option<u32>,
+}
+
+fn watch_seats_or_refuse(game: &Match) -> Result<rbc_ai::play::WatchSeats, ApiError> {
+    rbc_ai::play::watch_seats(game.config())
+        .ok_or_else(|| ApiError::BadRequest("this match is not two models".to_string()))
+}
+
+fn provider_for(
+    url: &str,
+    seat: &rbc_ai::protocol::ModelRef,
+) -> Result<rbc_ai::provider::OpenAiProvider, String> {
+    let config = rbc_ai::provider::ProviderConfig::openai_compatible(
+        url,
+        "openai_compatible",
+        seat.model.clone(),
+    );
+    rbc_ai::provider::OpenAiProvider::new(config).map_err(|error| error.message)
+}
+
+/// `POST /api/ai/matches/{id}/watch/step`
+///
+/// Plays one ply for whichever side is to move, stopping at the end of the game.
+pub async fn watch_step(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    body: Option<Json<WatchRunBody>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let settings = crate::api::effective(&state);
+    let url = settings
+        .model_url
+        .clone()
+        .ok_or(ApiError::Unavailable("model URL is not set"))?;
+    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
+    let mut game = Match::from_snapshot(snapshot)?;
+    let seats = watch_seats_or_refuse(&game)?;
+    let plies = body.and_then(|Json(body)| body.plies).unwrap_or(1).clamp(1, 20);
+
+    let played = tokio::task::spawn_blocking(move || {
+        let cancel = rbc_ai::provider::Cancellation::new();
+        let mut steps = Vec::new();
+        for _ in 0..plies {
+            if game.result().is_some() || game.moves().len() >= game.config().max_plies as usize {
+                break;
+            }
+            // One provider per seat: the model name travels with the seat.
+            let seat = if game.turn() == shakmaty::Color::White {
+                seats.white.clone()
+            } else {
+                seats.black.clone()
+            };
+            let provider = provider_for(&url, &seat)?;
+            match rbc_ai::play::watch_step(&mut game, &provider, &seats, &cancel) {
+                Ok(step) => steps.push(step),
+                // A model that cannot produce a legal move stops the run; the
+                // plies already played are kept.
+                Err(failure) => {
+                    if steps.is_empty() {
+                        return Err(failure.message);
+                    }
+                    break;
+                }
+            }
+        }
+        Ok::<_, String>((game, steps))
+    })
+    .await
+    .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?
+    .map_err(ApiError::BadRequest)?;
+
+    let (game, steps) = played;
+    save_match_after(&state, &id, &game)?;
+    Ok(Json(serde_json::json!({
+        "match": match_payload(&id, &game),
+        "steps": steps,
+    })))
+}
+
+/// `POST /api/ai/matches/{id}/watch/pause` and `/watch/resume`.
+pub async fn watch_pause(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
+    let mut game = Match::from_snapshot(snapshot)?;
+    let changed = game.pause();
+    if changed {
+        save_match_after(&state, &id, &game)?;
+    }
+    Ok(Json(serde_json::json!({
+        "paused": game.is_paused(),
+        "changed": changed,
+    })))
+}
+
+pub async fn watch_resume(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
+    let mut game = Match::from_snapshot(snapshot)?;
+    let changed = game.resume();
+    if changed {
+        save_match_after(&state, &id, &game)?;
+    }
+    Ok(Json(serde_json::json!({
+        "paused": game.is_paused(),
+        "changed": changed,
+        "state": game.state(),
+    })))
+}
+
+/// `POST /api/ai/matches/{id}/watch/reset`
+///
+/// Back to the start, with the same seats: a new game, not an edit.
+pub async fn watch_reset(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
+    let mut game = Match::from_snapshot(snapshot)?;
+    if !game.reset() {
+        return Err(ApiError::BadRequest("this match could not be reset".to_string()));
+    }
+    save_match_after(&state, &id, &game)?;
+    Ok(Json(serde_json::json!({ "match": match_payload(&id, &game) })))
+}

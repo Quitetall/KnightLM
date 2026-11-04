@@ -284,3 +284,95 @@ pub fn model_seat(config: &MatchConfig) -> Option<ModelRef> {
     };
     seat.map(|(provider, model)| ModelRef::new(provider.clone(), model.clone()))
 }
+
+// --- watching two models play ----------------------------------------------
+
+/// Both seats of a watched game.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatchSeats {
+    pub white: ModelRef,
+    pub black: ModelRef,
+}
+
+/// The two model seats, if this match is a watched game at all.
+pub fn watch_seats(config: &MatchConfig) -> Option<WatchSeats> {
+    match (&config.white, &config.black) {
+        (
+            Player::Model {
+                provider: wp,
+                model: wm,
+            },
+            Player::Model {
+                provider: bp,
+                model: bm,
+            },
+        ) => Some(WatchSeats {
+            white: ModelRef::new(wp.clone(), wm.clone()),
+            black: ModelRef::new(bp.clone(), bm.clone()),
+        }),
+        _ => None,
+    }
+}
+
+/// One ply of a watched game.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct WatchStep {
+    pub mv: MatchMove,
+    pub reasoning: Option<String>,
+    pub attempts: u32,
+    /// Whether the reasoning was written into the PGN as a comment.
+    pub annotated: bool,
+}
+
+/// Play one ply for whichever side is to move.
+///
+/// A watched game refuses moves while paused, and each side keeps its reasoning
+/// only if its own toggle is on, so one side can be annotated and the other
+/// left silent in the same game.
+pub fn watch_step(
+    game: &mut Match,
+    provider: &dyn Provider,
+    seats: &WatchSeats,
+    cancel: &Cancellation,
+) -> Result<WatchStep, ErrorInfo> {
+    if game.is_paused() {
+        return Err(error(
+            error_code::UNSUPPORTED,
+            "the game is paused",
+            false,
+        ));
+    }
+    let color = game.turn();
+    let model = if color == shakmaty::Color::White {
+        &seats.white
+    } else {
+        &seats.black
+    };
+    let keep = game.config().watch.for_side(color);
+    // A watched game is moves-only as far as the policy is concerned; the
+    // reasoning flag controls whether the note is kept, not whether talking is
+    // allowed.
+    let policy = PlayPolicy {
+        kind: MatchKind::Competitive,
+        request_reasoning: keep,
+        show_reasoning: keep,
+        export_reasoning: keep,
+        allow_chat: false,
+        allow_hints: false,
+        allow_engine: false,
+        allow_takeback: false,
+    };
+    let played = request_move(game, provider, model, &policy, cancel)?;
+    let annotated = match played.reasoning.as_deref() {
+        Some(reasoning) if !reasoning.trim().is_empty() => {
+            game.annotate_ply(played.mv.ply, reasoning)
+        }
+        _ => false,
+    };
+    Ok(WatchStep {
+        mv: played.mv,
+        reasoning: played.reasoning,
+        attempts: played.attempts,
+        annotated,
+    })
+}

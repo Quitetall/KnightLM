@@ -92,6 +92,37 @@ pub struct MatchConfig {
     /// Absent means an untimed match.
     #[serde(default)]
     pub time_control: Option<TimeControl>,
+    /// Which sides keep their reasoning in the record. A tournament of models
+    /// is often run with one side annotated and the other silent.
+    #[serde(default)]
+    pub watch: WatchSettings,
+}
+
+/// Per-side reasoning toggles for a watched game.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct WatchSettings {
+    #[serde(default)]
+    pub white_reasoning: bool,
+    #[serde(default)]
+    pub black_reasoning: bool,
+}
+
+impl WatchSettings {
+    /// Whether this side's reasoning is kept.
+    pub const fn for_side(&self, color: Color) -> bool {
+        match color {
+            Color::White => self.white_reasoning,
+            Color::Black => self.black_reasoning,
+        }
+    }
+
+    /// Both sides annotated.
+    pub const fn both() -> Self {
+        Self {
+            white_reasoning: true,
+            black_reasoning: true,
+        }
+    }
 }
 
 fn default_retries() -> u8 {
@@ -118,6 +149,7 @@ impl Default for MatchConfig {
             rated: false,
             ruleset: "standard-v1".into(),
             time_control: None,
+            watch: WatchSettings::default(),
         }
     }
 }
@@ -414,6 +446,57 @@ impl Match {
             }
             None => false,
         }
+    }
+
+    /// Stop the game where it stands; a paused match is not over.
+    pub fn pause(&mut self) -> bool {
+        if matches!(self.state, MatchState::Finished | MatchState::Aborted | MatchState::Paused) {
+            return false;
+        }
+        self.state = MatchState::Paused;
+        true
+    }
+
+    /// Continue from where it was paused.
+    pub fn resume(&mut self) -> bool {
+        if self.state != MatchState::Paused {
+            return false;
+        }
+        self.state = self.awaiting_state();
+        true
+    }
+
+    /// Whether the game accepts a move right now.
+    pub const fn is_paused(&self) -> bool {
+        matches!(self.state, MatchState::Paused)
+    }
+
+    /// The state a live game is in, given whose turn it is.
+    fn awaiting_state(&self) -> MatchState {
+        if self.result.is_some() || self.moves.len() >= self.config.max_plies as usize {
+            MatchState::Finished
+        } else if self
+            .position
+            .turn()
+            .eq(&shakmaty::Color::White)
+        {
+            MatchState::AwaitingWhite
+        } else {
+            MatchState::AwaitingBlack
+        }
+    }
+
+    /// Put the game back to its start, keeping the config and the clock setup.
+    ///
+    /// The record is deliberately dropped: a reset is a new game, not an edit
+    /// of the old one, and keeping the plies would make the PGN a lie.
+    pub fn reset(&mut self) -> bool {
+        let config = self.config.clone();
+        let Ok(fresh) = Match::new(config) else {
+            return false;
+        };
+        *self = fresh;
+        true
     }
 
     pub fn resign(&mut self, color: Color) {
