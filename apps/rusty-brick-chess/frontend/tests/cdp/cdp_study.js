@@ -54,22 +54,38 @@ function getJson(port, path) {
   await sleep(1200);
   const primaryMarked = await ev(`[...document.querySelectorAll(".strip-board")].some(b=>b.textContent.includes("★"))`);
 
-  await typeInto(".notes-editor", "## Notes for the chapter");
+  await typeInto(".notes-editor", "## Notes for the chapter\n\n- first point\n- second **bold** point");
   const saved = await click(".notes-save");
   await sleep(1200);
+  // The preview renders markdown, and escapes anything that looks like markup.
+  await click(".notes-preview-toggle");
+  await sleep(700);
+  const previewHtml = await ev(`document.querySelector(".notes-preview")?.innerHTML || ""`);
+  const headings = await ev(`document.querySelectorAll(".notes-preview h2").length`);
+  const items = await ev(`document.querySelectorAll(".notes-preview li").length`);
+  const bold = await ev(`document.querySelectorAll(".notes-preview b").length`);
+  await click(".notes-preview-toggle");
+  await sleep(500);
+  // Metadata: tags round-trip through the study.
+  await typeInto(".study-tags", "opening, tactics");
+  await ev(`document.querySelector(".study-tags").dispatchEvent(new Event("change",{bubbles:true}))`);
+  await sleep(1200);
+  const tags = await ev(`document.querySelector(".study-tags")?.value`);
 
   const published = await click(".study-publish");
   await sleep(1600);
   const lifecycle = await ev(`document.querySelector(".study-lifecycle")?.textContent.trim()`);
   const disabledAfter = await ev(`document.querySelector(".chapter-add")?.disabled`);
 
-  console.log(JSON.stringify({ hasView, created, studies, chapters, duplicated, afterDuplicate, moved, afterMove, boardAdded, boards, primary, primaryMarked, saved, published, lifecycle, disabledAfter }));
+  console.log(JSON.stringify({ hasView, created, studies, chapters, duplicated, afterDuplicate, moved, afterMove, boardAdded, boards, primary, primaryMarked, saved, headings, items, bold, tags, published, lifecycle, disabledAfter }));
   const ok = hasView && created && studies >= 1
     && chapters.length === 2 && chapters[0] === "Openings"
     && duplicated && afterDuplicate.length === 3 && afterDuplicate.some((t) => t.includes("copy"))
     && moved && afterMove.join() !== afterDuplicate.join()
     && boardAdded && boards >= 1 && primary && primaryMarked
-    && saved && published && lifecycle === "published"
+    && saved && headings === 1 && items === 2 && bold === 1
+    && tags === "opening, tactics"
+    && published && lifecycle === "published"
     && disabledAfter === true;
   console.log(ok ? "AI_STUDY_PASS" : "AI_STUDY_FAIL");
   ws.close(); chrome.kill(); process.exit(ok ? 0 : 1);

@@ -57,6 +57,7 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("study.save", "Save", "Guardar"),
     ("study.publish", "Publish", "Publicar"),
     ("study.description", "Description", "Descripción"),
+    ("study.tags", "Tags", "Etiquetas"),
     ("play.turns", "Turns", "Turnos"),
     ("play.tokens", "Tokens", "Tokens"),
     ("play.wins", "W", "V"),

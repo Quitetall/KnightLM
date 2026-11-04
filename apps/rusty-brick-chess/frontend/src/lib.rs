@@ -3,6 +3,7 @@
 pub mod ai_api;
 pub mod api;
 pub mod board;
+pub mod markdown;
 pub mod i18n;
 mod views;
 pub mod sound;

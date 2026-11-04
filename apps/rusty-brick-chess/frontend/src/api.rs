@@ -1555,6 +1555,15 @@ pub struct BoardInfo {
     pub updated: i64,
 }
 
+impl StudyInfo {
+    /// The tags as a comma-separated line, which is how the editor shows them.
+    pub fn tags_text(&self) -> String {
+        serde_json::from_str::<Vec<String>>(&self.tags_json)
+            .map(|tags| tags.join(", "))
+            .unwrap_or_default()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct StudyInfo {
     pub id: String,
@@ -1860,6 +1869,17 @@ pub async fn update_study(
     }
     let resp = Request::put(&format!("/api/studies/{study_id}"))
         .json(&serde_json::Value::Object(body))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+/// Replace a study's tags.
+pub async fn update_study_tags(study_id: &str, tags: &[String]) -> Result<StudyInfo, String> {
+    let resp = Request::put(&format!("/api/studies/{study_id}"))
+        .json(&serde_json::json!({"tags": tags}))
         .map_err(|e| e.to_string())?
         .send()
         .await

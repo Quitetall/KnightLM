@@ -457,10 +457,15 @@ pub fn StudyView(
                                 >{move || t("study.save")}</button>
                             </div>
                             {move || if preview.get() {
-                                // Preview as text: the Markdown renderer lands with
-                                // the notes ticket, and showing raw Markdown as a
-                                // paragraph is honest about that.
-                                view! { <pre class="notes-preview">{notes.get()}</pre> }.into_any()
+                                // `render` escapes every character the note contains
+                                // before adding its own tags, so a note cannot inject
+                                // markup into the page.
+                                view! {
+                                    <div
+                                        class="notes-preview"
+                                        inner_html=crate::markdown::render(&notes.get())
+                                    ></div>
+                                }.into_any()
                             } else {
                                 view! {
                                     <textarea
@@ -494,6 +499,36 @@ pub fn StudyView(
                                             });
                                         }
                                     ></textarea>
+                                </label>
+                                <label>
+                                    {move || t("study.tags")}
+                                    <input
+                                        class="study-tags"
+                                        placeholder="opening, tactics"
+                                        prop:value={
+                                            let study = study.clone();
+                                            move || study.tags_text()
+                                        }
+                                        prop:disabled=published
+                                        on:change={
+                                            let id = study_id.clone();
+                                            move |event| {
+                                                let raw = event_target_value(&event);
+                                                let tags: Vec<String> = raw
+                                                    .split(',')
+                                                    .map(str::trim)
+                                                    .filter(|tag| !tag.is_empty())
+                                                    .map(str::to_string)
+                                                    .collect();
+                                                let id = id.clone();
+                                                spawn_local(async move {
+                                                    if let Err(error) = api::update_study_tags(&id, &tags).await {
+                                                        message.set(error);
+                                                    }
+                                                });
+                                            }
+                                        }
+                                    />
                                 </label>
                                 <button
                                     class="study-publish"
