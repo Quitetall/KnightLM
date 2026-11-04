@@ -47,11 +47,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(1200);
   const afterPause = await ev(`(()=>{const e=[...document.querySelectorAll(".match-panel .muted")].map(x=>x.textContent.trim()).filter(Boolean);return e.join(" | ")})()`);
   const standings = await ev(`document.querySelectorAll(".standings-table tbody tr").length`);
+  const columns = await ev(`[...document.querySelectorAll(".leaderboard-table thead th")].map(t=>t.textContent.trim())`);
 
-  console.log(JSON.stringify({ hasBoard, hasTournaments, created, rows, stepClicked, stepped, paused, afterPause, standings }));
+  console.log(JSON.stringify({ hasBoard, hasTournaments, created, rows, stepClicked, stepped, paused, afterPause, standings, columns }));
   const ok = hasBoard && hasTournaments && created && rows >= 1 && stepClicked
     && /started \d+ game/.test(stepped || "") && paused && /paused/.test(afterPause || "")
-    && standings >= 2;
+    && standings >= 2
+    && columns.includes("Legal rate") && columns.includes("Turns") && columns.includes("Tokens");
   console.log(ok ? "AI_LEADERBOARD_PASS" : "AI_LEADERBOARD_FAIL");
   ws.close(); chrome.kill(); process.exit(ok ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(1); });

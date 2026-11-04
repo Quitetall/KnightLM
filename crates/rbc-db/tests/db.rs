@@ -639,3 +639,64 @@ fn ai_matches_save_state_and_pgn() {
     assert!(saved.ended.is_some());
     assert!(saved.pgn.contains("e4"));
 }
+
+#[test]
+fn ai_session_budget_refuses_a_turn_once_spent() {
+    let db = Db::open_memory().unwrap();
+    let session = db
+        .create_ai_session(
+            "Budgeted",
+            "chat",
+            None,
+            None,
+            SessionProfile {
+                model_json: "{}",
+                context_spec_json: "{}",
+                permissions_json: "{}",
+            },
+        )
+        .unwrap();
+    // No ceiling means it always may.
+    assert!(db.ai_session_has_budget(&session.id).unwrap());
+    assert_eq!(session.token_budget, None);
+    assert_eq!(session.tokens_used, 0);
+
+    // With a ceiling of 100 tokens, 60 spent leaves room and 40 more does not.
+    db.set_ai_session_budget(&session.id, Some(100)).unwrap();
+    assert!(db.ai_session_has_budget(&session.id).unwrap());
+    assert_eq!(db.add_ai_session_tokens(&session.id, 60).unwrap(), 60);
+    assert!(db.ai_session_has_budget(&session.id).unwrap());
+    assert_eq!(db.add_ai_session_tokens(&session.id, 40).unwrap(), 100);
+    assert!(
+        !db.ai_session_has_budget(&session.id).unwrap(),
+        "a session at its ceiling takes no more turns"
+    );
+
+    // Clearing the ceiling lets it run again.
+    db.set_ai_session_budget(&session.id, None).unwrap();
+    assert!(db.ai_session_has_budget(&session.id).unwrap());
+}
+
+#[test]
+fn ai_session_budget_survives_a_reopen_of_the_row() {
+    let db = Db::open_memory().unwrap();
+    let session = db
+        .create_ai_session(
+            "Persisted",
+            "chat",
+            None,
+            None,
+            SessionProfile {
+                model_json: "{}",
+                context_spec_json: "{}",
+                permissions_json: "{}",
+            },
+        )
+        .unwrap();
+    db.set_ai_session_budget(&session.id, Some(500)).unwrap();
+    db.add_ai_session_tokens(&session.id, 120).unwrap();
+
+    let reloaded = db.ai_session(&session.id).unwrap().unwrap();
+    assert_eq!(reloaded.token_budget, Some(500));
+    assert_eq!(reloaded.tokens_used, 120);
+}

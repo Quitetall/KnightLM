@@ -38,6 +38,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("play.conservative", "Conservative", "Conservador"),
     ("play.games", "Games", "Partidas"),
     ("play.legal", "Legal rate", "Tasa legal"),
+    ("play.turns", "Turns", "Turnos"),
+    ("play.tokens", "Tokens", "Tokens"),
     ("play.wins", "W", "V"),
     ("play.tournaments", "Tournaments", "Torneos"),
     ("play.new_tournament", "New round robin", "Nuevo round robin"),

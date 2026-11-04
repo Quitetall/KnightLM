@@ -386,6 +386,8 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                     <th>{move || i18n::t(&language.get(), "play.conservative")}</th>
                                     <th>{move || i18n::t(&language.get(), "play.games")}</th>
                                     <th>{move || i18n::t(&language.get(), "play.legal")}</th>
+                                    <th>{move || i18n::t(&language.get(), "play.turns")}</th>
+                                    <th>{move || i18n::t(&language.get(), "play.tokens")}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -402,6 +404,11 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                                 .and_then(|m| m.legal_rate)
                                                 .map(|rate| format!("{:.0}%", rate * 100.0))
                                                 .unwrap_or_else(|| "—".to_string());
+                                            let matched = metrics.iter().find(|m| row.competitor.contains(&m.model));
+                                            let turns = matched.map(|m| m.turns).unwrap_or(0);
+                                            let tokens = matched
+                                                .map(|m| m.tokens_in + m.tokens_out)
+                                                .unwrap_or(0);
                                             view! {
                                                 <tr>
                                                     <td>{row.competitor.clone()}</td>
@@ -410,6 +417,8 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                                     <td>{format!("{:.0}", row.conservative)}</td>
                                                     <td>{row.games}</td>
                                                     <td>{legal}</td>
+                                                    <td>{turns}</td>
+                                                    <td>{tokens}</td>
                                                 </tr>
                                             }
                                         })

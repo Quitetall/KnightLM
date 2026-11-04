@@ -2190,7 +2190,7 @@ fn moves_to_san(fen: &str, moves: &str) -> String {
 /// Additive migrations for databases created by older builds.
 /// Current schema version. Bump this and add a `migrate_vN` step for changes
 /// that `CREATE ... IF NOT EXISTS` cannot express.
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -2236,6 +2236,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if version < 8 {
         migrate_v8(conn)?;
         version = 8;
+    }
+    if version < 9 {
+        migrate_v9(conn)?;
+        version = 9;
     }
     conn.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
@@ -2564,6 +2568,19 @@ fn migrate_v5(conn: &Connection) -> Result<()> {
 /// The v4 table knew an approval's origin, target, action and changeset. The
 /// service also needs the tool that asked, the one-line summary a queue shows,
 /// and when an untouched request stops being actionable.
+/// v9: a session's own spend ceiling, so a runaway conversation stops on its own
+/// budget rather than only on the provider's kindness.
+fn migrate_v9(conn: &Connection) -> Result<()> {
+    for column in [
+        "token_budget INTEGER",
+        "tokens_used INTEGER NOT NULL DEFAULT 0",
+    ] {
+        // `ALTER TABLE ... ADD COLUMN` has no IF NOT EXISTS.
+        let _ = conn.execute(&format!("ALTER TABLE ai_sessions ADD COLUMN {column}"), []);
+    }
+    Ok(())
+}
+
 /// v8: tournaments — the state a restart has to resume from, and the standings
 /// projection a leaderboard reads without replaying anything.
 fn migrate_v8(conn: &Connection) -> Result<()> {

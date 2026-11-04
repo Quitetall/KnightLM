@@ -903,6 +903,12 @@ impl Db {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiSession {
+    /// Absent means this session has no ceiling of its own.
+    #[serde(default)]
+    pub token_budget: Option<i64>,
+    /// What this session has spent so far.
+    #[serde(default)]
+    pub tokens_used: i64,
     pub id: String,
     pub title: String,
     pub mode: String,
@@ -962,6 +968,8 @@ pub struct AiTurnInput {
 
 fn ai_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AiSession> {
     Ok(AiSession {
+        token_budget: row.get(11)?,
+        tokens_used: row.get(12)?,
         id: row.get(0)?,
         title: row.get(1)?,
         mode: row.get(2)?,
@@ -1076,7 +1084,7 @@ const AI_APPROVAL_COLUMNS: &str = "id, origin, session_id, target_kind, target_i
 
 const AI_EVENT_COLUMNS: &str = "stream_kind, stream_id, event_id, payload_json, created";
 
-const AI_SESSION_COLUMNS: &str = "id, title, mode, home_board_id, target_board_id, model_json,     context_spec_json, permissions_json, created, updated, archived";
+const AI_SESSION_COLUMNS: &str = "id, title, mode, home_board_id, target_board_id, model_json,     context_spec_json, permissions_json, created, updated, archived, token_budget, tokens_used";
 
 const AI_TURN_COLUMNS: &str = "id, session_id, seq, role, content, reasoning, tool_calls_json,     tool_results_json, context_json, context_sha256, spec_version, template_version,     tool_schema_version, engine_fingerprint, model_json, tokens_in, tokens_out, latency_ms,     error_json, created";
 
@@ -1162,6 +1170,49 @@ impl Db {
             params![id],
         )?;
         Ok(())
+    }
+
+    /// Set a session's own spend ceiling, or clear it.
+    pub fn set_ai_session_budget(&self, id: &str, tokens: Option<i64>) -> Result<AiSession> {
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                "UPDATE ai_sessions SET token_budget = ?1,
+                 updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?2",
+                params![tokens, id],
+            )?;
+        }
+        self.ai_session(id)?
+            .with_context(|| format!("AI session {id} not found"))
+    }
+
+    /// Add what a turn spent to the session's running total.
+    pub fn add_ai_session_tokens(&self, id: &str, tokens: i64) -> Result<i64> {
+        let conn = self.conn.lock().expect("db lock");
+        conn.execute(
+            "UPDATE ai_sessions SET tokens_used = tokens_used + ?1,
+             updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?2",
+            params![tokens, id],
+        )?;
+        let used: i64 = conn.query_row(
+            "SELECT tokens_used FROM ai_sessions WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
+        Ok(used)
+    }
+
+    /// Whether a session may take another turn, and how much is left.
+    ///
+    /// A session with no ceiling always may; the answer is `(true, None)`.
+    pub fn ai_session_has_budget(&self, id: &str) -> Result<bool> {
+        let session = self
+            .ai_session(id)?
+            .with_context(|| format!("AI session {id} not found"))?;
+        Ok(match session.token_budget {
+            Some(budget) => session.tokens_used < budget,
+            None => true,
+        })
     }
 
     /// Replace a session's permission profile.

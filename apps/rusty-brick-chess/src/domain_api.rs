@@ -568,6 +568,14 @@ pub async fn send_ai_turn(
     use rbc_ai::protocol::{ModelRef, SessionMode};
 
     let session = state.db.ai_session(&id)?.ok_or(ApiError::NotFound)?;
+    // A session can carry its own ceiling. A spent budget refuses the turn with
+    // a reason instead of half-running it.
+    if !state.db.ai_session_has_budget(&id)? {
+        return Err(ApiError::BadRequest(format!(
+            "this session has spent its {} token budget",
+            session.token_budget.unwrap_or(0)
+        )));
+    }
     let settings = crate::api::effective(&state);
     let url = settings
         .model_url
@@ -771,6 +779,11 @@ pub async fn send_ai_turn(
                 .as_ref()
                 .map(|error| serde_json::to_string(error).unwrap_or_default()),
         },
+    )?;
+    // What the turn cost counts against the session's own ceiling.
+    state.db.add_ai_session_tokens(
+        &id,
+        (outcome.usage.tokens_in + outcome.usage.tokens_out) as i64,
     )?;
 
     if reply.trim().is_empty() {
