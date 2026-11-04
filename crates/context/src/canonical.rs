@@ -54,7 +54,7 @@ pub fn estimate_tokens(text: &str) -> u32 {
     if chars == 0 {
         return 0;
     }
-    u32::try_from((chars + 3) / 4).unwrap_or(u32::MAX)
+    u32::try_from(chars.div_ceil(4)).unwrap_or(u32::MAX)
 }
 
 /// Normalize text to LF, strip trailing whitespace on each line, and remove

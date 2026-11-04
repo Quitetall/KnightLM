@@ -126,10 +126,8 @@ pub fn compile(spec: &ContextSpec, input: &ContextInput) -> Result<CompiledConte
                 }
             }
             SectionId::Notes => {
-                if let Some(notes) = &evidence.notes {
-                    if !notes.trim().is_empty() {
-                        candidates.push(Candidate::new(*id, false, render::notes(notes)?));
-                    }
+                if let Some(notes) = evidence.notes.as_ref().filter(|n| !n.trim().is_empty()) {
+                    candidates.push(Candidate::new(*id, false, render::notes(notes)?));
                 }
             }
             SectionId::Siblings => {
@@ -358,10 +356,8 @@ fn compiled_data(
 ) -> Result<Value> {
     let mut map: BTreeMap<String, Value> = BTreeMap::new();
     for section in sections {
-        if section.included {
-            if let Some(data) = &section.data {
-                map.insert(section.id.clone(), data.clone());
-            }
+        if let Some(data) = section.data.as_ref().filter(|_| section.included) {
+            map.insert(section.id.clone(), data.clone());
         }
     }
     let fingerprints = evidence.fingerprints()?;

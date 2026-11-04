@@ -413,7 +413,7 @@ pub fn validate_arguments(spec: &ToolSpec, arguments: &Value) -> Result<(), Argu
         let name = name
             .as_str()
             .ok_or_else(|| ArgumentError::InvalidSchema("required entry is not a string".into()))?;
-        if object.get(name).map_or(true, Value::is_null) {
+        if object.get(name).is_none_or(Value::is_null) {
             return Err(ArgumentError::MissingRequired(name.to_string()));
         }
     }

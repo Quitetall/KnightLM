@@ -199,6 +199,18 @@ const STUDY_COLUMNS: &str = "id, title, description_md, lifecycle, current_versi
 const CHAPTER_COLUMNS: &str = "id, study_id, ordinal, title, primary_board_id, \
     board_ids_json, notes_md, metadata_json";
 
+/// The three JSON blobs an AI session is created with.
+///
+/// They are separate columns but always travel together, and passing them as
+/// three `&str` arguments made the call site a guessing game about which was
+/// which.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SessionProfile<'a> {
+    pub model_json: &'a str,
+    pub context_spec_json: &'a str,
+    pub permissions_json: &'a str,
+}
+
 impl Db {
     // ------------------------------------------------------------------
     // Workspaces
@@ -1075,10 +1087,13 @@ impl Db {
         mode: &str,
         home_board_id: Option<&str>,
         target_board_id: Option<&str>,
-        model_json: &str,
-        context_spec_json: &str,
-        permissions_json: &str,
+        profile: SessionProfile<'_>,
     ) -> Result<AiSession> {
+        let SessionProfile {
+            model_json,
+            context_spec_json,
+            permissions_json,
+        } = profile;
         let id = Uuid::new_v4().to_string();
         {
             let conn = self.conn.lock().expect("db lock");
@@ -1256,12 +1271,10 @@ impl Db {
         {
             let conn = self.conn.lock().expect("db lock");
             conn.execute(
-                &format!(
-                    "INSERT INTO ai_approvals
-                     (id, origin, session_id, target_kind, target_id, action,
-                      changeset_json, status, created, resolved, tool, summary, expires)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, NULL, ?9, ?10, ?11)"
-                ),
+                "INSERT INTO ai_approvals
+                 (id, origin, session_id, target_kind, target_id, action,
+                  changeset_json, status, created, resolved, tool, summary, expires)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, NULL, ?9, ?10, ?11)",
                 params![
                     id,
                     input.origin,

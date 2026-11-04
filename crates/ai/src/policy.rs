@@ -213,10 +213,10 @@ pub fn decide(
         ToolEffect::BoardWrite => {
             // Moves, arrows, circles, annotations and notes are the flow of a
             // game, so Play/Watch never interrupt with a prompt. Chat writes
-            // need `board-write` auto-approval.
-            if origin == Origin::InApp && matches!(mode, Mode::Play | Mode::Watch) {
-                PolicyDecision::Allow
-            } else if granted_scope == Some(PermissionScope::BoardWrite) {
+            // need `board-write` auto-approval. Either reason is enough.
+            if (origin == Origin::InApp && matches!(mode, Mode::Play | Mode::Watch))
+                || granted_scope == Some(PermissionScope::BoardWrite)
+            {
                 PolicyDecision::Allow
             } else {
                 PolicyDecision::RequiresApproval

@@ -385,9 +385,11 @@ pub async fn create_ai_session(
         &body.mode,
         body.home_board_id.as_deref(),
         body.target_board_id.as_deref(),
-        &body.model_json,
-        &body.context_spec_json,
-        &body.permissions_json,
+        rbc_db::SessionProfile {
+            model_json: &body.model_json,
+            context_spec_json: &body.context_spec_json,
+            permissions_json: &body.permissions_json,
+        },
     )?))
 }
 

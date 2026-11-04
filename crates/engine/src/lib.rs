@@ -107,6 +107,17 @@ pub struct Engine {
     timeout: Duration,
 }
 
+/// One MultiPV line as the engine reported it: depth, score, mate score,
+/// principal variation, nodes and time.
+type MultiPvLine = (
+    u32,
+    Option<i32>,
+    Option<i32>,
+    Vec<String>,
+    Option<u64>,
+    Option<u64>,
+);
+
 impl Engine {
     pub fn spawn(path: &str, timeout_secs: u64) -> Result<Self> {
         Self::spawn_with(path, timeout_secs, EngineOptions::default())
@@ -301,17 +312,7 @@ impl Engine {
         self.send(&format!("setoption name MultiPV value {n}"))?;
         self.send(&format!("position fen {fen}"))?;
         self.send(&format!("go depth {depth}"))?;
-        let mut best: BTreeMap<
-            u16,
-            (
-                u32,
-                Option<i32>,
-                Option<i32>,
-                Vec<String>,
-                Option<u64>,
-                Option<u64>,
-            ),
-        > = BTreeMap::new();
+        let mut best: BTreeMap<u16, MultiPvLine> = BTreeMap::new();
         let deadline = Instant::now() + self.timeout;
         loop {
             match self.recv_until(deadline)? {

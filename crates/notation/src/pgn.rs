@@ -223,15 +223,15 @@ pub fn write(game: &PgnGame) -> String {
 }
 
 fn write_nodes(out: &mut String, nodes: &[PgnNode], start_ply: usize) {
-    let mut ply = start_ply;
     let mut line_start = true;
     let mut need_space = false;
-    for node in nodes {
+    for (offset, node) in nodes.iter().enumerate() {
+        let ply = start_ply + offset;
         if need_space {
             out.push(' ');
         }
         let number = ply / 2 + 1;
-        if ply % 2 == 0 {
+        if ply.is_multiple_of(2) {
             out.push_str(&format!("{number}. "));
         } else if line_start {
             out.push_str(&format!("{number}... "));
@@ -259,6 +259,5 @@ fn write_nodes(out: &mut String, nodes: &[PgnNode], start_ply: usize) {
             line_start = false;
         }
         need_space = true;
-        ply += 1;
     }
 }

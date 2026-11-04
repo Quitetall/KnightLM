@@ -352,13 +352,12 @@ impl GameState {
         }
         let mut minors = 0;
         for square in Square::ALL {
-            match self.board.board().piece_at(square) {
-                Some(p) => match p.role {
+            if let Some(piece) = self.board.board().piece_at(square) {
+                match piece.role {
                     Role::Pawn | Role::Rook | Role::Queen => return false,
                     Role::Bishop | Role::Knight => minors += 1,
                     Role::King => {}
-                },
-                None => {}
+                }
             }
         }
         minors <= 1 // K vs K, K+B vs K, K+N vs K only; no universal dead-position claim.

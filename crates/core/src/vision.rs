@@ -87,8 +87,8 @@ pub fn render_glyph_svg(
         }
     };
     let size = 64u32;
-    let mut svg = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"512\" height=\"512\" viewBox=\"0 0 512 512\">\n"
+    let mut svg = String::from(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"512\" height=\"512\" viewBox=\"0 0 512 512\">\n",
     );
     for display in 0..64usize {
         let index = if orientation_white_bottom {
@@ -104,11 +104,10 @@ pub fn render_glyph_svg(
         ));
         let piece = squares[index];
         if piece != ' ' {
-            let ink = if piece.is_ascii_uppercase() {
-                "#1a1a1a"
-            } else {
-                "#1a1a1a"
-            };
+            // One ink for both colours: the glyph itself carries the side
+            // (outline for white, filled for black), so the branch that was
+            // here chose between two identical values.
+            let ink = "#1a1a1a";
             let g = glyph(piece);
             svg.push_str(&format!(
                 "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" font-family=\"DejaVu Sans, Noto Sans Symbols, sans-serif\" font-size=\"52\" fill=\"{ink}\">{}</text>\n",

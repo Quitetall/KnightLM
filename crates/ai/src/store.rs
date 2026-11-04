@@ -41,14 +41,19 @@ impl Store {
         context_spec: &ContextSpecRef,
         permissions: &PermissionProfile,
     ) -> Result<AiSession> {
+        let model_json = serde_json::to_string(model)?;
+        let context_spec_json = serde_json::to_string(context_spec)?;
+        let permissions_json = serde_json::to_string(permissions)?;
         let row = self.db.create_ai_session(
             title,
             mode.as_str(),
             home_board_id,
             target_board_id,
-            &serde_json::to_string(model)?,
-            &serde_json::to_string(context_spec)?,
-            &serde_json::to_string(permissions)?,
+            rbc_db::SessionProfile {
+                model_json: &model_json,
+                context_spec_json: &context_spec_json,
+                permissions_json: &permissions_json,
+            },
         )?;
         Ok(session_from_row(row))
     }

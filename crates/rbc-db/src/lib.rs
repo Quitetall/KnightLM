@@ -653,10 +653,8 @@ impl Db {
         )
         .context("insert game")?;
         let id = conn.last_insert_rowid();
-        if index_positions_wanted {
-            if let Some(record) = &record {
-                index_positions(&conn, id, &record.initial_fen, &record.moves, &variant)?;
-            }
+        if let Some(record) = record.as_ref().filter(|_| index_positions_wanted) {
+            index_positions(&conn, id, &record.initial_fen, &record.moves, &variant)?;
         }
         if let Some(cid) = collection {
             conn.execute(
@@ -1935,11 +1933,9 @@ impl Db {
                 }
             }
         };
-        if existing {
-            if let Some(clock) = clock {
-                let (line, idx) = resolve_tree_path(&mut nodes, &new_path)?;
-                set_clock_comment(&mut line[idx], clock);
-            }
+        if let Some(clock) = clock.filter(|_| existing) {
+            let (line, idx) = resolve_tree_path(&mut nodes, &new_path)?;
+            set_clock_comment(&mut line[idx], clock);
         }
         prune_tree(&mut nodes);
         let (sans, ucis) = validate_tree(&mut nodes, &start, mode)?;
@@ -2801,11 +2797,11 @@ fn new_node(san: &str, clock: Option<&str>) -> knightlm_notation::pgn::PgnNode {
 fn set_clock_comment(node: &mut knightlm_notation::pgn::PgnNode, clock: &str) {
     let tag = format!("[%clk {clock}]");
     let comment = node.post_comment.get_or_insert_with(String::new);
-    if let Some(start) = comment.find("[%clk ") {
-        if let Some(end) = comment[start..].find(']') {
-            comment.replace_range(start..start + end + 1, &tag);
-            return;
-        }
+    if let Some(start) = comment.find("[%clk ")
+        && let Some(end) = comment[start..].find(']')
+    {
+        comment.replace_range(start..start + end + 1, &tag);
+        return;
     }
     if !comment.is_empty() {
         comment.push(' ');
@@ -2817,10 +2813,10 @@ fn next_child_path(parent: &str, index: usize) -> String {
     if parent.is_empty() {
         return index.to_string();
     }
-    if let Some((base, last)) = parent.rsplit_once('.') {
-        if let Ok(last) = last.parse::<usize>() {
-            return format!("{base}.{}", last + 1);
-        }
+    if let Some((base, last)) = parent.rsplit_once('.')
+        && let Ok(last) = last.parse::<usize>()
+    {
+        return format!("{base}.{}", last + 1);
     }
     parent
         .parse::<usize>()
@@ -2918,7 +2914,7 @@ fn resolve_tree_path<'a>(
     walk(nodes, first, &rest)
 }
 
-fn prune_tree(nodes: &mut Vec<knightlm_notation::pgn::PgnNode>) {
+fn prune_tree(nodes: &mut [knightlm_notation::pgn::PgnNode]) {
     for node in nodes.iter_mut() {
         node.variations.retain(|line| !line.is_empty());
         for variation in &mut node.variations {

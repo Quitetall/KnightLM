@@ -1,4 +1,4 @@
-use rbc_db::{Db, GameQuery};
+use rbc_db::{Db, GameQuery, SessionProfile};
 
 const PGN: &str =
     "[Event \"T\"]\n[White \"A\"]\n[Black \"B\"]\n[Result \"1-0\"]\n\n1. e4 e5 2. Nf3 Nc6 1-0\n";
@@ -24,8 +24,10 @@ fn import_query_and_get() {
 fn query_filters() {
     let db = Db::open_memory().unwrap();
     db.import_pgn(PGN, None).unwrap();
-    let mut q = GameQuery::default();
-    q.player = Some("A".into());
+    let mut q = GameQuery {
+        player: Some("A".into()),
+        ..GameQuery::default()
+    };
     assert_eq!(db.query(&q).unwrap().total, 1);
     q.player = Some("Nobody".into());
     assert_eq!(db.query(&q).unwrap().total, 0);
@@ -511,7 +513,7 @@ fn studies_copy_chapters_versions_and_progress() {
     let ids: Vec<String> = serde_json::from_str(&chapters[0].board_ids_json).unwrap();
     assert_eq!(ids, vec![primary.id.clone(), extra.id.clone()]);
 
-    db.reorder_chapters(&study.id, &[chapter.id.clone()])
+    db.reorder_chapters(&study.id, std::slice::from_ref(&chapter.id))
         .unwrap();
     let version = db.publish_study(&study.id, 1).unwrap();
     assert_eq!(version.version, 2);
@@ -557,27 +559,33 @@ fn ai_sessions_persist_turns_in_order() {
             "chat",
             None,
             None,
-            r#"{"model":"test"}"#,
-            r#"{"id":"chat-v1"}"#,
-            "{}",
+            SessionProfile {
+                model_json: r#"{"model":"test"}"#,
+                context_spec_json: r#"{"id":"chat-v1"}"#,
+                permissions_json: "{}",
+            },
         )
         .unwrap();
     assert_eq!(db.ai_sessions().unwrap().len(), 1);
 
-    let mut first = AiTurnInput::default();
-    first.role = "user".into();
-    first.content = "hello".into();
-    first.context_json = r#"{"position":{}}"#.into();
-    first.context_sha256 = "abc".into();
+    let first = AiTurnInput {
+        role: "user".into(),
+        content: "hello".into(),
+        context_json: r#"{"position":{}}"#.into(),
+        context_sha256: "abc".into(),
+        ..AiTurnInput::default()
+    };
     let turn = db.append_ai_turn(&session.id, &first).unwrap();
     assert_eq!(turn.seq, 1);
     assert_eq!(turn.content, "hello");
 
-    let mut second = AiTurnInput::default();
-    second.role = "assistant".into();
-    second.content = "hi".into();
-    second.tokens_in = 3;
-    second.tokens_out = 1;
+    let second = AiTurnInput {
+        role: "assistant".into(),
+        content: "hi".into(),
+        tokens_in: 3,
+        tokens_out: 1,
+        ..AiTurnInput::default()
+    };
     let turn = db.append_ai_turn(&session.id, &second).unwrap();
     assert_eq!(turn.seq, 2);
 
@@ -596,7 +604,17 @@ fn ai_sessions_persist_turns_in_order() {
 fn ai_matches_save_state_and_pgn() {
     let db = Db::open_memory().unwrap();
     let session = db
-        .create_ai_session("Match", "play", None, None, "{}", "{}", "{}")
+        .create_ai_session(
+            "Match",
+            "play",
+            None,
+            None,
+            SessionProfile {
+                model_json: "{}",
+                context_spec_json: "{}",
+                permissions_json: "{}",
+            },
+        )
         .unwrap();
     let game = db
         .create_ai_match(

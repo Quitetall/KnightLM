@@ -41,7 +41,7 @@ pub fn play_game(white: &dyn Player, black: &dyn Player, max_plies: usize) -> Re
     loop {
         let facts = state.facts();
         if facts.checkmate {
-            let result = if state.record().moves.len() % 2 == 0 {
+            let result = if state.record().moves.len().is_multiple_of(2) {
                 "1-0"
             } else {
                 "0-1"
@@ -87,7 +87,7 @@ pub fn play_game(white: &dyn Player, black: &dyn Player, max_plies: usize) -> Re
                 black.name(),
             ));
         }
-        let white_to_move = state.record().moves.len() % 2 == 0;
+        let white_to_move = state.record().moves.len().is_multiple_of(2);
         let mv = if white_to_move {
             white.select(&state).context("white move")?
         } else {

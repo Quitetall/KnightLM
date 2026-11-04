@@ -20,7 +20,7 @@ pub fn detect(bytes: &[u8]) -> Format {
     // A deliberate, trivial first cut: any byte stream containing a '[' tag
     // header is treated as PGN; otherwise SAN. Real detection (and the
     // remaining variants) land with KLM-WAR-0004.
-    if bytes.iter().any(|&b| b == b'[') {
+    if bytes.contains(&b'[') {
         Format::Pgn
     } else {
         Format::San

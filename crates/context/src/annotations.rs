@@ -3,20 +3,11 @@
 use serde::{Deserialize, Serialize};
 
 /// A single arrow between two squares, rendered as `from->to`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Arrow {
     pub from: String,
     pub to: String,
-}
-
-impl Default for Arrow {
-    fn default() -> Self {
-        Self {
-            from: String::new(),
-            to: String::new(),
-        }
-    }
 }
 
 /// One annotated ply.

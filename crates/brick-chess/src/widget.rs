@@ -193,12 +193,11 @@ impl Widget {
         let mut out = Vec::new();
         for uci in &rec.moves {
             out.push(san::to_san(&pos, uci).unwrap_or_else(|_| uci.clone()));
-            if let Ok(u) = UciMove::from_ascii(uci.as_bytes()) {
-                if let Ok(mv) = u.to_move(&pos) {
-                    if let Ok(next) = pos.clone().play(mv) {
-                        pos = next;
-                    }
-                }
+            if let Ok(u) = UciMove::from_ascii(uci.as_bytes())
+                && let Ok(mv) = u.to_move(&pos)
+                && let Ok(next) = pos.clone().play(mv)
+            {
+                pos = next;
             }
         }
         out
@@ -283,7 +282,7 @@ impl Widget {
                     .current()
                     .legal_moves()
                     .into_iter()
-                    .filter(|m| m.len() >= 4 && &m[0..2] == square)
+                    .filter(|m| m.len() >= 4 && m[0..2] == *square)
                     .map(|m| m[2..4].to_owned())
                     .collect::<Vec<_>>();
                 if targets.is_empty() {

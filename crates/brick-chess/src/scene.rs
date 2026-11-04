@@ -131,7 +131,7 @@ impl Scene {
 
     /// True when the square is light-coloured for the given orientation.
     pub fn is_light(&self, display: usize) -> bool {
-        (display / 8 + display % 8) % 2 == 0
+        (display / 8 + display % 8).is_multiple_of(2)
     }
 
     /// Map a display cell (row-major from top-left) to a board index (a1=0).
