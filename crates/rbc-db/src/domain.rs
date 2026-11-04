@@ -1151,6 +1151,102 @@ impl Db {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiMatch {
+    pub id: String,
+    pub session_id: Option<String>,
+    pub white_json: String,
+    pub black_json: String,
+    pub config_json: String,
+    pub state_json: String,
+    pub pgn: String,
+    pub result_json: Option<String>,
+    pub termination: Option<String>,
+    pub rated: bool,
+    pub created: i64,
+    pub ended: Option<i64>,
+}
+
+fn ai_match_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AiMatch> {
+    Ok(AiMatch {
+        id: row.get(0)?,
+        session_id: row.get(1)?,
+        white_json: row.get(2)?,
+        black_json: row.get(3)?,
+        config_json: row.get(4)?,
+        state_json: row.get(5)?,
+        pgn: row.get(6)?,
+        result_json: row.get(7)?,
+        termination: row.get(8)?,
+        rated: row.get::<_, i64>(9)? != 0,
+        created: row.get(10)?,
+        ended: row.get(11)?,
+    })
+}
+
+const AI_MATCH_COLUMNS: &str = "id, session_id, white_json, black_json, config_json,     state_json, pgn, result_json, termination, rated, created, ended";
+
+impl Db {
+    pub fn create_ai_match(
+        &self,
+        session_id: Option<&str>,
+        white_json: &str,
+        black_json: &str,
+        config_json: &str,
+    ) -> Result<AiMatch> {
+        let id = Uuid::new_v4().to_string();
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                &format!(
+                    "INSERT INTO ai_matches
+                     (id, session_id, white_json, black_json, config_json, state_json, pgn,
+                      result_json, termination, rated, created, ended)
+                     VALUES (?1, ?2, ?3, ?4, ?5, '{{}}', '', NULL, NULL, 0, {NOW}, NULL)"
+                ),
+                params![id, session_id, white_json, black_json, config_json],
+            )?;
+        }
+        self.ai_match(&id)?.context("AI match just inserted")
+    }
+
+    pub fn ai_match(&self, id: &str) -> Result<Option<AiMatch>> {
+        let conn = self.conn.lock().expect("db lock");
+        Ok(conn
+            .query_row(
+                &format!("SELECT {AI_MATCH_COLUMNS} FROM ai_matches WHERE id = ?1"),
+                params![id],
+                ai_match_row,
+            )
+            .optional()?)
+    }
+
+    pub fn save_ai_match(
+        &self,
+        id: &str,
+        state_json: &str,
+        pgn: &str,
+        result_json: Option<&str>,
+        termination: Option<&str>,
+        ended: bool,
+    ) -> Result<AiMatch> {
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                &format!(
+                    "UPDATE ai_matches SET state_json = ?1, pgn = ?2, result_json = ?3,
+                     termination = ?4,
+                     ended = CASE WHEN ?5 THEN {NOW} ELSE ended END
+                     WHERE id = ?6"
+                ),
+                params![state_json, pgn, result_json, termination, ended as i64, id],
+            )?;
+        }
+        self.ai_match(id)?
+            .with_context(|| format!("AI match {id} not found"))
+    }
+}
+
 fn a_i64(value: bool) -> i64 {
     if value { 1 } else { 0 }
 }

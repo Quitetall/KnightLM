@@ -542,3 +542,33 @@ fn ai_sessions_persist_turns_in_order() {
     db.archive_ai_session(&session.id).unwrap();
     assert!(db.ai_sessions().unwrap().is_empty());
 }
+
+#[test]
+fn ai_matches_save_state_and_pgn() {
+    let db = Db::open_memory().unwrap();
+    let session = db
+        .create_ai_session("Match", "play", None, None, "{}", "{}", "{}")
+        .unwrap();
+    let game = db
+        .create_ai_match(
+            Some(&session.id),
+            r#"{"kind":"human","name":"A"}"#,
+            r#"{"kind":"model","provider":"p","model":"m"}"#,
+            r#"{"max_plies":300}"#,
+        )
+        .unwrap();
+    assert!(!game.rated);
+    let saved = db
+        .save_ai_match(
+            &game.id,
+            r#"{"state":"finished"}"#,
+            "[Event \"x\"]\n\n1. e4 *\n",
+            Some(r#"{"score":"1-0"}"#),
+            Some("checkmate"),
+            true,
+        )
+        .unwrap();
+    assert_eq!(saved.termination.as_deref(), Some("checkmate"));
+    assert!(saved.ended.is_some());
+    assert!(saved.pgn.contains("e4"));
+}

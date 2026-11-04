@@ -14,6 +14,9 @@ pub mod policy;
 pub mod protocol;
 pub mod tools;
 
+#[cfg(feature = "core")]
+pub mod game;
+
 #[cfg(feature = "host")]
 pub mod store;
 

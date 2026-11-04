@@ -9,7 +9,7 @@ description = "Assistant domain: sessions, tools, providers, matches, ratings an
 [features]
 default = ["protocol"]
 protocol = []
-core = ["protocol"]
+core = ["protocol", "dep:knightlm-core", "dep:shakmaty", "dep:anyhow"]
 host = ["core", "dep:rbc-db", "dep:anyhow"]
 
 [dependencies]
@@ -17,3 +17,5 @@ serde.workspace = true
 serde_json.workspace = true
 anyhow = { workspace = true, optional = true }
 rbc-db = { path = "../rbc-db", optional = true }
+knightlm-core = { path = "../core", optional = true }
+shakmaty = { workspace = true, optional = true }

@@ -4126,9 +4126,11 @@ name = "rbc-ai"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "knightlm-core",
  "rbc-db",
  "serde",
  "serde_json",
+ "shakmaty",
 ]
 
 [[package]]
