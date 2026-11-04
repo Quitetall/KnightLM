@@ -1484,6 +1484,19 @@ pub async fn cloud_eval(fen: &str) -> Result<CloudEval, String> {
 }
 
 
+/// Whether this database was reset, and how many old sessions were set aside.
+pub async fn session_notice() -> Result<(bool, i64), String> {
+    let resp = Request::get("/api/session/notice")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let value: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok((
+        value["reset"].as_bool().unwrap_or(false),
+        value["legacy_sessions"].as_i64().unwrap_or(0),
+    ))
+}
+
 pub async fn load_session(client: &str) -> Result<Option<String>, String> {
     let resp = Request::get(&format!("/api/session?client={client}"))
         .send()

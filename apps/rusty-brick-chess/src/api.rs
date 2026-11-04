@@ -1986,6 +1986,21 @@ pub async fn get_session(
     Ok(Json(serde_json::json!({ "payload": payload })))
 }
 
+/// `GET /api/session/notice`
+///
+/// Whether this database was reset into schema v4, and how many old sessions
+/// the reset set aside. The app shows this once so nobody wonders where their
+/// tabs went.
+pub async fn session_notice(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let legacy = state.db.legacy_session_count()?;
+    Ok(Json(serde_json::json!({
+        "reset": legacy > 0,
+        "legacy_sessions": legacy,
+    })))
+}
+
 pub async fn put_session(
     State(state): State<AppState>,
     Json(body): Json<SessionBody>,

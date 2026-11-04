@@ -70,6 +70,7 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/sounds/custom/{name}", get(api::custom_sound).post(api::upload_sound))
         .route("/api/accounts", get(api::accounts))
         .route("/api/session", get(api::get_session).put(api::put_session))
+        .route("/api/session/notice", get(api::session_notice))
         .route("/api/workspaces", get(domain_api::list_workspaces).post(domain_api::create_workspace))
         .route("/api/workspaces/{id}", get(domain_api::get_workspace).patch(domain_api::update_workspace).delete(domain_api::delete_workspace))
         .route("/api/workspaces/{id}/boards", get(domain_api::list_boards))

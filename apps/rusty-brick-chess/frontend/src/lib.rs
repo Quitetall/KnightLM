@@ -1183,6 +1183,33 @@ pub fn App() -> impl IntoView {
         tab.set(next);
     };
 
+    // Tell a person, once, that the v4 reset moved their old tabs aside.
+    let reset_notice = RwSignal::new(String::new());
+    Effect::new(move |_| {
+        spawn_local(async move {
+            const SEEN: &str = "rbc.resetNotice.seen";
+            let seen = web_sys::window()
+                .and_then(|window| window.local_storage().ok().flatten())
+                .and_then(|storage| storage.get_item(SEEN).ok().flatten())
+                .is_some();
+            if seen {
+                return;
+            }
+            if let Ok((reset, legacy)) = api::session_notice().await {
+                if reset {
+                    reset_notice.set(format!(
+                        "This database was updated and {legacy} older session(s) were set aside as legacy_sessions."
+                    ));
+                }
+                if let Some(storage) =
+                    web_sys::window().and_then(|window| window.local_storage().ok().flatten())
+                {
+                    let _ = storage.set_item(SEEN, "1");
+                }
+            }
+        });
+    });
+
     // Persist the workspace session (tabs, active tab, current ply) and restore
     // it on the next load, so reopening the app returns to the same boards.
     let client = client_id();
@@ -3525,6 +3552,15 @@ pub fn App() -> impl IntoView {
                     </button>
                     <span class="status" aria-live="polite">{move || status.get()}</span>
                 </header>
+                {move || {
+                    let notice = reset_notice.get();
+                    (!notice.is_empty()).then(|| view! {
+                        <div class="session-notice" role="status">
+                            <span>{notice}</span>
+                            <button on:click=move |_| reset_notice.set(String::new())>"×"</button>
+                        </div>
+                    })
+                }}
                 {views::workspaces::workspaces_bar(app_ctx)}
                 // Stored boards belong to the analysis workspace, so the strip
                 // only appears where a board is on screen.

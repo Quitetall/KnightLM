@@ -512,6 +512,15 @@ impl Db {
         Ok(())
     }
 
+    /// How many sessions the v4 reset moved into `legacy_sessions`.
+    ///
+    /// The table is kept for one release: it is what the reset notice counts,
+    /// and what a person can still recover their old tabs from.
+    pub fn legacy_session_count(&self) -> Result<i64> {
+        let conn = self.conn.lock().expect("db lock");
+        Ok(conn.query_row("SELECT COUNT(*) FROM legacy_sessions", [], |row| row.get(0))?)
+    }
+
     pub fn load_session(&self, client: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().expect("db lock");
         let payload = conn

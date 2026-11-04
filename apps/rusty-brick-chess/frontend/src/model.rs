@@ -132,22 +132,69 @@ const RECENT_FILES_KEY: &str = "rbc.recentFiles";
 const CLIENT_KEY: &str = "rbc.client";
 const ACTIVE_AI_SESSION_KEY: &str = "rbc.ai.session";
 
-/// Stable per-browser id so server-side sessions never leak between clients.
-pub fn client_id() -> String {
-    let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else {
-        return format!("anon-{}", js_sys::Date::now() as u64);
-    };
-    if let Ok(Some(id)) = storage.get_item(CLIENT_KEY) {
-        if id.len() >= 8 {
-            return id;
+const CLIENT_COOKIE: &str = "rbc_client";
+
+/// The id in a cookie, which survives clearing localStorage.
+fn cookie_client_id() -> Option<String> {
+    // Read through the property rather than `Document::cookie`, which this
+    // web-sys feature set does not expose.
+    let document = web_sys::window()?.document()?;
+    let cookies = js_sys::Reflect::get(&document, &wasm_bindgen::JsValue::from_str("cookie"))
+        .ok()?
+        .as_string()?;
+    cookies.split(';').find_map(|pair| {
+        let mut parts = pair.trim().splitn(2, '=');
+        let name = parts.next()?;
+        if name != CLIENT_COOKIE {
+            return None;
         }
+        parts.next().filter(|id| id.len() >= 8).map(str::to_string)
+    })
+}
+
+fn remember_cookie(id: &str) {
+    if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+        let value = format!("{CLIENT_COOKIE}={id}; Max-Age=31536000; Path=/; SameSite=Lax");
+        let _ = js_sys::Reflect::set(
+            &document,
+            &wasm_bindgen::JsValue::from_str("cookie"),
+            &wasm_bindgen::JsValue::from_str(&value),
+        );
+    }
+}
+
+/// Stable per-browser id so server-side sessions never leak between clients.
+///
+/// It is kept in localStorage *and* in a cookie. Clearing site data wipes one
+/// of them; holding both means "clear localStorage and reload" still finds the
+/// session the server is holding, which is the whole point of storing it.
+pub fn client_id() -> String {
+    let storage = web_sys::window().and_then(|w| w.local_storage().ok().flatten());
+    if let Some(id) = storage
+        .as_ref()
+        .and_then(|storage| storage.get_item(CLIENT_KEY).ok().flatten())
+        .filter(|id| id.len() >= 8)
+    {
+        remember_cookie(&id);
+        return id;
+    }
+    if let Some(id) = cookie_client_id() {
+        // Restore the id the browser forgot, so the server session is reused
+        // rather than abandoned under a new name.
+        if let Some(storage) = storage.as_ref() {
+            let _ = storage.set_item(CLIENT_KEY, &id);
+        }
+        return id;
     }
     let id = format!(
         "c{}-{}",
         js_sys::Date::now() as u64,
         (js_sys::Math::random() * 1_000_000_000.0) as u64
     );
-    let _ = storage.set_item(CLIENT_KEY, &id);
+    if let Some(storage) = storage.as_ref() {
+        let _ = storage.set_item(CLIENT_KEY, &id);
+    }
+    remember_cookie(&id);
     id
 }
 
