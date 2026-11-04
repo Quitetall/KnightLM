@@ -167,7 +167,8 @@ pub async fn mcp_http(
         rbc_ai::policy::Origin::Mcp,
     );
     let id = request.get("id").cloned();
-    let dispatched = rbc_ai::mcp::dispatch(&request, &registry, &mut host, &info);
+    let resources = BoardResources { db: &state.db };
+    let dispatched = rbc_ai::mcp::dispatch(&request, &registry, &mut host, &resources, &info);
     match rbc_ai::mcp::response(id.as_ref(), dispatched) {
         Some(reply) => Ok((StatusCode::OK, Json(reply))),
         // A notification: accepted, nothing to say.
@@ -247,11 +248,171 @@ pub fn serve_stdio(db: &rbc_db::Db) -> anyhow::Result<()> {
             rbc_ai::policy::Origin::Mcp,
         );
         let id = request.get("id").cloned();
-        let dispatched = rbc_ai::mcp::dispatch(&request, &registry, &mut host, &info);
+        let resources = BoardResources { db };
+        let dispatched = rbc_ai::mcp::dispatch(&request, &registry, &mut host, &resources, &info);
         if let Some(reply) = rbc_ai::mcp::response(id.as_ref(), dispatched) {
             writeln!(stdout, "{reply}")?;
             stdout.flush()?;
         }
     }
     Ok(())
+}
+
+// --- the resources the server publishes ------------------------------------
+
+/// Read-only snapshots of this database, addressed by `rbc://` uri.
+///
+/// Every read is a snapshot: the revision travels in the payload, so a client
+/// can tell one picture of a board from the next. Nothing here writes, and
+/// nothing here can reach an AI session, a provider key or a setting beyond the
+/// MCP token that the config route already owns.
+pub struct BoardResources<'a> {
+    pub db: &'a rbc_db::Db,
+}
+
+impl rbc_ai::mcp::Resources for BoardResources<'_> {
+    fn list(&self) -> Vec<rbc_ai::mcp::ResourceEntry> {
+        let mut out = vec![rbc_ai::mcp::ResourceEntry {
+            uri: "rbc://workspaces".into(),
+            name: "Workspaces".into(),
+            description: "Every workspace with its kind and board count.".into(),
+            revision: None,
+        }];
+        for workspace in self.db.workspaces(false).unwrap_or_default() {
+            out.push(rbc_ai::mcp::ResourceEntry {
+                uri: format!("rbc://workspace/{}", workspace.id),
+                name: workspace.title.clone(),
+                description: "A workspace.".into(),
+                revision: None,
+            });
+            for board in self
+                .db
+                .boards("workspace", &workspace.id)
+                .unwrap_or_default()
+            {
+                out.push(rbc_ai::mcp::ResourceEntry {
+                    uri: format!("rbc://board/{}", board.id),
+                    name: board.title.clone(),
+                    description: format!("A board at revision {}.", board.revision),
+                    revision: Some(board.revision),
+                });
+                out.push(rbc_ai::mcp::ResourceEntry {
+                    uri: format!("rbc://board/{}/history", board.id),
+                    name: format!("{} history", board.title),
+                    description: "The move history of a board.".into(),
+                    revision: Some(board.revision),
+                });
+            }
+        }
+        for study in self.db.studies().unwrap_or_default() {
+            out.push(rbc_ai::mcp::ResourceEntry {
+                uri: format!("rbc://study/{}", study.id),
+                name: study.title.clone(),
+                description: "A study.".into(),
+                revision: Some(study.current_version),
+            });
+        }
+        out
+    }
+
+    fn read(&self, uri: &str) -> Option<rbc_ai::mcp::ResourceContent> {
+        let rest = uri.strip_prefix("rbc://")?;
+        let parts: Vec<&str> = rest.split('/').collect();
+        match parts.as_slice() {
+            ["workspaces"] => Some(json_resource(
+                uri,
+                serde_json::to_value(self.db.workspaces(false).ok()?).ok()?,
+                None,
+            )),
+            ["workspace", id] => {
+                let workspace = self.db.workspace(id).ok()??;
+                let boards = self.db.boards("workspace", id).unwrap_or_default();
+                Some(json_resource(
+                    uri,
+                    serde_json::json!({
+                        "workspace": workspace,
+                        "boards": boards.iter().map(|b| serde_json::json!({
+                            "id": b.id, "title": b.title, "revision": b.revision,
+                        })).collect::<Vec<_>>(),
+                    }),
+                    None,
+                ))
+            }
+            ["board", id] => {
+                let board = self.db.board(id).ok()??;
+                let revision = board.revision;
+                Some(json_resource(
+                    uri,
+                    serde_json::to_value(&board).ok()?,
+                    Some(revision),
+                ))
+            }
+            ["board", id, "history"] => {
+                let board = self.db.board(id).ok()??;
+                let content: rbc_ai::board::BoardContent =
+                    rbc_ai::board::BoardContent::parse(&board.content_json).ok()?;
+                Some(json_resource(
+                    uri,
+                    serde_json::json!({
+                        "board_id": board.id,
+                        "start_fen": board.start_fen,
+                        "moves": content.moves,
+                        "revision": board.revision,
+                    }),
+                    Some(board.revision),
+                ))
+            }
+            ["study", id] => {
+                let study = self.db.study(id).ok()??;
+                let revision = study.current_version;
+                let chapters = self.db.chapters(id).unwrap_or_default();
+                Some(json_resource(
+                    uri,
+                    serde_json::json!({"study": study, "chapters": chapters}),
+                    Some(revision),
+                ))
+            }
+            ["study", id, "chapter", chapter_id] => {
+                let study = self.db.study(id).ok()??;
+                let chapters = self.db.chapters(id).unwrap_or_default();
+                let chapter = chapters.into_iter().find(|c| &c.id == chapter_id)?;
+                Some(json_resource(
+                    uri,
+                    serde_json::to_value(&chapter).ok()?,
+                    Some(study.current_version),
+                ))
+            }
+            ["match", id] => {
+                let row = self.db.ai_match(id).ok()??;
+                Some(json_resource(
+                    uri,
+                    serde_json::json!({"id": row.id, "pgn": row.pgn, "state": row.state_json}),
+                    None,
+                ))
+            }
+            ["match", id, "pgn"] => {
+                let row = self.db.ai_match(id).ok()??;
+                Some(rbc_ai::mcp::ResourceContent {
+                    uri: uri.to_string(),
+                    mime_type: "application/x-chess-pgn".into(),
+                    text: row.pgn,
+                    revision: None,
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
+fn json_resource(
+    uri: &str,
+    value: serde_json::Value,
+    revision: Option<i64>,
+) -> rbc_ai::mcp::ResourceContent {
+    rbc_ai::mcp::ResourceContent {
+        uri: uri.to_string(),
+        mime_type: "application/json".into(),
+        text: serde_json::to_string_pretty(&value).unwrap_or_default(),
+        revision,
+    }
 }

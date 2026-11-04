@@ -10,7 +10,10 @@
 use serde_json::{Value, json};
 
 use rbc_ai::agent::ToolHost;
-use rbc_ai::mcp::{MAX_MESSAGE_BYTES, RpcError, ServerInfo, dispatch, response};
+use rbc_ai::mcp::{
+    MAX_MESSAGE_BYTES, NoResources, ResourceContent, ResourceEntry, Resources, RpcError,
+    ServerInfo, dispatch, response,
+};
 use rbc_ai::protocol::{ToolCall, ToolResult};
 use rbc_ai::tools::ToolRegistry;
 
@@ -37,7 +40,7 @@ fn serve(request: Value) -> (Option<Value>, Vec<String>) {
     let mut host = EchoHost::new();
     let info = ServerInfo::default();
     let id = request.get("id").cloned();
-    let dispatched = dispatch(&request, &registry, &mut host, &info);
+    let dispatched = dispatch(&request, &registry, &mut host, &NoResources, &info);
     let calls = host.calls.iter().map(|(name, _)| name.clone()).collect();
     (response(id.as_ref(), dispatched), calls)
 }
@@ -159,7 +162,7 @@ fn mcp_a_non_object_request_is_refused() {
     let registry = ToolRegistry::builtin();
     let mut host = EchoHost::new();
     let info = ServerInfo::default();
-    let failure = dispatch(&json!("hello"), &registry, &mut host, &info)
+    let failure = dispatch(&json!("hello"), &registry, &mut host, &NoResources, &info)
         .expect_err("a string is not a request");
     assert_eq!(failure.code, -32600);
 }
@@ -213,4 +216,146 @@ fn mcp_a_missing_or_wrong_token_is_refused() {
     assert!(!accepts(Some("Bearer wrong"), token));
     assert!(!accepts(None, token));
     assert!(!accepts(Some(""), token));
+}
+
+// --- resources and prompts -----------------------------------------------------
+
+/// A single fake resource, so the protocol can be tested without a database.
+struct OneResource;
+
+impl Resources for OneResource {
+    fn list(&self) -> Vec<ResourceEntry> {
+        vec![ResourceEntry {
+            uri: "rbc://board/b1".into(),
+            name: "Main line".into(),
+            description: "A board.".into(),
+            revision: Some(7),
+        }]
+    }
+
+    fn read(&self, uri: &str) -> Option<ResourceContent> {
+        (uri == "rbc://board/b1").then(|| ResourceContent {
+            uri: uri.to_string(),
+            mime_type: "application/json".into(),
+            text: r#"{"moves":["e4"]}"#.into(),
+            revision: Some(7),
+        })
+    }
+}
+
+fn serve_with(request: Value, resources: &dyn Resources) -> Option<Value> {
+    let registry = ToolRegistry::builtin();
+    let mut host = EchoHost::new();
+    let info = ServerInfo::default();
+    let id = request.get("id").cloned();
+    let dispatched = dispatch(&request, &registry, &mut host, resources, &info);
+    response(id.as_ref(), dispatched)
+}
+
+#[test]
+fn mcp_resources_list_carries_the_revision() {
+    let reply = serve_with(
+        json!({"jsonrpc": "2.0", "id": 10, "method": "resources/list"}),
+        &OneResource,
+    )
+    .expect("a response");
+    let entries = reply["result"]["resources"].as_array().expect("array");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["uri"], json!("rbc://board/b1"));
+    assert_eq!(
+        entries[0]["revision"],
+        json!(7),
+        "a snapshot says which revision it is"
+    );
+}
+
+#[test]
+fn mcp_resources_read_returns_the_snapshot() {
+    let reply = serve_with(
+        json!({"jsonrpc": "2.0", "id": 11, "method": "resources/read", "params": {"uri": "rbc://board/b1"}}),
+        &OneResource,
+    )
+    .expect("a response");
+    let contents = &reply["result"]["contents"][0];
+    assert_eq!(contents["mimeType"], json!("application/json"));
+    assert_eq!(contents["text"], json!(r#"{"moves":["e4"]}"#));
+    assert_eq!(contents["revision"], json!(7));
+}
+
+#[test]
+fn mcp_an_unknown_resource_is_an_error() {
+    let reply = serve_with(
+        json!({"jsonrpc": "2.0", "id": 12, "method": "resources/read", "params": {"uri": "rbc://nope"}}),
+        &OneResource,
+    )
+    .expect("a response");
+    assert_eq!(reply["error"]["code"], json!(-32602));
+}
+
+#[test]
+fn mcp_prompts_are_deterministic_templates() {
+    let listed = serve_with(
+        json!({"jsonrpc": "2.0", "id": 13, "method": "prompts/list"}),
+        &NoResources,
+    )
+    .expect("a response");
+    let names: Vec<&str> = listed["result"]["prompts"]
+        .as_array()
+        .expect("array")
+        .iter()
+        .filter_map(|prompt| prompt["name"].as_str())
+        .collect();
+    assert_eq!(names, vec!["analyze_position", "review_game"]);
+
+    // The same arguments give the same prompt, twice.
+    let ask = || {
+        serve_with(
+            json!({
+                "jsonrpc": "2.0", "id": 14, "method": "prompts/get",
+                "params": {"name": "analyze_position", "arguments": {"board_id": "b1"}}
+            }),
+            &NoResources,
+        )
+        .expect("a response")
+    };
+    let first = ask();
+    let second = ask();
+    assert_eq!(first, second, "a prompt must not vary between calls");
+    assert!(
+        first["result"]["messages"][0]["content"]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("b1")
+    );
+}
+
+#[test]
+fn mcp_a_prompt_without_its_argument_is_refused() {
+    let reply = serve_with(
+        json!({"jsonrpc": "2.0", "id": 15, "method": "prompts/get", "params": {"name": "review_game"}}),
+        &NoResources,
+    )
+    .expect("a response");
+    assert_eq!(reply["error"]["code"], json!(-32602));
+}
+
+#[test]
+fn mcp_exposes_no_chat_lua_or_app_lifecycle_tools() {
+    // The design is explicit: no Lua, no workspace/app lifecycle, no AI chat
+    // sessions, no settings and no provider keys over MCP.
+    let registry = ToolRegistry::builtin();
+    // Whole words, not substrings: "evaluate" contains "lua" and is a perfectly
+    // good chess tool.
+    let forbidden = [
+        "chat", "lua", "session", "settings", "setting", "provider", "key", "secret", "exec",
+        "shell",
+    ];
+    for name in registry.names() {
+        for word in name.to_lowercase().split('_') {
+            assert!(
+                !forbidden.contains(&word),
+                "MCP must not expose {name} (its word '{word}' is forbidden)"
+            );
+        }
+    }
 }

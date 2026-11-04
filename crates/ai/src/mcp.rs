@@ -80,6 +80,52 @@ impl RpcError {
     }
 }
 
+/// One resource the server offers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResourceEntry {
+    /// `rbc://board/<id>` and friends.
+    pub uri: String,
+    pub name: String,
+    pub description: String,
+    /// The revision this snapshot was taken at, when the thing has one.
+    pub revision: Option<i64>,
+}
+
+/// The read-only snapshot side of the surface.
+///
+/// Kept as a trait so the protocol stays testable without a database. Every
+/// implementation must return snapshots: a resource read is a picture of the
+/// thing at a revision, not a live handle on it.
+pub trait Resources {
+    /// Every resource the server exposes.
+    fn list(&self) -> Vec<ResourceEntry>;
+    /// One resource's content, or `None` when the uri names nothing.
+    fn read(&self, uri: &str) -> Option<ResourceContent>;
+}
+
+/// A resource's content, shaped the way MCP wants it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResourceContent {
+    pub uri: String,
+    /// `application/json` for the structured ones, `application/x-chess-pgn`
+    /// for a PGN snapshot.
+    pub mime_type: String,
+    pub text: String,
+    pub revision: Option<i64>,
+}
+
+/// A server with no resources, for tests that only exercise tools.
+pub struct NoResources;
+
+impl Resources for NoResources {
+    fn list(&self) -> Vec<ResourceEntry> {
+        Vec::new()
+    }
+    fn read(&self, _uri: &str) -> Option<ResourceContent> {
+        None
+    }
+}
+
 /// What a dispatch produced: a result, an error, or nothing (a notification).
 pub type Dispatched = Result<Option<Value>, RpcError>;
 
@@ -91,6 +137,7 @@ pub fn dispatch(
     request: &Value,
     registry: &ToolRegistry,
     host: &mut dyn ToolHost,
+    resources: &dyn Resources,
     info: &ServerInfo,
 ) -> Dispatched {
     let Some(object) = request.as_object() else {
@@ -107,6 +154,8 @@ pub fn dispatch(
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {
                 "tools": {"listChanged": false},
+                "resources": {"subscribe": false, "listChanged": false},
+                "prompts": {"listChanged": false},
             },
             "serverInfo": {"name": info.name, "version": info.version},
         }))),
@@ -115,6 +164,10 @@ pub fn dispatch(
         "ping" => Ok(Some(json!({}))),
         "tools/list" => Ok(Some(tools_list(registry))),
         "tools/call" => tools_call(&params, registry, host),
+        "resources/list" => Ok(Some(resources_list(resources))),
+        "resources/read" => resources_read(&params, resources),
+        "prompts/list" => Ok(Some(json!({"prompts": prompts()}))),
+        "prompts/get" => prompts_get(&params),
         other => Err(RpcError::method_not_found(other)),
     }?;
 
@@ -194,3 +247,100 @@ fn uuid_like() -> String {
 /// A tool call is small; a paste of a game is not unbounded either. Anything
 /// larger is refused by the transport before it reaches this module.
 pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
+
+fn resources_list(resources: &dyn Resources) -> Value {
+    let entries: Vec<Value> = resources
+        .list()
+        .into_iter()
+        .map(|entry| {
+            let mut value = json!({
+                "uri": entry.uri,
+                "name": entry.name,
+                "description": entry.description,
+                "mimeType": "application/json",
+            });
+            if let Some(revision) = entry.revision {
+                // The revision travels with the resource, so a client can tell
+                // one snapshot from the next.
+                value["revision"] = json!(revision);
+            }
+            value
+        })
+        .collect();
+    json!({ "resources": entries })
+}
+
+fn resources_read(params: &Value, resources: &dyn Resources) -> Dispatched {
+    let Some(uri) = params.get("uri").and_then(|uri| uri.as_str()) else {
+        return Err(RpcError::invalid_params("resources/read needs a uri"));
+    };
+    let Some(content) = resources.read(uri) else {
+        return Err(RpcError::invalid_params(format!("no resource {uri}")));
+    };
+    let mut resource = json!({
+        "uri": content.uri,
+        "mimeType": content.mime_type,
+        "text": content.text,
+    });
+    if let Some(revision) = content.revision {
+        resource["revision"] = json!(revision);
+    }
+    Ok(Some(json!({ "contents": [resource] })))
+}
+
+/// The prompts a client may ask for. Small, fixed templates: a prompt that
+/// varied with server state would not be a prompt.
+fn prompts() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "analyze_position",
+            "description": "Ask for a structured analysis of a board.",
+            "arguments": [
+                {"name": "board_id", "description": "The board to analyse.", "required": true}
+            ],
+        }),
+        json!({
+            "name": "review_game",
+            "description": "Ask for the mistakes and themes in a game.",
+            "arguments": [
+                {"name": "game_id", "description": "The game to review.", "required": true}
+            ],
+        }),
+    ]
+}
+
+fn prompts_get(params: &Value) -> Dispatched {
+    let Some(name) = params.get("name").and_then(|name| name.as_str()) else {
+        return Err(RpcError::invalid_params("prompts/get needs a name"));
+    };
+    let args = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let (id_name, text) = match name {
+        "analyze_position" => (
+            "board_id",
+            "Analyse this position. Give: the material balance, the pawn structure, \
+             the three most forcing candidate moves with a line for each, and what \
+             each side is trying to do.",
+        ),
+        "review_game" => (
+            "game_id",
+            "Review this game. Name the turning points, the mistakes with the better \
+             move and why, and the two or three themes worth practising.",
+        ),
+        other => return Err(RpcError::invalid_params(format!("unknown prompt {other}"))),
+    };
+    let Some(value) = args.get(id_name).and_then(|v| v.as_str()) else {
+        return Err(RpcError::invalid_params(format!(
+            "{name} needs a {id_name}"
+        )));
+    };
+    Ok(Some(json!({
+        "description": format!("{name} for {value}"),
+        "messages": [{
+            "role": "user",
+            "content": {"type": "text", "text": format!("{text}\n\n({id_name}: {value})")},
+        }],
+    })))
+}
