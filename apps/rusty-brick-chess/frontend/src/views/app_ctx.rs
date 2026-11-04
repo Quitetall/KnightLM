@@ -37,6 +37,8 @@ pub struct AppCtx {
     pub attempts: RwSignal<Vec<PuzzleAttempt>>,
     pub chat_messages: RwSignal<Vec<(String, String)>>,
     pub chat_text: RwSignal<String>,
+    /// The assistant composer draft, shared so another view can prefill it.
+    pub assistant_draft: RwSignal<String>,
     pub chat_tools: RwSignal<Vec<String>>,
     pub chesscom_user_input: RwSignal<String>,
     pub clock: RwSignal<Option<(i64, i64)>>,

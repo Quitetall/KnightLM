@@ -25,6 +25,7 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "Estos estudios difieren:",
     ),
     ("compare.export", "Export Markdown", "Exportar Markdown"),
+    ("compare.ask", "Ask the assistant", "Preguntar al asistente"),
     ("compare.filter_changed", "Only changes", "Solo cambios"),
     ("compare.filter_all", "Everything", "Todo"),
     ("compare.done", "done", "hecho"),

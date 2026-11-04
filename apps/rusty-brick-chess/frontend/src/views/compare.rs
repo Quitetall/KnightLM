@@ -9,9 +9,16 @@ use leptos::task::spawn_local;
 
 use crate::api::{self, StudyInfo};
 use crate::i18n;
+use crate::model::Tab;
+use crate::views::AppCtx;
 
 #[component]
-pub fn CompareView(language: RwSignal<String>, message: RwSignal<String>) -> impl IntoView {
+pub fn CompareView(
+    language: RwSignal<String>,
+    message: RwSignal<String>,
+    /// The app context, so this view can hand the comparison to the assistant.
+    ctx: AppCtx,
+) -> impl IntoView {
     let studies = RwSignal::new(Vec::<StudyInfo>::new());
     let left = RwSignal::new(None::<String>);
     let right = RwSignal::new(None::<String>);
@@ -74,6 +81,9 @@ pub fn CompareView(language: RwSignal<String>, message: RwSignal<String>) -> imp
         });
     };
 
+    let tab = ctx.tab;
+    let assistant_draft = ctx.assistant_draft;
+
     let t = move |key: &'static str| i18n::t(&language.get(), key);
 
     view! {
@@ -112,6 +122,35 @@ pub fn CompareView(language: RwSignal<String>, message: RwSignal<String>) -> imp
                 </ul>
                 <button class="compare-run" on:click=move |_| run()>
                     {move || t("compare.run")}
+                </button>
+                <button
+                    class="compare-ask"
+                    on:click=move |_| {
+                        // The assistant already sees the compare directory in its
+                        // context; this puts a question about it in the composer
+                        // and switches to the tab it lives in. Read-only: the
+                        // comparison is not something an answer can change.
+                        let Some((l, r)) = active_scope.get_untracked() else {
+                            message.set("compare something first".to_string());
+                            return;
+                        };
+                        let names = studies.get_untracked();
+                        let name = |id: &str| {
+                            names
+                                .iter()
+                                .find(|study| study.id == id)
+                                .map(|study| study.title.clone())
+                                .unwrap_or_else(|| id.to_string())
+                        };
+                        assistant_draft.set(format!(
+                            "Compare {} and {}. What are the substantive differences, and what should I look at first?",
+                            name(&l),
+                            name(&r)
+                        ));
+                        tab.set(Tab::Assistant);
+                    }
+                >
+                    {move || t("compare.ask")}
                 </button>
                 <button
                     class="compare-export"

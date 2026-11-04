@@ -22,6 +22,7 @@ const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 
 /// The only shared state the Assistant needs from the app.
 #[derive(Clone)]
 pub struct AssistantCtx {
+    pub assistant_draft: RwSignal<String>,
     pub language: RwSignal<String>,
     pub fen: RwSignal<String>,
     pub selected_pgn: RwSignal<String>,
@@ -43,6 +44,7 @@ impl AssistantCtx {
             .find(|ws| ws.key == ctx.active_ws.get_untracked())
             .and_then(|ws| ws.session_id);
         Self {
+            assistant_draft: ctx.assistant_draft,
             language: ctx.language,
             fen: ctx.fen,
             selected_pgn: ctx.selected_pgn,
@@ -140,6 +142,7 @@ fn sha8(sha: &str) -> String {
 
 pub fn assistant(ctx: AppCtx) -> impl IntoView {
     let AssistantCtx {
+        assistant_draft,
         language,
         fen,
         pin_session,
@@ -153,7 +156,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     let sessions = RwSignal::new(Vec::<ai_api::AiSessionInfo>::new());
     let selected = RwSignal::new(None::<String>);
     let turns = RwSignal::new(Vec::<ai_api::AiTurnInfo>::new());
-    let draft = RwSignal::new(String::new());
+    let draft = assistant_draft;
     let sending = RwSignal::new(false);
     let error = RwSignal::new(String::new());
     // `(sha256, tokens)` from the last successful send.

@@ -230,6 +230,7 @@ pub fn App() -> impl IntoView {
     let ann_nag = RwSignal::new(0i64);
     let lines = RwSignal::new(Vec::<api::EngineLine>::new());
     let chat_text = RwSignal::new(String::new());
+    let assistant_draft = RwSignal::new(String::new());
     let dock = RwSignal::new(String::new());
     let chat_messages = RwSignal::new(Vec::<(String, String)>::new());
     let chat_tools = RwSignal::new(Vec::<String>::new());
@@ -3385,6 +3386,7 @@ pub fn App() -> impl IntoView {
         attempts,
         chat_messages,
         chat_text,
+        assistant_draft,
         chat_tools,
         chesscom_user_input,
         clock,
@@ -3682,7 +3684,7 @@ pub fn App() -> impl IntoView {
         view! { <views::study::StudyView language=language message=status /> }
     };
     let compare_view = move || {
-        view! { <views::compare::CompareView language=language message=status /> }
+        view! { <views::compare::CompareView language=language message=status ctx=app_ctx /> }
     };
 
     let opening_view = move || views::opening::opening(app_ctx);

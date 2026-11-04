@@ -131,12 +131,21 @@ function getJson(port, path) {
   await sleep(1500);
   const badges = await ev(`document.querySelectorAll(".progress-badge").length`);
 
+  // The ask button hands the comparison to the assistant: it switches tab and
+  // prefills the composer with a question naming both studies.
+  const asked = await ev(`(()=>{const b=document.querySelector(".compare-ask");if(!b)return false;b.click();return true;})()`);
+  await sleep(1200);
+  const onAssistant = await ev(`Boolean(document.querySelector(".assistant")) || document.body.innerText.includes("Assistant")`);
+  const draftAfter = await ev(`(()=>{const t=document.querySelector(".assistant textarea, textarea");return t?t.value:"";})()`);
+
+  await ev(`[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Compare")?.click()`);
+  await sleep(1000);
   await ev(`document.querySelector(".scope-clear").click()`);
   await sleep(1400);
   const afterClear = await ev(`(async () => (await (await fetch("/api/compare/scope")).json()))()`);
   const chipGone = await ev(`!document.querySelector(".scope-chip")`);
 
-  console.log(JSON.stringify({ seeded, picked, hasView, rows, chip, diffRows, summary, changedCount, allCount, focused, clickedWithMoves, boards, plyLabel, advanced, plyAfter, plyTotal, markedDone, badges, exportClicked, exported, stored, afterClear, chipGone }));
+  console.log(JSON.stringify({ seeded, picked, hasView, rows, chip, diffRows, summary, changedCount, allCount, focused, clickedWithMoves, boards, plyLabel, advanced, plyAfter, plyTotal, markedDone, badges, asked, onAssistant, draftAfter, exportClicked, exported, stored, afterClear, chipGone }));
   const ok = seeded && picked && hasView && rows >= 2
     && Boolean(chip) && chip.includes(leftTitle) && chip.includes(rightTitle)
     && diffRows >= 1
@@ -144,6 +153,7 @@ function getJson(port, path) {
     && clickedWithMoves === true && boards === 2
     && Boolean(plyLabel) && plyAfter !== plyLabel
     && markedDone === true && badges >= 1
+    && asked === true && draftAfter.includes(leftTitle)
     && exported === "diff.md"
     && stored.active === true
     && afterClear.active === false && chipGone === true;
