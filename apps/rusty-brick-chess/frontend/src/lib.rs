@@ -771,6 +771,90 @@ pub fn App() -> impl IntoView {
         });
     };
 
+    let board_move_target = RwSignal::new(String::new());
+
+    // Move the open board into another workspace.
+    //
+    // The target workspace may not have a server side yet, so it is created
+    // first; then the move is a revision-checked reparent and both lists are
+    // refreshed, because the board leaves one workspace and appears in another.
+    let move_active_board = move || {
+        let key = active_ws.get_untracked();
+        let Some(ws) = workspaces
+            .get_untracked()
+            .into_iter()
+            .find(|w| w.key == key)
+        else {
+            return;
+        };
+        let Some(board) = ws.active_board_ref() else {
+            boards_msg.set("there is no open board".to_string());
+            return;
+        };
+        let board_id = board.id.clone();
+        let revision = board.revision;
+        let Ok(target_key) = board_move_target.get_untracked().parse::<u32>() else {
+            boards_msg.set("choose a workspace to move the board to".to_string());
+            return;
+        };
+        if target_key == key {
+            boards_msg.set("the board is already in this workspace".to_string());
+            return;
+        }
+        let Some(target) = workspaces
+            .get_untracked()
+            .into_iter()
+            .find(|w| w.key == target_key)
+        else {
+            boards_msg.set("that workspace is gone".to_string());
+            return;
+        };
+        let source_server = ws.backend().map(str::to_string);
+        let target_title = target.title.clone();
+        let target_kind = target.kind.clone();
+        let target_server = target.backend().map(str::to_string);
+        boards_busy.set(true);
+        spawn_local(async move {
+            let target_server = match target_server {
+                Some(id) => Some(id),
+                None => match api::create_workspace(&target_title, &target_kind).await {
+                    Ok(info) => {
+                        let id = info.id.clone();
+                        workspaces.update(|all| {
+                            if let Some(ws) = all.iter_mut().find(|w| w.key == target_key) {
+                                ws.server_id = Some(id.clone());
+                            }
+                        });
+                        Some(id)
+                    }
+                    Err(error) => {
+                        boards_msg.set(error);
+                        boards_busy.set(false);
+                        return;
+                    }
+                },
+            };
+            let Some(target_server) = target_server else {
+                boards_busy.set(false);
+                return;
+            };
+            match api::reparent_board(&board_id, "workspace", &target_server, revision).await {
+                Ok(_) => {
+                    boards_msg.set(String::new());
+                    board_move_target.set(String::new());
+                    reload_boards(target_key, target_server);
+                    if let Some(server) = source_server {
+                        reload_boards(key, server);
+                    }
+                }
+                Err(error) => {
+                    boards_msg.set(error);
+                    boards_busy.set(false);
+                }
+            }
+        });
+    };
+
     let toggle_active_board_lock = move || {
         let key = active_ws.get_untracked();
         let Some(ws) = workspaces
@@ -3255,6 +3339,7 @@ pub fn App() -> impl IntoView {
         active_ws,
         boards_busy,
         boards_msg,
+        board_move_target,
         renaming_ws,
         rename_text,
         new_tab_kind,
@@ -3265,6 +3350,7 @@ pub fn App() -> impl IntoView {
         toggle_active_board_lock: views::app_ctx::view_callback(move |_: ()| {
             toggle_active_board_lock()
         }),
+        move_active_board: views::app_ctx::view_callback(move |_: ()| move_active_board()),
         close_workspace: views::app_ctx::view_callback(close_workspace),
         commit_rename: views::app_ctx::view_callback(move |_: ()| commit_rename()),
         move_workspace: views::app_ctx::view_callback(move |(a, b): (u32, i32)| move_workspace(a, b)),

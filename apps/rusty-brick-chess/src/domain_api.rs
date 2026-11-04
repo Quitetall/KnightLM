@@ -177,6 +177,35 @@ pub async fn copy_board(
     )?))
 }
 
+#[derive(Deserialize)]
+pub struct ReparentBoard {
+    pub parent_kind: String,
+    pub parent_id: String,
+    /// The revision the caller saw; a board that moved on is a conflict.
+    pub expected_revision: i64,
+}
+
+/// Move a board to another parent.
+///
+/// One parent only: a board is in exactly one workspace or study chapter, and
+/// moving it is a revision-checked write rather than a copy.
+pub async fn reparent_board(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ReparentBoard>,
+) -> Result<Json<Board>, ApiError> {
+    let board = state
+        .db
+        .reparent_board(
+            &id,
+            &body.parent_kind,
+            &body.parent_id,
+            body.expected_revision,
+        )
+        .map_err(write_error)?;
+    Ok(Json(board))
+}
+
 pub async fn lock_board(
     State(state): State<AppState>,
     Path(id): Path<String>,

@@ -17,10 +17,12 @@ use crate::views::AppCtx;
 pub fn boards_bar(ctx: AppCtx) -> impl IntoView {
     let AppCtx {
         active_ws,
+        board_move_target,
         boards_busy,
         boards_msg,
         copy_active_board,
         language,
+        move_active_board,
         new_board,
         select_board,
         toggle_active_board_lock,
@@ -90,6 +92,31 @@ pub fn boards_bar(ctx: AppCtx) -> impl IntoView {
                         if locked { "boards.unlock" } else { "boards.lock" },
                     )
                 }}
+            </button>
+            <select
+                class="board-move-target"
+                aria-label=move || i18n::t(&language.get(), "boards.move_to")
+                on:change=move |event| board_move_target.set(event_target_value(&event))
+            >
+                <option value="">{move || i18n::t(&language.get(), "boards.move_to")}</option>
+                {move || {
+                    let current = active_ws.get();
+                    workspaces
+                        .get()
+                        .into_iter()
+                        .filter(|ws| ws.key != current)
+                        .map(|ws| {
+                            view! { <option value=ws.key.to_string()>{ws.title.clone()}</option> }
+                        })
+                        .collect_view()
+                }}
+            </select>
+            <button
+                class="board-action"
+                disabled=move || boards_busy.get() || board_move_target.get().is_empty()
+                on:click=move |_| move_active_board.run(())
+            >
+                {move || i18n::t(&language.get(), "boards.move")}
             </button>
             <span class="boards-msg" aria-live="polite">{move || boards_msg.get()}</span>
         </div>

@@ -224,6 +224,8 @@ pub struct AppCtx {
     pub boards_busy: RwSignal<bool>,
     /// The last board error, shown in the strip.
     pub boards_msg: RwSignal<String>,
+    /// The workspace key a board would be moved to.
+    pub board_move_target: RwSignal<String>,
     pub renaming_ws: RwSignal<Option<u32>>,
     pub rename_text: RwSignal<String>,
     pub new_tab_kind: RwSignal<String>,
@@ -236,6 +238,8 @@ pub struct AppCtx {
     pub copy_active_board: UnsyncCallback<(), ()>,
     /// Lock or unlock the open board.
     pub toggle_active_board_lock: UnsyncCallback<(), ()>,
+    /// Move the open board to the workspace key in `board_move_target`.
+    pub move_active_board: UnsyncCallback<(), ()>,
     pub close_workspace: UnsyncCallback<u32, ()>,
     pub commit_rename: UnsyncCallback<(), ()>,
     pub move_workspace: UnsyncCallback<(u32, i32), ()>,

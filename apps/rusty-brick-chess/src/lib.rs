@@ -76,6 +76,7 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/boards", post(domain_api::create_board))
         .route("/api/boards/{id}", get(domain_api::get_board).put(domain_api::update_board))
         .route("/api/boards/{id}/copy", post(domain_api::copy_board))
+        .route("/api/boards/{id}/reparent", post(domain_api::reparent_board))
         .route("/api/boards/{id}/lock", post(domain_api::lock_board))
         .route("/api/boards/{id}/unlock", post(domain_api::unlock_board))
         .route("/api/studies", get(domain_api::list_studies).post(domain_api::create_study))

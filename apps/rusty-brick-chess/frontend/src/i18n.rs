@@ -273,6 +273,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("boards.copy", "Copy", "Copiar"),
     ("boards.lock", "Lock", "Bloquear"),
     ("boards.unlock", "Unlock", "Desbloquear"),
+    ("boards.move_to", "Move to…", "Mover a…"),
+    ("boards.move", "Move", "Mover"),
     ("ws.rename", "Rename workspace", "Renombrar espacio"),
     ("ws.move_left", "Move left", "Mover a la izquierda"),
     ("ws.move_right", "Move right", "Mover a la derecha"),

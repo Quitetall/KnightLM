@@ -1674,6 +1674,26 @@ pub async fn copy_board(id: &str, title: Option<&str>) -> Result<BoardInfo, Stri
     json_or_error(resp).await
 }
 
+/// Move a board to another parent, as a revision-checked write.
+pub async fn reparent_board(
+    id: &str,
+    parent_kind: &str,
+    parent_id: &str,
+    expected_revision: i64,
+) -> Result<BoardInfo, String> {
+    let resp = Request::post(&format!("/api/boards/{id}/reparent"))
+        .json(&serde_json::json!({
+            "parent_kind": parent_kind,
+            "parent_id": parent_id,
+            "expected_revision": expected_revision,
+        }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
 pub async fn lock_board(id: &str, locked: bool) -> Result<BoardInfo, String> {
     let path = if locked { "lock" } else { "unlock" };
     let resp = Request::post(&format!("/api/boards/{id}/{path}"))
