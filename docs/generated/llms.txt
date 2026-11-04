@@ -2,13 +2,29 @@
 
 > OpenWarrant index (openwarrant/1.0). Generated; do not edit. Read any line's record with `war context <id>`.
 
-## AGENTS.md
+## README.md
 > -
-- md:AGENTS.md#tracking-work-with-tickets-optional · instruction · - · Tracking work with tickets (optional) · AGENTS.md:17
-- md:AGENTS.md#loading-context · instruction · - · Loading context · AGENTS.md:36
-- md:AGENTS.md#planning-with-a-warrant-optional · instruction · - · Planning with a Warrant (optional) · AGENTS.md:51
-- md:AGENTS.md#when-a-warrants-type-requires-sign-off · instruction · - · When a Warrant's type requires sign-off · AGENTS.md:101
-- md:AGENTS.md#tools · instruction · - · Tools · AGENTS.md:161
+- doc:README.md · document · - · KnightLM · README.md:1
+
+## docs/contracts.md
+> -
+- doc:docs/contracts.md · document · - · Version 1 contracts · docs/contracts.md:1
+
+## docs/mcp.md
+> -
+- doc:docs/mcp.md · document · - · Using RustyBrickChess over MCP · docs/mcp.md:1
+
+## docs/migrations.md
+> -
+- doc:docs/migrations.md · document · - · Database migrations, and the one reset · docs/migrations.md:1
+
+## docs/plan.md
+> -
+- doc:docs/plan.md · document · - · KnightLM implementation contract · docs/plan.md:1
+
+## docs/running.md
+> -
+- doc:docs/running.md · document · - · Running RustyBrickChess · docs/running.md:1
 
 ## docs/sas/KnightLM_SAS.md
 > -
@@ -38,6 +54,14 @@
 - KLM-SAS-130 · section · - · Disciplines · docs/sas/KnightLM_SAS.md:168
 - KLM-SAS-140 · section · - · Technology pins · docs/sas/KnightLM_SAS.md:179
 - KLM-SAS-150 · section · - · Scope and non-goals · docs/sas/KnightLM_SAS.md:187
+
+## docs/security.md
+> -
+- doc:docs/security.md · document · - · Security review · docs/security.md:1
+
+## docs/signing.md
+> -
+- doc:docs/signing.md · document · - · Operator checklist: closing a delivery Warrant · docs/signing.md:1
 
 ## docs/tickets/t-0aaf.md
 > Tag, run all gates, record evidence and hand off signing.
@@ -274,6 +298,14 @@
 ## docs/tickets/t-f44e.md
 > Pin legal/illegal/timeout/provider-error/resign/checkmate flows.
 - t-f44e · ticket · done · Match tests with scripted mock models · docs/tickets/t-f44e.md:1
+
+## docs/trackb-smolvlm-study.md
+> -
+- doc:docs/trackb-smolvlm-study.md · document · - · Track B — SmolVLM architecture study (Burn-native admission) · docs/trackb-smolvlm-study.md:1
+
+## docs/verification.md
+> -
+- doc:docs/verification.md · document · - · Scaffold verification · docs/verification.md:1
 
 ## docs/warrants/KLM-WAR-0001/manifest.toml
 > Adopt OpenWarrant in KnightLM

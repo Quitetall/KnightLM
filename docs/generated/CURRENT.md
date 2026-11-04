@@ -185,6 +185,14 @@ by kind, and `war sign` needs a terminal or an ssh agent loaded with `-c`.
 - The key custody question (`ssh-add -c`) is the operator's; `war` cannot verify it.
 <!-- atom docs/warrants/KLM-WAR-0001/atoms/60-assurance.md ends -->
 
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | OpenWarrant adoption and the project's agent instructions | `AGENTS.md` | target_unreadable |
+| D-002 | Warrant corpus root | `docs/warrants/KLM-WAR-0001/manifest.toml` | verified |
+| D-003 | The repository's own check entry point | `code/scripts/check_all.sh` | target_unreadable |
+
 ### No roadmap phase
 
 #### KLM-WAR-0002 — Universal state hub I: SAN engine and the thin Lichess PGN reader
@@ -384,6 +392,14 @@ signal to watch. Zst streaming memory is bounded but a hostile month file
 could stress it; fixtures include one large excerpt.
 <!-- atom docs/warrants/KLM-WAR-0002/atoms/60-assurance.md ends -->
 
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | SAN engine | `code/crates/notation/src/san.rs` | target_unreadable |
+| D-002 | PGN reader (thin, Lichess-shaped) | `code/crates/notation/src/reader.rs` | target_unreadable |
+| D-003 | Reader and SAN tests | `code/crates/notation/tests/reader.rs` | target_unreadable |
+
 #### KLM-WAR-0003 — Universal state hub II: full PGN in and out, annotations preserved
 
 [manifest](../../docs/warrants/KLM-WAR-0003/manifest.toml) · profile `delivery` · rung `draft` · currency `current`
@@ -564,6 +580,13 @@ variations) can diverge from the written standard; the battery targets the
 pathologies found in Lichess-style exports and hand-crafted cases. Depth
 limits on recursion are an interior choice the performer documents.
 <!-- atom docs/warrants/KLM-WAR-0003/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | PGN writer with annotations | `code/crates/notation/src/pgn.rs` | target_unreadable |
+| D-002 | Round-trip tests | `code/crates/notation/tests/pgn.rs` | target_unreadable |
 
 #### KLM-WAR-0004 — Universal state hub III: every named format, FRC first-class, parity proven
 
@@ -767,6 +790,13 @@ case row labels) are the likeliest quiet mismatch sources; the python-chess
 battery is the witness. The GameRecord amendment is additive by design so
 consumer risk is zero.
 <!-- atom docs/warrants/KLM-WAR-0004/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Variant start positions and FRC support | `code/crates/core/src/state.rs` | target_unreadable |
+| D-002 | Format parity checker | `code/ports/parity/check_san.py` | target_unreadable |
 
 #### KLM-WAR-0005 — Engine tooling: Stockfish 19 UCI client, label harness, and the boundary gate
 
@@ -972,6 +1002,13 @@ known limitation the admins' own known_blind_spots list is honest about —
 detection claims are scoped to the mutations planted.
 <!-- atom docs/warrants/KLM-WAR-0005/atoms/60-assurance.md ends -->
 
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Stockfish UCI client | `code/crates/engine/src/lib.rs` | target_unreadable |
+| D-002 | Engine smoke test | `code/crates/engine/tests/smoke.rs` | target_unreadable |
+
 #### KLM-WAR-0006 — knightlm-uci: a compliant UCI engine with a random-legal baseline player
 
 [manifest](../../docs/warrants/KLM-WAR-0006/manifest.toml) · profile `delivery` · rung `draft` · currency `current`
@@ -1152,6 +1189,13 @@ Real GUIs vary in UCI tolerance; the scripted-driver subset is the contract,
 and one external driver session (OBL-004) is the real probe. Infinite `go`
 handling is kept simple: finite sweep plus stop-wakeups.
 <!-- atom docs/warrants/KLM-WAR-0006/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | UCI binary with a random-legal baseline player | `code/crates/brick-chess/src/bin/brick-chess.rs` | target_unreadable |
+| D-002 | UCI protocol tests | `code/crates/brick-chess/tests/protocol.rs` | target_unreadable |
 
 #### KLM-WAR-0007 — The run-1 corpus: ingest, join, split, and audit
 
@@ -1364,6 +1408,13 @@ expected and are an explicit-refusal count, not a silent skip, per RQ-004;
 weekly ingest reports log refusal shapes.
 <!-- atom docs/warrants/KLM-WAR-0007/atoms/60-assurance.md ends -->
 
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Corpus ingest pipeline | `code/ports/corpus/pipeline.py` | target_unreadable |
+| D-002 | Corpus documentation | `code/README.md` | target_unreadable |
+
 #### KLM-WAR-0008 — Track A run 1: SmolVLM LoRA harness, execution within cap, per-axis eval
 
 [manifest](../../docs/warrants/KLM-WAR-0008/manifest.toml) · profile `delivery` · rung `draft` · currency `current`
@@ -1571,6 +1622,13 @@ still costs some minutes. SmolVLM LoRA runs have proven trick historically
 (template drift); dry-run first. Evaluation variance across seeds is a
 reporting risk: the report states the seed and the count, not vibes.
 <!-- atom docs/warrants/KLM-WAR-0008/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Track A training harness | `code/ports/train/harness.py` | target_unreadable |
+| D-002 | Model crate and its infrastructure test | `code/crates/model/tests/infrastructure.rs` | target_unreadable |
 
 #### KLM-WAR-0009 — Serving: the model speaks, knightlm-uci plays, boundary intact
 
@@ -1781,6 +1839,12 @@ rating tournaments; report the number, do not promise it. FastAPI latency vs
 driver timeouts is calibrated at M1. The 'demo' part of a session-vs-SF19 is
 narrative, not a strength claim — the strength axis stays in W-0008.
 <!-- atom docs/warrants/KLM-WAR-0009/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Serving entry point | `code/ports/serve/server.py` | target_unreadable |
 
 #### KLM-WAR-0010 — The Leptos viewer: any notation in, board and facts out, all formats back out
 
@@ -1996,6 +2060,14 @@ failures in the nightly walk — that is the intended signal; the walk's health
 matters more than any single board pixel.
 <!-- atom docs/warrants/KLM-WAR-0010/atoms/60-assurance.md ends -->
 
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | The Leptos viewer | `code/apps/viewer/src/app.rs` | target_unreadable |
+| D-002 | Viewer board component | `code/apps/viewer/src/board.rs` | target_unreadable |
+| D-003 | Unified app shell | `code/apps/rusty-brick-chess/src/lib.rs` | target_unreadable |
+
 #### KLM-WAR-0011 — Track B seed: Burn environment, SmolVLM study, and an honest-red parity battery
 
 [manifest](../../docs/warrants/KLM-WAR-0011/manifest.toml) · profile `delivery` · rung `draft` · currency `current`
@@ -2191,6 +2263,13 @@ reuse across contexts); the study inventories them for the future implementer,
 not this Warrant.
 <!-- atom docs/warrants/KLM-WAR-0011/atoms/60-assurance.md ends -->
 
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Track B parity battery | `code/crates/model/tests/trackb_parity.rs` | target_unreadable |
+| D-002 | Track B study | `code/docs/trackb-smolvlm-study.md` | target_unreadable |
+
 #### KLM-WAR-0012 — Foundation: schema v4, multi-board workspaces, studies, stable IDs and reset
 
 [manifest](../../docs/warrants/KLM-WAR-0012/manifest.toml) · profile `delivery` · rung `draft` · currency `current`
@@ -2372,6 +2451,15 @@ See `90-risks.md` in the planning bundle. Residual risk is accepted by the progr
 until the release gate records otherwise.
 <!-- atom docs/warrants/KLM-WAR-0012/atoms/60-assurance.md ends -->
 
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Schema v4 and the reset | `code/crates/rbc-db/src/lib.rs` | target_unreadable |
+| D-002 | Workspaces, boards and studies repository | `code/crates/rbc-db/src/domain.rs` | target_unreadable |
+| D-003 | Foundation fixtures | `code/crates/rbc-db/tests/foundation.rs` | target_unreadable |
+| D-004 | Migration notes | `code/docs/migrations.md` | target_unreadable |
+
 #### KLM-WAR-0013 — Deterministic context compiler and headless CLI
 
 [manifest](../../docs/warrants/KLM-WAR-0013/manifest.toml) · profile `delivery` · rung `draft` · currency `current`
@@ -2515,6 +2603,15 @@ missing hash, an unapproved write, or a dropped required section. The package te
 See `90-risks.md` in the planning bundle. Residual risk is accepted by the program owner
 until the release gate records otherwise.
 <!-- atom docs/warrants/KLM-WAR-0013/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Context compiler | `code/crates/context/src/compile.rs` | target_unreadable |
+| D-002 | Canonical JSON and hashing | `code/crates/context/src/canonical.rs` | target_unreadable |
+| D-003 | Headless CLI | `code/crates/context/src/bin/rbc-context.rs` | target_unreadable |
+| D-004 | Compiler tests | `code/crates/context/tests/compile.rs` | target_unreadable |
 
 #### KLM-WAR-0014 — AI runtime: sessions, tools, providers, streaming and approvals
 
@@ -2674,6 +2771,16 @@ See `90-risks.md` in the planning bundle. Residual risk is accepted by the progr
 until the release gate records otherwise.
 <!-- atom docs/warrants/KLM-WAR-0014/atoms/60-assurance.md ends -->
 
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Provider trait and streaming adapter | `code/crates/ai/src/provider/mod.rs` | target_unreadable |
+| D-002 | Agent loop with tools, retries and cancellation | `code/crates/ai/src/agent.rs` | target_unreadable |
+| D-003 | Approval service | `code/crates/ai/src/approval.rs` | target_unreadable |
+| D-004 | Runtime tests | `code/crates/ai/tests/agent_loop.rs` | target_unreadable |
+| D-005 | Approval tests | `code/crates/ai/tests/approvals.rs` | target_unreadable |
+
 #### KLM-WAR-0015 — Assistant window: dedicated tab, board, chat, composer, context inspector
 
 [manifest](../../docs/warrants/KLM-WAR-0015/manifest.toml) · profile `delivery` · rung `draft` · currency `current`
@@ -2822,6 +2929,14 @@ See `90-risks.md` in the planning bundle. Residual risk is accepted by the progr
 until the release gate records otherwise.
 <!-- atom docs/warrants/KLM-WAR-0015/atoms/60-assurance.md ends -->
 
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Assistant tab and session rail | `code/apps/rusty-brick-chess/frontend/src/views/assistant.rs` | target_unreadable |
+| D-002 | Streaming and context inspector UI | `code/apps/rusty-brick-chess/frontend/src/views/analysis.rs` | target_unreadable |
+| D-003 | Assistant CDP suites | `code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_ai_rail.js` | target_unreadable |
+
 #### KLM-WAR-0016 — Play and arena: human vs AI, watch mode, match loop, PGN
 
 [manifest](../../docs/warrants/KLM-WAR-0016/manifest.toml) · profile `delivery` · rung `draft` · currency `current`
@@ -2925,11 +3040,33 @@ Each obligation pairs a positive claim with a refusal: a stale revision, a locke
 missing hash, an unapproved write, or a dropped required section. The package test in
 `openwarrant/packages.json` is the executable gate; the obligation text is the contract.
 
+## Obligations
+
+### OBL-001: a model reply that is not a legal move is retried and then refused, with the board untouched
+
+- **scope:** the play policy against a match. Not a claim about model strength.
+- **evidence:** `a_model_reply_that_is_not_a_legal_move_is_never_recorded` in `crates/ai/tests/security.rs`.
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-002: a match can be paused, stepped and resumed without losing its moves
+
+- **scope:** matches driven through the API and the UI.
+- **evidence:** `crates/ai/tests/match_suite.rs` and `cdp_ai_watch.js` (`AI_WATCH_PASS`).
+- **gate:** gate://software.repo.war-check@1.0.0
 ## Residual Risk
 
 See `90-risks.md` in the planning bundle. Residual risk is accepted by the program owner
 until the release gate records otherwise.
 <!-- atom docs/warrants/KLM-WAR-0016/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Match state machine and PGN | `code/crates/ai/src/game.rs` | target_unreadable |
+| D-002 | Play policy and watch mode | `code/crates/ai/src/play.rs` | target_unreadable |
+| D-003 | Match UI | `code/apps/rusty-brick-chess/frontend/src/views/play.rs` | target_unreadable |
+| D-004 | Play and watch CDP suites | `code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_ai_play.js` | target_unreadable |
 
 #### KLM-WAR-0017 — Tournaments and ratings: Swiss, knockout, round robin, Glicko-2
 
@@ -3035,11 +3172,33 @@ Each obligation pairs a positive claim with a refusal: a stale revision, a locke
 missing hash, an unapproved write, or a dropped required section. The package test in
 `openwarrant/packages.json` is the executable gate; the obligation text is the contract.
 
+## Obligations
+
+### OBL-001: only model-versus-model games under the rated ruleset are rateable
+
+- **scope:** games staged through `ratings::stage`. Not a claim that every game is rated.
+- **evidence:** `crates/ai/tests/glicko.rs` and `tournament.rs` assert the rated-ruleset filter and the update.
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-002: a tournament budget pauses the run rather than aborting it
+
+- **scope:** runs driven through `Running`. 
+- **evidence:** `crates/ai/tests/tournament.rs` covers the budget pause; `cdp_leaderboard.js` (`AI_LEADERBOARD_PASS`) drives step and pause.
+- **gate:** gate://software.repo.war-check@1.0.0
 ## Residual Risk
 
 See `90-risks.md` in the planning bundle. Residual risk is accepted by the program owner
 until the release gate records otherwise.
 <!-- atom docs/warrants/KLM-WAR-0017/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Glicko-2 ratings | `code/crates/ai/src/glicko.rs` | target_unreadable |
+| D-002 | Tournament formats | `code/crates/ai/src/tournament.rs` | target_unreadable |
+| D-003 | Tournament UI and leaderboard | `code/apps/rusty-brick-chess/frontend/src/views/play.rs` | target_unreadable |
+| D-004 | Leaderboard CDP suite | `code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_leaderboard.js` | target_unreadable |
 
 #### KLM-WAR-0018 — Structured studies: editor, chapters, boards, versions, progress, import/export
 
@@ -3147,11 +3306,111 @@ Each obligation pairs a positive claim with a refusal: a stale revision, a locke
 missing hash, an unapproved write, or a dropped required section. The package test in
 `openwarrant/packages.json` is the executable gate; the obligation text is the contract.
 
+## Obligations
+
+### OBL-001: a study is authored entirely through the tools, and a published one refuses edits
+
+- **scope:** the eight study tools against a real repository: create, add a
+  chapter, add a board to it, reorder, write notes, publish. No claim about the
+  editor's layout or about MCP transport, which have their own checks.
+- **evidence:** `a_study_is_authored_end_to_end_over_the_tools` and
+  `publishing_a_study_closes_it_to_further_writes` in
+  `crates/ai/tests/study_tools.rs`; the second asserts every write is refused with
+  `conflict` and a summary that offers a copy.
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-002: every tool the registry advertises is implemented
+
+- **scope:** tools with the `SessionWrite` effect in the built-in registry.
+- **evidence:** `every_study_tool_the_registry_advertises_is_implemented`
+  (`crates/ai/tests/study_tools.rs`) calls each one and fails if the host answers
+  `not_found` — a tool a client can see and cannot call is worse than an absent one.
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-003: a published version is frozen, and a branch records its lineage
+
+- **scope:** `publish_study` and `branch_study_from_version` on a study with one
+  chapter. Not a claim about concurrent publishing, which the version counter
+  refuses rather than serialises.
+- **evidence:** `publishing_freezes_the_content_it_published` and
+  `a_branch_records_where_it_came_from` in
+  `crates/rbc-db/tests/study_versions.rs`: a later chapter does not change the
+  frozen bundle, and the branch carries `branched_from {study_id, version}`.
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-004: a manual lock refuses writes without publishing
+
+- **scope:** studies locked through `lock_study`. Boards have their own
+  mutability and are not covered here.
+- **evidence:** `a_lock_refuses_writes_without_publishing_anything`
+  (`crates/rbc-db/tests/study_versions.rs`) and
+  `a_locked_study_refuses_a_tool_write` (`crates/ai/tests/study_tools.rs`).
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-005: a bundle round-trips, and unknown fields survive it
+
+- **scope:** `rbc-study/1` documents written by this build, and documents
+  carrying fields this build does not know.
+- **evidence:** `export_then_parse_then_write_is_lossless_for_what_we_know` and
+  `a_field_from_a_newer_build_survives_a_round_trip`
+  (`crates/ai/tests/study_bundle.rs`).
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-006: progress is per user and never touches the document
+
+- **scope:** `set_study_progress` and `study_progress` against one study.
+- **evidence:** `progress_changes_nothing_about_the_study_or_its_versions` and
+  `progress_is_per_user_and_does_not_leak_between_them`
+  (`crates/rbc-db/tests/study_progress.rs`).
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-007: the editor does what a person sees it do
+
+- **scope:** the Study tab in a browser: chapters, boards, notes, publish, progress.
+- **evidence:** `cdp_study.js` prints `AI_STUDY_PASS` for create, two chapters,
+  duplicate, reorder, board strip with primary marking, markdown preview with a
+  heading, two items and a bold span, tags, a ticked chapter at 1/3, publish, and
+  edits disabled afterwards.
+- **gate:** gate://software.repo.war-check@1.0.0
+
 ## Residual Risk
+
+### State at the end of the build-out (2026-11-04)
+
+Seven obligations are declared above and every one cites a test that exists and
+passes; `war evidence record` mints a receipt for the cited gate. Resolution is
+still unreachable by an agent, for three reasons recorded here so the next person
+does not rediscover them:
+
+1. **No deliverable is declared.** `war admin deliver KLM-WAR-0018` refuses with
+   `deliver.none-declared`: a `deliverables.toml` must name what was delivered
+   before delivery can be recorded against it. None of the 21 Warrants has one.
+2. **Obligations have no dispositions.** A disposition comes from an independent
+   verifier (`war evidence verify --response`), not from the performer, so it
+   cannot be written from the same context that did the work.
+3. **The gate is corpus-wide.** `software.repo.war-check@1.0.0` runs `war check`
+   over every Warrant; it fails while 21 of them are unpublished drafts, and it
+   reports the project directory is not a git repository, so identity cannot be
+   compared. The receipt in `gate-runs/` therefore says `fail` — honestly, and
+   about the corpus rather than about the studies work.
+
+What is left for a person is a signature AND, before it, those three structural
+steps. Saying "only a signature remains" would be wrong.
+
 
 See `90-risks.md` in the planning bundle. Residual risk is accepted by the program owner
 until the release gate records otherwise.
 <!-- atom docs/warrants/KLM-WAR-0018/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Study tools and their locks | `code/crates/ai/src/board.rs` | target_unreadable |
+| D-002 | Study editor | `code/apps/rusty-brick-chess/frontend/src/views/study.rs` | target_unreadable |
+| D-003 | Study bundle import/export | `code/crates/ai/src/study_bundle.rs` | target_unreadable |
+| D-004 | Study suites | `code/scripts/check_studies.sh` | target_unreadable |
+| D-005 | Study editor CDP suite | `code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_study.js` | target_unreadable |
 
 #### KLM-WAR-0019 — Compare workspace and structural diff engine
 
@@ -3253,11 +3512,39 @@ Each obligation pairs a positive claim with a refusal: a stale revision, a locke
 missing hash, an unapproved write, or a dropped required section. The package test in
 `openwarrant/packages.json` is the executable gate; the obligation text is the contract.
 
+## Obligations
+
+### OBL-001: comparing two studies never mutates either
+
+- **scope:** the diff engine over the repository.
+- **evidence:** `comparing_writes_nothing` in `crates/ai/tests/diff.rs` asserts neither updated stamp nor version moved.
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-002: alignment follows id, then ordinal, then title, and a FEN matches without its counters
+
+- **scope:** chapters and boards aligned by the documented rules.
+- **evidence:** `a_chapter_that_kept_its_title_lines_up_and_reports_its_board_change` and `a_fen_is_the_same_position_without_its_counters` in `crates/ai/tests/diff.rs`.
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-003: two boards follow one ply in the browser
+
+- **scope:** the Compare tab. 
+- **evidence:** `cdp_compare.js` (`AI_COMPARE_PASS`) moves the ply and asserts both boards render.
+- **gate:** gate://software.repo.war-check@1.0.0
 ## Residual Risk
 
 See `90-risks.md` in the planning bundle. Residual risk is accepted by the program owner
 until the release gate records otherwise.
 <!-- atom docs/warrants/KLM-WAR-0019/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Structural diff engine | `code/crates/ai/src/diff.rs` | target_unreadable |
+| D-002 | Diff tests | `code/crates/ai/tests/diff.rs` | target_unreadable |
+| D-003 | Compare UI | `code/apps/rusty-brick-chess/frontend/src/views/compare.rs` | target_unreadable |
+| D-004 | Compare CDP suite | `code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_compare.js` | target_unreadable |
 
 #### KLM-WAR-0020 — Core MCP server: stdio, localhost HTTP, tools, resources, prompts, approvals
 
@@ -3364,11 +3651,40 @@ Each obligation pairs a positive claim with a refusal: a stale revision, a locke
 missing hash, an unapproved write, or a dropped required section. The package test in
 `openwarrant/packages.json` is the executable gate; the obligation text is the contract.
 
+## Obligations
+
+### OBL-001: a write over MCP asks for approval and runs nothing until a person answers
+
+- **scope:** the MCP write path with a default profile.
+- **evidence:** `mcp_a_write_without_a_grant_asks_for_approval_and_runs_nothing` in `crates/ai/tests/mcp.rs` asserts the host was never called.
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-002: no request without the bearer token is dispatched, and rotation invalidates the old one
+
+- **scope:** the HTTP transport. Not a claim about TLS, which the server does not offer.
+- **evidence:** `mcp_http_client.js` (run by `scripts/check_mcp.sh`) asserts 401 without a token, 401 for a wrong one, and 401 after rotation.
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-003: an rbc:// path cannot escape into a neighbouring resource
+
+- **scope:** the resource matcher.
+- **evidence:** `a_resource_path_cannot_escape_into_another_resource` in `apps/rusty-brick-chess/src/mcp.rs`.
+- **gate:** gate://software.repo.war-check@1.0.0
 ## Residual Risk
 
 See `90-risks.md` in the planning bundle. Residual risk is accepted by the program owner
 until the release gate records otherwise.
 <!-- atom docs/warrants/KLM-WAR-0020/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | MCP protocol core | `code/crates/ai/src/mcp.rs` | target_unreadable |
+| D-002 | MCP transports, token and rate limit | `code/apps/rusty-brick-chess/src/mcp.rs` | target_unreadable |
+| D-003 | MCP setup documentation | `code/docs/mcp.md` | target_unreadable |
+| D-004 | MCP protocol tests | `code/crates/ai/tests/mcp.rs` | target_unreadable |
+| D-005 | MCP end-to-end suite | `code/scripts/check_mcp.sh` | target_unreadable |
 
 #### KLM-WAR-0021 — Release 1 hardening: performance, security, full suite, docs and RC
 
@@ -3475,11 +3791,33 @@ Each obligation pairs a positive claim with a refusal: a stale revision, a locke
 missing hash, an unapproved write, or a dropped required section. The package test in
 `openwarrant/packages.json` is the executable gate; the obligation text is the contract.
 
+## Obligations
+
+### OBL-001: no credential is persisted, logged or placed in a stored turn
+
+- **scope:** the provider configuration and the turn store.
+- **evidence:** `the_key_never_appears_in_an_error` and `the_key_travels_in_the_authorization_header_and_not_in_the_body` in `crates/ai/tests/security.rs`.
+- **gate:** gate://software.repo.war-check@1.0.0
+
+### OBL-002: one command runs fmt, clippy, both test profiles and every browser suite
+
+- **scope:** `scripts/check_all.sh`. Not a claim that every suite passes today: `cdp_match_ui` is red.
+- **evidence:** the script stops at the first failure and reports the failing suite by name.
+- **gate:** gate://software.repo.war-check@1.0.0
 ## Residual Risk
 
 See `90-risks.md` in the planning bundle. Residual risk is accepted by the program owner
 until the release gate records otherwise.
 <!-- atom docs/warrants/KLM-WAR-0021/atoms/60-assurance.md ends -->
+
+##### Deliverables
+
+| id | title | target | digest |
+|---|---|---|---|
+| D-001 | Security review | `code/docs/security.md` | target_unreadable |
+| D-002 | Security tests | `code/crates/ai/tests/security.rs` | target_unreadable |
+| D-003 | The full check suite | `code/scripts/check_all.sh` | target_unreadable |
+| D-004 | Running and packaging documentation | `code/docs/running.md` | target_unreadable |
 
 ## Replaced
 
