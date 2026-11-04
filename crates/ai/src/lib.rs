@@ -18,6 +18,12 @@ pub mod result;
 pub mod tools;
 
 #[cfg(feature = "core")]
+pub mod glicko;
+
+#[cfg(feature = "host")]
+pub mod ratings;
+
+#[cfg(feature = "core")]
 pub mod game;
 
 #[cfg(feature = "provider")]

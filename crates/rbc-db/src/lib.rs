@@ -5,6 +5,8 @@
 //! search, player/event catalogs) without `AppState`, `specta`, DuckDB or the
 //! AIX extension. The public API is what the app and the frontend speak.
 
+pub mod rating;
+
 use anyhow::{Context, Result};
 use knightlm_core::state::{START_FEN, parse_chess, parse_variant_fen, variant_for_name};
 use rusqlite::types::Value;
@@ -2187,7 +2189,7 @@ fn moves_to_san(fen: &str, moves: &str) -> String {
 /// Additive migrations for databases created by older builds.
 /// Current schema version. Bump this and add a `migrate_vN` step for changes
 /// that `CREATE ... IF NOT EXISTS` cannot express.
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -2225,6 +2227,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if version < 6 {
         migrate_v6(conn)?;
         version = 6;
+    }
+    if version < 7 {
+        migrate_v7(conn)?;
+        version = 7;
     }
     conn.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
@@ -2553,6 +2559,54 @@ fn migrate_v5(conn: &Connection) -> Result<()> {
 /// The v4 table knew an approval's origin, target, action and changeset. The
 /// service also needs the tool that asked, the one-line summary a queue shows,
 /// and when an untouched request stops being actionable.
+/// v7: the rating pool — the games that feed it, the immutable ledger, the
+/// materialised current table, and the anchors that never move.
+fn migrate_v7(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS rating_games (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             period INTEGER NOT NULL,
+             competitor TEXT NOT NULL,
+             opponent TEXT NOT NULL,
+             score REAL NOT NULL,
+             ruleset TEXT NOT NULL,
+             created INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS rating_ledger (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             period INTEGER NOT NULL,
+             competitor TEXT NOT NULL,
+             opponent TEXT NOT NULL,
+             score REAL NOT NULL,
+             before_rating REAL NOT NULL,
+             before_deviation REAL NOT NULL,
+             before_volatility REAL NOT NULL,
+             after_rating REAL NOT NULL,
+             after_deviation REAL NOT NULL,
+             after_volatility REAL NOT NULL,
+             created INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS rating_ledger_period
+             ON rating_ledger (period, competitor);
+         CREATE TABLE IF NOT EXISTS ratings (
+             competitor TEXT PRIMARY KEY,
+             rating REAL NOT NULL,
+             deviation REAL NOT NULL,
+             volatility REAL NOT NULL,
+             games INTEGER NOT NULL DEFAULT 0,
+             period INTEGER NOT NULL DEFAULT 0,
+             updated INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS rating_anchors (
+             competitor TEXT PRIMARY KEY,
+             rating REAL NOT NULL,
+             deviation REAL NOT NULL,
+             volatility REAL NOT NULL
+         );",
+    )?;
+    Ok(())
+}
+
 fn migrate_v6(conn: &Connection) -> Result<()> {
     for column in [
         "tool TEXT NOT NULL DEFAULT ''",
