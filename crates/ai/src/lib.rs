@@ -20,6 +20,9 @@ pub mod tools;
 #[cfg(feature = "core")]
 pub mod glicko;
 
+#[cfg(feature = "core")]
+pub mod tournament;
+
 #[cfg(feature = "host")]
 pub mod ratings;
 
