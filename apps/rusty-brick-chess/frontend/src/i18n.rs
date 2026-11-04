@@ -270,6 +270,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("boards.label", "Boards", "Tableros"),
     ("boards.empty", "No stored boards yet", "Aún no hay tableros guardados"),
     ("boards.new", "New board", "Nuevo tablero"),
+    ("boards.set_target", "Set as AI target", "Fijar como objetivo de la IA"),
+    ("boards.target_badge", "The assistant is working on another board; click to open it", "El asistente trabaja en otro tablero; haz clic para abrirlo"),
     ("boards.copy", "Copy", "Copiar"),
     ("boards.lock", "Lock", "Bloquear"),
     ("boards.unlock", "Unlock", "Desbloquear"),

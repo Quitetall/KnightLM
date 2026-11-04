@@ -29,6 +29,9 @@ pub struct AssistantCtx {
     pub pinned: Option<String>,
     /// Open a conversation in a tab of its own.
     pub pin_session: UnsyncCallback<String, ()>,
+    /// Published back to the shell so the board strip can mark the target.
+    pub ai_session_id: RwSignal<Option<String>>,
+    pub ai_target_board: RwSignal<Option<String>>,
 }
 
 impl AssistantCtx {
@@ -45,6 +48,8 @@ impl AssistantCtx {
             selected_pgn: ctx.selected_pgn,
             pinned,
             pin_session: ctx.pin_session,
+            ai_session_id: ctx.ai_session_id,
+            ai_target_board: ctx.ai_target_board,
         }
     }
 }
@@ -138,6 +143,8 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
         language,
         fen,
         pin_session,
+        ai_session_id,
+        ai_target_board,
         pinned,
         selected_pgn,
     } = AssistantCtx::from_app(ctx);
@@ -400,6 +407,26 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
             }
         });
     };
+
+    // Publish the session and its target so the board strip can mark the board
+    // the assistant is writing to, even when it is not the one on screen.
+    {
+        let ai_session_id = ai_session_id;
+        let ai_target_board = ai_target_board;
+        Effect::new(move |_| {
+            let id = selected.get();
+            ai_session_id.set(id.clone());
+            let Some(id) = id else {
+                ai_target_board.set(None);
+                return;
+            };
+            spawn_local(async move {
+                if let Ok(session) = ai_api::get_ai_session(&id).await {
+                    ai_target_board.set(session.target_board_id);
+                }
+            });
+        });
+    }
 
     // Read the session's auto-approve scopes when it changes.
     Effect::new(move |_| {

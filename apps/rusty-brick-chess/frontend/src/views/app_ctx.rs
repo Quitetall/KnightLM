@@ -22,7 +22,11 @@ pub struct AppCtx {
     pub accounts: RwSignal<Vec<AccountState>>,
     pub active_collection: RwSignal<Option<i64>>,
     pub add_collection: RwSignal<i64>,
+    /// The assistant session whose target the board strip marks.
+    pub ai_session_id: RwSignal<Option<String>>,
     pub ai_shapes: RwSignal<Vec<Shape>>,
+    /// The board the assistant is writing to, when it is not the visible one.
+    pub ai_target_board: RwSignal<Option<String>>,
     pub analysis: RwSignal<Option<Analysis>>,
     pub analysis_rep: RwSignal<i64>,
     pub analyzing: RwSignal<bool>,

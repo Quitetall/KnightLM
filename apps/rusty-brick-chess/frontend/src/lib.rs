@@ -1001,6 +1001,23 @@ pub fn App() -> impl IntoView {
                 session_id: None,
             })
         });
+        // Create the server side straight away. Without it the strip's board
+        // actions can only refuse ("the workspace has no server side yet"),
+        // which left a fresh tab unable to store a board at all.
+        let title = i18n::t(&language.get(), "practice.new_analysis_tab").to_string();
+        let boards_msg_for_create = boards_msg;
+        spawn_local(async move {
+            match api::create_workspace(&title, "analysis").await {
+                Ok(created) => {
+                    workspaces.update(|list| {
+                        if let Some(ws) = list.iter_mut().find(|ws| ws.key == key) {
+                            ws.server_id = Some(created.id);
+                        }
+                    });
+                }
+                Err(error) => boards_msg_for_create.set(error),
+            }
+        });
         active_ws.set(key);
         selected_pgn.set(start);
         selected_title.set(i18n::t(&language.get(), "practice.new_analysis_tab").into());
@@ -3201,6 +3218,10 @@ pub fn App() -> impl IntoView {
 
 
 
+    // Which board the assistant is working on, shared with the board strip so a
+    // target that is not on screen is still visible.
+    let ai_session_id = RwSignal::new(read_active_ai_session());
+    let ai_target_board = RwSignal::new(None::<String>);
     let app_ctx = views::AppCtx {
         account_busy,
         account_import_max,
@@ -3208,7 +3229,9 @@ pub fn App() -> impl IntoView {
         accounts,
         active_collection,
         add_collection,
+        ai_session_id,
         ai_shapes,
+        ai_target_board,
         analysis,
         analysis_rep,
         analyzing,

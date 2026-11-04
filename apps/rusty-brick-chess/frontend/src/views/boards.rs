@@ -1,5 +1,7 @@
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 
+use crate::ai_api;
 use crate::i18n;
 use crate::model::BoardRef;
 use crate::views::AppCtx;
@@ -17,6 +19,8 @@ use crate::views::AppCtx;
 pub fn boards_bar(ctx: AppCtx) -> impl IntoView {
     let AppCtx {
         active_ws,
+        ai_session_id,
+        ai_target_board,
         board_move_target,
         boards_busy,
         boards_msg,
@@ -37,6 +41,17 @@ pub fn boards_bar(ctx: AppCtx) -> impl IntoView {
             .find(|ws| ws.key == active_ws.get())
     };
 
+    // The board the assistant is writing to, which may not be the one on screen.
+    let ai_target = move || ai_target_board.get();
+    let ai_target_title = move || {
+        let target = ai_target_board.get()?;
+        let ws = current()?;
+        ws.boards
+            .iter()
+            .find(|board| board.id == target)
+            .map(|board| board.title.clone())
+    };
+
     let chips = move || {
         let Some(ws) = current() else {
             return ().into_any();
@@ -45,7 +60,10 @@ pub fn boards_bar(ctx: AppCtx) -> impl IntoView {
         ws.boards
             .iter()
             .enumerate()
-            .map(|(index, board)| chip(board, index, index == active, select_board))
+            .map(|(index, board)| {
+                let target = ai_target_board.get().as_deref() == Some(board.id.as_str());
+                chip(board, index, index == active, target, select_board)
+            })
             .collect_view()
             .into_any()
     };
@@ -54,6 +72,40 @@ pub fn boards_bar(ctx: AppCtx) -> impl IntoView {
         <div class="boards" role="group" aria-label=move || i18n::t(&language.get(), "boards.label")>
             <span class="boards-label">{move || i18n::t(&language.get(), "boards.label")}</span>
             {chips}
+            {move || {
+                let target = ai_target();
+                let visible = current()
+                    .and_then(|ws| ws.active_board_ref().map(|board| board.id.clone()));
+                if target.is_some() && target != visible {
+                    let title = ai_target_title().unwrap_or_else(|| "another board".to_string());
+                    let target_id = target.clone();
+                    view! {
+                        <button
+                            class="board-target-badge"
+                            title=move || i18n::t(&language.get(), "boards.target_badge").to_string()
+                            on:click=move |_| {
+                                // Focusing is explicit: the badge names the board
+                                // and this is the request to look at it.
+                                // Switching to it is the explicit request; the
+                                // badge is only a prompt until then.
+                                if let Some(target) = target_id.clone() {
+                                    if let Some(ws) = current() {
+                                        if let Some(index) =
+                                            ws.boards.iter().position(|board| board.id == target)
+                                        {
+                                            select_board.run(index);
+                                        }
+                                    }
+                                }
+                            }
+                        >
+                            {format!("AI → {title}")}
+                        </button>
+                    }.into_any()
+                } else {
+                    ().into_any()
+                }
+            }}
             <span class="boards-empty">
                 {move || {
                     let empty = current().map(|ws| ws.boards.is_empty()).unwrap_or(true);
@@ -70,6 +122,26 @@ pub fn boards_bar(ctx: AppCtx) -> impl IntoView {
                 on:click=move |_| new_board.run(())
             >
                 {move || i18n::t(&language.get(), "boards.new")}
+            </button>
+            <button
+                class="board-action board-set-target"
+                disabled=move || ai_session_id.get().is_none() || boards_busy.get()
+                title=move || i18n::t(&language.get(), "boards.set_target").to_string()
+                on:click=move |_| {
+                    let Some(session) = ai_session_id.get_untracked() else { return };
+                    let Some(board) = current()
+                        .and_then(|ws| ws.active_board_ref().map(|board| board.id.clone()))
+                    else {
+                        return;
+                    };
+                    spawn_local(async move {
+                        if ai_api::set_ai_target(&session, Some(&board)).await.is_ok() {
+                            ai_target_board.set(Some(board));
+                        }
+                    });
+                }
+            >
+                {move || i18n::t(&language.get(), "boards.set_target")}
             </button>
             <button
                 class="board-action"
@@ -128,21 +200,26 @@ fn chip(
     board: &BoardRef,
     index: usize,
     active: bool,
+    target: bool,
     select: UnsyncCallback<usize, ()>,
 ) -> impl IntoView {
     let title = board.title.clone();
     let revision = board.revision;
     let locked = board.locked();
-    let class = if active {
-        "board-chip active"
-    } else {
-        "board-chip"
+    let class = match (active, target) {
+        (true, true) => "board-chip active target",
+        (true, false) => "board-chip active",
+        (false, true) => "board-chip target",
+        (false, false) => "board-chip",
     };
-    let label = if locked {
+    let mut label = if locked {
         format!("{title}  r{revision} · locked")
     } else {
         format!("{title}  r{revision}")
     };
+    if target {
+        label.push_str("  · AI target");
+    }
     let text = label.clone();
     view! {
         <button
