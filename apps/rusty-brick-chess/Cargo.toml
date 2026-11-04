@@ -19,6 +19,7 @@ ureq = { version = "3", features = ["json"] }
 brick-chess = { path = "../../crates/brick-chess" }
 brick-chess-analysis = { path = "../../crates/brick-chess-analysis" }
 rbc-db = { path = "../../crates/rbc-db" }
+rbc-context = { path = "../../crates/context" }
 shakmaty = "=0.30.2"
 shakmaty-syzygy = "0.28"
 knightlm-core = { path = "../../crates/core" }

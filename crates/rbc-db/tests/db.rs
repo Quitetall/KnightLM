@@ -385,3 +385,160 @@ fn schema_is_versioned_and_sessions_round_trip() {
     // Re-running the migration is a no-op and keeps the version.
     assert_eq!(db.schema_version().unwrap(), rbc_db::SCHEMA_VERSION);
 }
+
+const START: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+#[test]
+fn workspaces_hold_boards_and_revisions() {
+    let db = Db::open_memory().unwrap();
+    let ws = db.create_workspace("Analysis", "analysis").unwrap();
+    assert_eq!(ws.position, 0);
+    let b1 = db
+        .create_board("workspace", &ws.id, "analysis", "Board 1", START, "{}")
+        .unwrap();
+    let b2 = db
+        .create_board("workspace", &ws.id, "analysis", "Board 2", START, "{}")
+        .unwrap();
+    let boards = db.boards("workspace", &ws.id).unwrap();
+    assert_eq!(boards.len(), 2);
+    assert_eq!(boards[0].id, b1.id);
+    assert_eq!(boards[1].id, b2.id);
+
+    let updated = db
+        .update_board_content(&b1.id, 1, r#"{"moves":["e4"]}"#, Some("test"))
+        .unwrap();
+    assert_eq!(updated.revision, 2);
+    assert_eq!(updated.content_json, r#"{"moves":["e4"]}"#);
+    assert_eq!(
+        db.update_board_content(&b1.id, 1, "{}", None).unwrap_err(),
+        rbc_db::BoardWriteError::Conflict { current: 2 }
+    );
+
+    let copy = db.copy_board(&b1.id, None, None, Some("Copy")).unwrap();
+    assert_ne!(copy.id, b1.id);
+    assert_eq!(copy.revision, 1);
+    assert!(copy.metadata_json.contains("copied_from"));
+    assert_eq!(copy.content_json, r#"{"moves":["e4"]}"#);
+}
+
+#[test]
+fn locked_or_published_boards_require_a_copy() {
+    let db = Db::open_memory().unwrap();
+    let ws = db.create_workspace("Analysis", "analysis").unwrap();
+    let board = db
+        .create_board("workspace", &ws.id, "analysis", "Board", START, "{}")
+        .unwrap();
+    db.set_board_mutability(&board.id, "locked").unwrap();
+    assert_eq!(
+        db.update_board_content(&board.id, 1, "{}", None).unwrap_err(),
+        rbc_db::BoardWriteError::CopyRequired
+    );
+    db.set_board_mutability(&board.id, "mutable").unwrap();
+    db.set_board_lifecycle(&board.id, "published").unwrap();
+    assert_eq!(
+        db.update_board_content(&board.id, 1, "{}", None).unwrap_err(),
+        rbc_db::BoardWriteError::CopyRequired
+    );
+    let copy = db.copy_board(&board.id, None, None, None).unwrap();
+    assert_eq!(copy.mutability, "mutable");
+    assert_eq!(copy.lifecycle, "draft");
+}
+
+#[test]
+fn studies_copy_chapters_versions_and_progress() {
+    let db = Db::open_memory().unwrap();
+    let study = db.create_study("Sicilian", "A study").unwrap();
+    let (chapter, primary) = db
+        .add_chapter(&study.id, "Open", START, "notes")
+        .unwrap();
+    let extra = db
+        .add_board_to_chapter(&study.id, &chapter.id, "Line", START, "{}")
+        .unwrap();
+    let primary = db
+        .update_board_content(&primary.id, 1, r#"{"moves":["e4"]}"#, Some("test"))
+        .unwrap();
+    let chapters = db.chapters(&study.id).unwrap();
+    assert_eq!(chapters.len(), 1);
+    assert_eq!(chapters[0].primary_board_id, primary.id);
+    let ids: Vec<String> = serde_json::from_str(&chapters[0].board_ids_json).unwrap();
+    assert_eq!(ids, vec![primary.id.clone(), extra.id.clone()]);
+
+    db.reorder_chapters(&study.id, &[chapter.id.clone()]).unwrap();
+    let version = db.publish_study(&study.id, 1).unwrap();
+    assert_eq!(version.version, 2);
+    let published = db.study(&study.id).unwrap().unwrap();
+    assert_eq!(published.lifecycle, "published");
+    assert_eq!(published.current_version, 2);
+    assert_eq!(db.study_versions(&study.id).unwrap().len(), 1);
+
+    let copy = db.copy_study(&study.id).unwrap();
+    assert_ne!(copy.id, study.id);
+    assert_eq!(copy.lifecycle, "draft");
+    let copied_chapters = db.chapters(&copy.id).unwrap();
+    assert_eq!(copied_chapters.len(), 1);
+    let copied_boards = db.boards("study_chapter", &copied_chapters[0].id).unwrap();
+    assert_eq!(copied_boards.len(), 2);
+    assert_eq!(copied_boards[0].content_json, r#"{"moves":["e4"]}"#);
+
+    db.set_study_progress(
+        &study.id,
+        &chapter.id,
+        &primary.id,
+        "local",
+        true,
+        1,
+        Some(1.0),
+        0,
+        None,
+    )
+    .unwrap();
+    let progress = db.study_progress(&study.id, "local").unwrap();
+    assert_eq!(progress.len(), 1);
+    assert!(progress[0].completed);
+    assert_eq!(progress[0].attempts, 1);
+}
+
+#[test]
+fn ai_sessions_persist_turns_in_order() {
+    use rbc_db::AiTurnInput;
+    let db = Db::open_memory().unwrap();
+    let session = db
+        .create_ai_session(
+            "Test chat",
+            "chat",
+            None,
+            None,
+            r#"{"model":"test"}"#,
+            r#"{"id":"chat-v1"}"#,
+            "{}",
+        )
+        .unwrap();
+    assert_eq!(db.ai_sessions().unwrap().len(), 1);
+
+    let mut first = AiTurnInput::default();
+    first.role = "user".into();
+    first.content = "hello".into();
+    first.context_json = r#"{"position":{}}"#.into();
+    first.context_sha256 = "abc".into();
+    let turn = db.append_ai_turn(&session.id, &first).unwrap();
+    assert_eq!(turn.seq, 1);
+    assert_eq!(turn.content, "hello");
+
+    let mut second = AiTurnInput::default();
+    second.role = "assistant".into();
+    second.content = "hi".into();
+    second.tokens_in = 3;
+    second.tokens_out = 1;
+    let turn = db.append_ai_turn(&session.id, &second).unwrap();
+    assert_eq!(turn.seq, 2);
+
+    let turns = db.ai_turns(&session.id).unwrap();
+    assert_eq!(turns.len(), 2);
+    assert_eq!(turns[0].seq, 1);
+    assert_eq!(turns[1].seq, 2);
+
+    let renamed = db.rename_ai_session(&session.id, "Renamed").unwrap();
+    assert_eq!(renamed.title, "Renamed");
+    db.archive_ai_session(&session.id).unwrap();
+    assert!(db.ai_sessions().unwrap().is_empty());
+}

@@ -12,5 +12,6 @@ serde.workspace = true
 serde_json.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"] }
 shakmaty.workspace = true
+uuid.workspace = true
 knightlm-notation = { path = "../notation" }
 knightlm-core = { path = "../core" }

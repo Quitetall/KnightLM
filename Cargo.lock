@@ -2557,6 +2557,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "hexf-parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4116,6 +4122,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "rbc-ai"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rbc-db",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "rbc-context"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "knightlm-core",
+ "knightlm-notation",
+ "serde",
+ "serde_json",
+ "sha2",
+ "shakmaty",
+]
+
+[[package]]
 name = "rbc-db"
 version = "0.1.0"
 dependencies = [
@@ -4126,6 +4156,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shakmaty",
+ "uuid",
 ]
 
 [[package]]
@@ -5403,6 +5434,12 @@ name = "uuid"
 version = "1.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ef6dac1e96601b4fb3acccccff2139741fcb757cb9a36089bf5be91cfb285ce"
+dependencies = [
+ "getrandom 0.4.3",
+ "js-sys",
+ "serde_core",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "vampirc-uci"

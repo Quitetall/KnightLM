@@ -12,6 +12,9 @@ use rusqlite::{Connection, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use shakmaty::{CastlingMode, Chess, EnPassantMode, Position, fen::Fen, san::SanPlus, uci::UciMove};
 use std::collections::BTreeMap;
+
+mod domain;
+pub use domain::*;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const SCHEMA: &str = r#"
@@ -295,7 +298,7 @@ pub struct AnnotationInput {
 
 #[derive(Clone)]
 pub struct Db {
-    conn: Arc<Mutex<Connection>>,
+    pub(crate) conn: Arc<Mutex<Connection>>,
     path: Arc<Mutex<std::path::PathBuf>>,
 }
 
@@ -2143,7 +2146,7 @@ fn moves_to_san(fen: &str, moves: &str) -> String {
 /// Additive migrations for databases created by older builds.
 /// Current schema version. Bump this and add a `migrate_vN` step for changes
 /// that `CREATE ... IF NOT EXISTS` cannot express.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -2169,6 +2172,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if version < 3 {
         migrate_v3(conn)?;
         version = 3;
+    }
+    if version < 4 {
+        migrate_v4(conn)?;
+        version = 4;
     }
     conn.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
@@ -2246,6 +2253,227 @@ fn migrate_v3(conn: &Connection) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS sessions (
              client TEXT PRIMARY KEY, payload TEXT NOT NULL, updated INTEGER NOT NULL
          ) WITHOUT ROWID;",
+    )?;
+    Ok(())
+}
+
+/// v4: multi-board workspaces, studies, AI sessions/matches/ratings and the
+/// reset of the old single-payload session rows.
+fn migrate_v4(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS workspaces (
+             id TEXT PRIMARY KEY,
+             title TEXT NOT NULL,
+             kind TEXT NOT NULL,
+             position INTEGER NOT NULL DEFAULT 0,
+             active_board_id TEXT,
+             created INTEGER NOT NULL,
+             updated INTEGER NOT NULL,
+             archived INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE INDEX IF NOT EXISTS idx_workspaces_position ON workspaces(position);
+
+         CREATE TABLE IF NOT EXISTS boards (
+             id TEXT PRIMARY KEY,
+             parent_kind TEXT NOT NULL,
+             parent_id TEXT NOT NULL,
+             kind TEXT NOT NULL,
+             title TEXT NOT NULL,
+             variant TEXT NOT NULL DEFAULT 'standard',
+             start_fen TEXT NOT NULL,
+             revision INTEGER NOT NULL DEFAULT 1,
+             mutability TEXT NOT NULL DEFAULT 'mutable',
+             lifecycle TEXT NOT NULL DEFAULT 'draft',
+             content_json TEXT NOT NULL DEFAULT '{}',
+             metadata_json TEXT NOT NULL DEFAULT '{}',
+             created INTEGER NOT NULL,
+             updated INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_boards_parent ON boards(parent_kind, parent_id);
+         CREATE INDEX IF NOT EXISTS idx_boards_parent_kind ON boards(parent_kind);
+
+         CREATE TABLE IF NOT EXISTS board_revisions (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             board_id TEXT NOT NULL,
+             revision INTEGER NOT NULL,
+             content_json TEXT NOT NULL,
+             actor TEXT,
+             created INTEGER NOT NULL,
+             UNIQUE(board_id, revision)
+         );
+         CREATE INDEX IF NOT EXISTS idx_board_revisions_board ON board_revisions(board_id, revision);
+
+         CREATE TABLE IF NOT EXISTS studies (
+             id TEXT PRIMARY KEY,
+             title TEXT NOT NULL,
+             description_md TEXT NOT NULL DEFAULT '',
+             lifecycle TEXT NOT NULL DEFAULT 'draft',
+             current_version INTEGER NOT NULL DEFAULT 1,
+             tags_json TEXT NOT NULL DEFAULT '[]',
+             metadata_json TEXT NOT NULL DEFAULT '{}',
+             created INTEGER NOT NULL,
+             updated INTEGER NOT NULL
+         );
+
+         CREATE TABLE IF NOT EXISTS study_chapters (
+             id TEXT PRIMARY KEY,
+             study_id TEXT NOT NULL,
+             ordinal INTEGER NOT NULL,
+             title TEXT NOT NULL,
+             primary_board_id TEXT NOT NULL,
+             board_ids_json TEXT NOT NULL DEFAULT '[]',
+             notes_md TEXT NOT NULL DEFAULT '',
+             metadata_json TEXT NOT NULL DEFAULT '{}'
+         );
+         CREATE INDEX IF NOT EXISTS idx_study_chapters_study ON study_chapters(study_id, ordinal);
+
+         CREATE TABLE IF NOT EXISTS study_versions (
+             id TEXT PRIMARY KEY,
+             study_id TEXT NOT NULL,
+             version INTEGER NOT NULL,
+             bundle_json TEXT NOT NULL,
+             provenance TEXT,
+             created INTEGER NOT NULL,
+             published INTEGER NOT NULL,
+             UNIQUE(study_id, version)
+         );
+         CREATE INDEX IF NOT EXISTS idx_study_versions_study ON study_versions(study_id, version);
+
+         CREATE TABLE IF NOT EXISTS study_progress (
+             study_id TEXT NOT NULL,
+             chapter_id TEXT NOT NULL,
+             board_id TEXT NOT NULL,
+             user TEXT NOT NULL,
+             completed INTEGER NOT NULL DEFAULT 0,
+             attempts INTEGER NOT NULL DEFAULT 0,
+             score REAL,
+             hints INTEGER NOT NULL DEFAULT 0,
+             mastery REAL,
+             last_seen INTEGER NOT NULL,
+             PRIMARY KEY (study_id, chapter_id, board_id, user)
+         ) WITHOUT ROWID;
+         CREATE INDEX IF NOT EXISTS idx_study_progress_user ON study_progress(user, study_id);
+
+         CREATE TABLE IF NOT EXISTS legacy_sessions (
+             client TEXT PRIMARY KEY,
+             payload TEXT NOT NULL,
+             updated INTEGER NOT NULL
+         ) WITHOUT ROWID;
+
+         CREATE TABLE IF NOT EXISTS ai_sessions (
+             id TEXT PRIMARY KEY,
+             title TEXT NOT NULL,
+             mode TEXT NOT NULL,
+             home_board_id TEXT,
+             target_board_id TEXT,
+             model_json TEXT NOT NULL DEFAULT '{}',
+             context_spec_json TEXT NOT NULL DEFAULT '{}',
+             permissions_json TEXT NOT NULL DEFAULT '{}',
+             created INTEGER NOT NULL,
+             updated INTEGER NOT NULL,
+             archived INTEGER NOT NULL DEFAULT 0
+         );
+
+         CREATE TABLE IF NOT EXISTS ai_turns (
+             id TEXT PRIMARY KEY,
+             session_id TEXT NOT NULL,
+             seq INTEGER NOT NULL,
+             role TEXT NOT NULL,
+             content TEXT NOT NULL DEFAULT '',
+             reasoning TEXT,
+             tool_calls_json TEXT NOT NULL DEFAULT '[]',
+             tool_results_json TEXT NOT NULL DEFAULT '[]',
+             context_json TEXT NOT NULL DEFAULT '{}',
+             context_sha256 TEXT NOT NULL DEFAULT '',
+             spec_version TEXT NOT NULL DEFAULT '',
+             template_version TEXT NOT NULL DEFAULT '',
+             tool_schema_version TEXT NOT NULL DEFAULT '',
+             engine_fingerprint TEXT,
+             model_json TEXT NOT NULL DEFAULT '{}',
+             tokens_in INTEGER NOT NULL DEFAULT 0,
+             tokens_out INTEGER NOT NULL DEFAULT 0,
+             latency_ms INTEGER NOT NULL DEFAULT 0,
+             error_json TEXT,
+             created INTEGER NOT NULL,
+             UNIQUE(session_id, seq)
+         );
+         CREATE INDEX IF NOT EXISTS idx_ai_turns_session ON ai_turns(session_id, seq);
+
+         CREATE TABLE IF NOT EXISTS ai_matches (
+             id TEXT PRIMARY KEY,
+             session_id TEXT,
+             white_json TEXT NOT NULL DEFAULT '{}',
+             black_json TEXT NOT NULL DEFAULT '{}',
+             config_json TEXT NOT NULL DEFAULT '{}',
+             state_json TEXT NOT NULL DEFAULT '{}',
+             pgn TEXT NOT NULL DEFAULT '',
+             result_json TEXT,
+             termination TEXT,
+             rated INTEGER NOT NULL DEFAULT 0,
+             created INTEGER NOT NULL,
+             ended INTEGER
+         );
+         CREATE INDEX IF NOT EXISTS idx_ai_matches_session ON ai_matches(session_id);
+
+         CREATE TABLE IF NOT EXISTS ai_tournaments (
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             format TEXT NOT NULL,
+             config_json TEXT NOT NULL DEFAULT '{}',
+             state_json TEXT NOT NULL DEFAULT '{}',
+             created INTEGER NOT NULL,
+             ended INTEGER
+         );
+
+         CREATE TABLE IF NOT EXISTS ai_ratings (
+             model_id TEXT PRIMARY KEY,
+             rating REAL NOT NULL,
+             rd REAL NOT NULL,
+             volatility REAL NOT NULL,
+             games INTEGER NOT NULL,
+             updated INTEGER NOT NULL,
+             algorithm TEXT NOT NULL,
+             pool TEXT NOT NULL
+         ) WITHOUT ROWID;
+
+         CREATE TABLE IF NOT EXISTS ai_rating_history (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             model_id TEXT NOT NULL,
+             match_id TEXT,
+             before_json TEXT NOT NULL,
+             after_json TEXT NOT NULL,
+             created INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_ai_rating_history_model ON ai_rating_history(model_id, created);
+
+         CREATE TABLE IF NOT EXISTS ai_approvals (
+             id TEXT PRIMARY KEY,
+             origin TEXT NOT NULL,
+             session_id TEXT,
+             target_kind TEXT NOT NULL,
+             target_id TEXT NOT NULL,
+             action TEXT NOT NULL,
+             changeset_json TEXT NOT NULL DEFAULT '{}',
+             status TEXT NOT NULL DEFAULT 'pending',
+             created INTEGER NOT NULL,
+             resolved INTEGER
+         );
+         CREATE INDEX IF NOT EXISTS idx_ai_approvals_status ON ai_approvals(status, created);
+
+         CREATE TABLE IF NOT EXISTS ai_providers (
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             kind TEXT NOT NULL,
+             base_url TEXT NOT NULL DEFAULT '',
+             key_ref TEXT,
+             models_json TEXT NOT NULL DEFAULT '[]',
+             created INTEGER NOT NULL,
+             updated INTEGER NOT NULL
+         );
+
+         INSERT OR IGNORE INTO legacy_sessions (client, payload, updated)
+             SELECT client, payload, updated FROM sessions;
+         DELETE FROM sessions;",
     )?;
     Ok(())
 }
@@ -2638,4 +2866,68 @@ fn validate_tree(
         position = position.play(mv)?;
     }
     Ok((sans, ucis))
+}
+
+#[cfg(test)]
+mod v4_migration_tests {
+    use super::*;
+
+    #[test]
+    fn v4_moves_sessions_to_legacy_and_clears_active() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '3')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (client, payload, updated) VALUES ('c1', '{\"tabs\":[]}', 1)",
+            [],
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        let version: i64 = conn
+            .query_row(
+                "SELECT CAST(value AS INTEGER) FROM schema_meta WHERE key = 'version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let active: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(active, 0);
+        let legacy: String = conn
+            .query_row(
+                "SELECT payload FROM legacy_sessions WHERE client = 'c1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy, "{\"tabs\":[]}");
+        for table in [
+            "workspaces",
+            "boards",
+            "board_revisions",
+            "studies",
+            "study_chapters",
+            "study_versions",
+            "study_progress",
+            "ai_sessions",
+            "ai_turns",
+            "ai_matches",
+            "ai_tournaments",
+            "ai_ratings",
+            "ai_rating_history",
+            "ai_approvals",
+            "ai_providers",
+        ] {
+            let count: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(count, 0, "{table}");
+        }
+    }
 }

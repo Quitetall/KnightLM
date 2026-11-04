@@ -7,6 +7,7 @@ pub mod accounts;
 pub mod archive;
 pub mod pieces;
 pub mod api;
+pub mod domain_api;
 pub mod console;
 pub mod importer;
 pub mod vision;
@@ -68,6 +69,28 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/sounds/custom/{name}", get(api::custom_sound).post(api::upload_sound))
         .route("/api/accounts", get(api::accounts))
         .route("/api/session", get(api::get_session).put(api::put_session))
+        .route("/api/workspaces", get(domain_api::list_workspaces).post(domain_api::create_workspace))
+        .route("/api/workspaces/{id}", get(domain_api::get_workspace).patch(domain_api::update_workspace).delete(domain_api::delete_workspace))
+        .route("/api/workspaces/{id}/boards", get(domain_api::list_boards))
+        .route("/api/boards", post(domain_api::create_board))
+        .route("/api/boards/{id}", get(domain_api::get_board).put(domain_api::update_board))
+        .route("/api/boards/{id}/copy", post(domain_api::copy_board))
+        .route("/api/boards/{id}/lock", post(domain_api::lock_board))
+        .route("/api/boards/{id}/unlock", post(domain_api::unlock_board))
+        .route("/api/studies", get(domain_api::list_studies).post(domain_api::create_study))
+        .route("/api/studies/{id}", get(domain_api::get_study))
+        .route("/api/studies/{id}/chapters", get(domain_api::list_chapters).post(domain_api::create_chapter))
+        .route("/api/studies/{id}/publish", post(domain_api::publish_study))
+        .route("/api/studies/{id}/copy", post(domain_api::copy_study))
+        .route("/api/studies/{id}/progress", get(domain_api::get_progress).put(domain_api::put_progress))
+        .route("/api/ai/sessions", get(domain_api::list_ai_sessions).post(domain_api::create_ai_session))
+        .route("/api/ai/sessions/{id}", get(domain_api::get_ai_session).delete(domain_api::archive_ai_session))
+        .route("/api/ai/sessions/{id}/rename", post(domain_api::rename_ai_session))
+        .route("/api/ai/sessions/{id}/target", post(domain_api::set_ai_target))
+        .route("/api/ai/sessions/{id}/turns", get(domain_api::list_ai_turns).post(domain_api::append_ai_turn))
+        .route("/api/ai/sessions/{id}/send", post(domain_api::send_ai_turn))
+        .route("/api/ai/sessions/{id}/replay/{seq}", get(domain_api::replay_ai_turn))
+        .route("/api/ai/context/compile", post(domain_api::compile_context))
         .route("/api/pieces", get(api::piece_sets).post(api::upload_piece_set))
         .route("/api/pieces/{name}", axum::routing::delete(api::delete_piece_set))
         .route("/api/pieces/{name}/{code}", get(api::piece_file))

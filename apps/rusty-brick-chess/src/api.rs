@@ -431,7 +431,7 @@ pub struct SettingsResponse {
     pub engines: Vec<EngineEntry>,
 }
 
-fn effective(state: &AppState) -> SettingsResponse {
+pub(crate) fn effective(state: &AppState) -> SettingsResponse {
     let stored = state.db.settings().unwrap_or_default();
     let get = |k: &str| stored.get(k).cloned().filter(|v| !v.trim().is_empty());
     SettingsResponse {
@@ -2169,7 +2169,16 @@ fn chat_tools() -> serde_json::Value {
         function("draw_arrow", "Draw an arrow on the board to point something out.", serde_json::json!({"type":"object","properties":{"from":{"type":"string","description":"origin square, e.g. e2"},"to":{"type":"string","description":"target square, e.g. e4"},"color":{"type":"string","enum":["green","red","blue","yellow"]}},"required":["from","to"]})),
         function("draw_circle", "Circle a square on the board.", serde_json::json!({"type":"object","properties":{"square":{"type":"string"},"color":{"type":"string","enum":["green","red","blue","yellow"]}},"required":["square"]})),
         function("clear_shapes", "Remove every arrow and circle from the board.", serde_json::json!({"type":"object","properties":{}})),
-        function("play_move", "Play a legal move on the board (SAN or UCI).", serde_json::json!({"type":"object","properties":{"move":{"type":"string","description":"e.g. Nf3 or g1f3"}},"required":["move"]}))
+        function("play_move", "Play a legal move on the board (SAN or UCI).", serde_json::json!({"type":"object","properties":{"move":{"type":"string","description":"e.g. Nf3 or g1f3"}},"required":["move"]})),
+        function("list_boards", "List open workspaces and their boards with stable ids and revisions.", serde_json::json!({"type":"object","properties":{}})),
+        function("get_board", "Read one board by id: title, FEN, revision, mutability and content.", serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"}},"required":["board_id"]})),
+        function("create_board", "Create a board in a workspace or study chapter.", serde_json::json!({"type":"object","properties":{"parent_kind":{"type":"string"},"parent_id":{"type":"string"},"title":{"type":"string"},"start_fen":{"type":"string"},"content_json":{"type":"string"}},"required":["parent_kind","parent_id","title","start_fen"]})),
+        function("copy_board", "Copy a board (required when it is locked or published).", serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"},"title":{"type":"string"}},"required":["board_id"]})),
+        function("lock_board", "Lock a board so writes require a copy.", serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"}},"required":["board_id"]})),
+        function("unlock_board", "Unlock a board.", serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"}},"required":["board_id"]})),
+        function("list_studies", "List studies with ids, versions and lifecycle.", serde_json::json!({"type":"object","properties":{}})),
+        function("get_study", "Read a study and its ordered chapters.", serde_json::json!({"type":"object","properties":{"study_id":{"type":"string"}},"required":["study_id"]})),
+        function("create_study", "Create a study.", serde_json::json!({"type":"object","properties":{"title":{"type":"string"},"description_md":{"type":"string"}},"required":["title"]}))
     ])
 }
 
@@ -2197,6 +2206,7 @@ fn run_chat_tool(
     fen: &str,
     settings: &SettingsResponse,
     depth: u32,
+    db: Option<&Db>,
 ) -> (String, Option<serde_json::Value>) {
     let color = arguments
         .get("color")
@@ -2316,16 +2326,155 @@ fn run_chat_tool(
                 _ => (format!("{raw} is not legal here"), None),
             }
         }
+        "list_boards" => {
+            let Some(db) = db else {
+                return ("board storage is unavailable".into(), None);
+            };
+            let mut out = Vec::new();
+            match db.workspaces(false) {
+                Ok(workspaces) => {
+                    for workspace in workspaces {
+                        let boards = db.boards("workspace", &workspace.id).unwrap_or_default();
+                        out.push(serde_json::json!({
+                            "workspace": workspace,
+                            "boards": boards,
+                        }));
+                    }
+                    (serde_json::to_string(&out).unwrap_or_default(), None)
+                }
+                Err(error) => (format!("could not list boards: {error}"), None),
+            }
+        }
+        "get_board" => {
+            let Some(db) = db else {
+                return ("board storage is unavailable".into(), None);
+            };
+            let id = arguments.get("board_id").and_then(|v| v.as_str()).unwrap_or("");
+            match db.board(id) {
+                Ok(Some(board)) => (serde_json::to_string(&board).unwrap_or_default(), None),
+                Ok(None) => (format!("board {id} not found"), None),
+                Err(error) => (format!("could not read board: {error}"), None),
+            }
+        }
+        "create_board" => {
+            let Some(db) = db else {
+                return ("board storage is unavailable".into(), None);
+            };
+            let parent_kind = arguments
+                .get("parent_kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("workspace");
+            let parent_id = arguments
+                .get("parent_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let title = arguments
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Board");
+            let start_fen = arguments
+                .get("start_fen")
+                .and_then(|v| v.as_str())
+                .unwrap_or(fen);
+            let content = arguments
+                .get("content_json")
+                .and_then(|v| v.as_str())
+                .unwrap_or("{}");
+            match db.create_board(parent_kind, parent_id, "analysis", title, start_fen, content) {
+                Ok(board) => (
+                    format!("created board {}", board.id),
+                    Some(serde_json::json!({"kind":"board_created","board":board})),
+                ),
+                Err(error) => (format!("could not create board: {error}"), None),
+            }
+        }
+        "copy_board" => {
+            let Some(db) = db else {
+                return ("board storage is unavailable".into(), None);
+            };
+            let id = arguments.get("board_id").and_then(|v| v.as_str()).unwrap_or("");
+            let title = arguments.get("title").and_then(|v| v.as_str());
+            match db.copy_board(id, None, None, title) {
+                Ok(board) => (
+                    format!("copied to board {}", board.id),
+                    Some(serde_json::json!({"kind":"board_created","board":board})),
+                ),
+                Err(error) => (format!("could not copy board: {error}"), None),
+            }
+        }
+        "lock_board" | "unlock_board" => {
+            let Some(db) = db else {
+                return ("board storage is unavailable".into(), None);
+            };
+            let id = arguments.get("board_id").and_then(|v| v.as_str()).unwrap_or("");
+            let value = if name == "lock_board" { "locked" } else { "mutable" };
+            match db.set_board_mutability(id, value) {
+                Ok(board) => (format!("board {} is {value}", board.id), None),
+                Err(error) => (format!("could not update board: {error}"), None),
+            }
+        }
+        "list_studies" => {
+            let Some(db) = db else {
+                return ("study storage is unavailable".into(), None);
+            };
+            match db.studies() {
+                Ok(studies) => (serde_json::to_string(&studies).unwrap_or_default(), None),
+                Err(error) => (format!("could not list studies: {error}"), None),
+            }
+        }
+        "get_study" => {
+            let Some(db) = db else {
+                return ("study storage is unavailable".into(), None);
+            };
+            let id = arguments.get("study_id").and_then(|v| v.as_str()).unwrap_or("");
+            match db.study(id) {
+                Ok(Some(study)) => {
+                    let chapters = db.chapters(id).unwrap_or_default();
+                    (
+                        serde_json::to_string(&serde_json::json!({
+                            "study": study,
+                            "chapters": chapters,
+                        }))
+                        .unwrap_or_default(),
+                        None,
+                    )
+                }
+                Ok(None) => (format!("study {id} not found"), None),
+                Err(error) => (format!("could not read study: {error}"), None),
+            }
+        }
+        "create_study" => {
+            let Some(db) = db else {
+                return ("study storage is unavailable".into(), None);
+            };
+            let title = arguments
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Study");
+            let description = arguments
+                .get("description_md")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match db.create_study(title, description) {
+                Ok(study) => (
+                    format!("created study {}", study.id),
+                    Some(serde_json::json!({"kind":"study_created","study":study})),
+                ),
+                Err(error) => (format!("could not create study: {error}"), None),
+            }
+        }
         other => (format!("unknown tool {other}"), None),
     }
 }
 
-fn chat_with_tools(
+pub(crate) fn chat_with_tools(
     url: &str,
     message: &str,
     fen: &str,
     depth: u32,
     settings: &SettingsResponse,
+    db: Option<Db>,
+    target_board: Option<String>,
 ) -> anyhow::Result<ChatReply> {
     let agent = ureq::Agent::new_with_defaults();
     let tools = chat_tools();
@@ -2395,7 +2544,9 @@ fn chat_with_tools(
                 .unwrap_or("{}");
             let arguments: serde_json::Value =
                 serde_json::from_str(raw_args).unwrap_or(serde_json::json!({}));
-            let (result, action) = run_chat_tool(name, &arguments, fen, settings, depth);
+            let _ = &target_board;
+            let (result, action) =
+                run_chat_tool(name, &arguments, fen, settings, depth, db.as_ref());
             used.push(name.to_owned());
             if let Some(action) = action {
                 actions.push(action);
@@ -2433,7 +2584,15 @@ pub async fn chat(
     let depth = body.depth.unwrap_or(settings.depth).clamp(1, 30);
     let message = body.message;
     let reply = tokio::task::spawn_blocking(move || {
-        chat_with_tools(&url, &message, &fen, depth, &settings)
+        chat_with_tools(
+            &url,
+            &message,
+            &fen,
+            depth,
+            &settings,
+            Some(state.db.clone()),
+            None,
+        )
     })
     .await
     .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;

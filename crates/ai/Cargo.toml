@@ -1,0 +1,19 @@
+[package]
+name = "rbc-ai"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-only"
+description = "Assistant domain: sessions, tools, providers, matches, ratings and approvals."
+
+[features]
+default = ["protocol"]
+protocol = []
+core = ["protocol"]
+host = ["core", "dep:rbc-db", "dep:anyhow"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+anyhow = { workspace = true, optional = true }
+rbc-db = { path = "../rbc-db", optional = true }

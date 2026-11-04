@@ -1,0 +1,706 @@
+//! Workspace, board and study HTTP routes (schema v4 domain).
+
+use axum::{
+    Json,
+    extract::{Path, Query, State},
+};
+use rbc_db::{Board, BoardWriteError, Chapter, Study, StudyProgress, StudyVersion, Workspace};
+use serde::Deserialize;
+
+use crate::api::{ApiError, AppState};
+
+fn write_error(error: BoardWriteError) -> ApiError {
+    match error {
+        BoardWriteError::NotFound(id) => ApiError::BadRequest(format!("board {id} not found")),
+        BoardWriteError::Conflict { current } => {
+            ApiError::BadRequest(format!("board revision conflict (current {current})"))
+        }
+        BoardWriteError::CopyRequired => {
+            ApiError::BadRequest("board is locked or published; copy it to edit".into())
+        }
+        BoardWriteError::Invalid(message) | BoardWriteError::Db(message) => {
+            ApiError::Internal(anyhow::anyhow!(message))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct CreateWorkspace {
+    pub title: String,
+    #[serde(default = "default_workspace_kind")]
+    pub kind: String,
+}
+
+fn default_workspace_kind() -> String {
+    "analysis".into()
+}
+
+#[derive(Deserialize)]
+pub struct UpdateWorkspace {
+    pub title: Option<String>,
+    pub active_board_id: Option<String>,
+}
+
+pub async fn list_workspaces(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<Workspace>>, ApiError> {
+    Ok(Json(state.db.workspaces(true)?))
+}
+
+pub async fn create_workspace(
+    State(state): State<AppState>,
+    Json(body): Json<CreateWorkspace>,
+) -> Result<Json<Workspace>, ApiError> {
+    Ok(Json(state.db.create_workspace(&body.title, &body.kind)?))
+}
+
+pub async fn get_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Workspace>, ApiError> {
+    state
+        .db
+        .workspace(&id)?
+        .map(Json)
+        .ok_or(ApiError::NotFound)
+}
+
+pub async fn update_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateWorkspace>,
+) -> Result<Json<Workspace>, ApiError> {
+    let active = body
+        .active_board_id
+        .as_deref()
+        .map(|value| if value.is_empty() { None } else { Some(value) });
+    Ok(Json(state.db.update_workspace(
+        &id,
+        body.title.as_deref(),
+        active,
+    )?))
+}
+
+pub async fn delete_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state.db.archive_workspace(&id)?;
+    Ok(Json(serde_json::json!({ "archived": true })))
+}
+
+#[derive(Deserialize)]
+pub struct CreateBoard {
+    pub parent_kind: String,
+    pub parent_id: String,
+    #[serde(default = "default_board_kind")]
+    pub kind: String,
+    pub title: String,
+    pub start_fen: String,
+    #[serde(default = "default_content")]
+    pub content_json: String,
+}
+
+fn default_board_kind() -> String {
+    "analysis".into()
+}
+
+fn default_content() -> String {
+    "{}".into()
+}
+
+pub async fn list_boards(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<Board>>, ApiError> {
+    Ok(Json(state.db.boards("workspace", &id)?))
+}
+
+pub async fn create_board(
+    State(state): State<AppState>,
+    Json(body): Json<CreateBoard>,
+) -> Result<Json<Board>, ApiError> {
+    Ok(Json(state.db.create_board(
+        &body.parent_kind,
+        &body.parent_id,
+        &body.kind,
+        &body.title,
+        &body.start_fen,
+        &body.content_json,
+    )?))
+}
+
+pub async fn get_board(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Board>, ApiError> {
+    state.db.board(&id)?.map(Json).ok_or(ApiError::NotFound)
+}
+
+#[derive(Deserialize)]
+pub struct UpdateBoard {
+    pub expected_revision: i64,
+    pub content_json: String,
+    pub actor: Option<String>,
+}
+
+pub async fn update_board(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateBoard>,
+) -> Result<Json<Board>, ApiError> {
+    state
+        .db
+        .update_board_content(&id, body.expected_revision, &body.content_json, body.actor.as_deref())
+        .map(Json)
+        .map_err(write_error)
+}
+
+#[derive(Deserialize, Default)]
+pub struct CopyBoard {
+    pub parent_kind: Option<String>,
+    pub parent_id: Option<String>,
+    pub title: Option<String>,
+}
+
+pub async fn copy_board(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<CopyBoard>,
+) -> Result<Json<Board>, ApiError> {
+    Ok(Json(state.db.copy_board(
+        &id,
+        body.parent_kind.as_deref(),
+        body.parent_id.as_deref(),
+        body.title.as_deref(),
+    )?))
+}
+
+pub async fn lock_board(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Board>, ApiError> {
+    Ok(Json(state.db.set_board_mutability(&id, "locked")?))
+}
+
+pub async fn unlock_board(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Board>, ApiError> {
+    Ok(Json(state.db.set_board_mutability(&id, "mutable")?))
+}
+
+#[derive(Deserialize)]
+pub struct CreateStudy {
+    pub title: String,
+    #[serde(default)]
+    pub description_md: String,
+}
+
+pub async fn list_studies(State(state): State<AppState>) -> Result<Json<Vec<Study>>, ApiError> {
+    Ok(Json(state.db.studies()?))
+}
+
+pub async fn create_study(
+    State(state): State<AppState>,
+    Json(body): Json<CreateStudy>,
+) -> Result<Json<Study>, ApiError> {
+    Ok(Json(state.db.create_study(&body.title, &body.description_md)?))
+}
+
+pub async fn get_study(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Study>, ApiError> {
+    state.db.study(&id)?.map(Json).ok_or(ApiError::NotFound)
+}
+
+pub async fn list_chapters(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<Chapter>>, ApiError> {
+    Ok(Json(state.db.chapters(&id)?))
+}
+
+#[derive(Deserialize)]
+pub struct CreateChapter {
+    pub title: String,
+    pub start_fen: String,
+    #[serde(default)]
+    pub notes_md: String,
+}
+
+pub async fn create_chapter(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<CreateChapter>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (chapter, board) = state
+        .db
+        .add_chapter(&id, &body.title, &body.start_fen, &body.notes_md)?;
+    Ok(Json(serde_json::json!({
+        "chapter": chapter,
+        "board": board,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct PublishStudy {
+    pub expected_version: i64,
+}
+
+pub async fn publish_study(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<PublishStudy>,
+) -> Result<Json<StudyVersion>, ApiError> {
+    Ok(Json(state.db.publish_study(&id, body.expected_version)?))
+}
+
+pub async fn copy_study(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Study>, ApiError> {
+    Ok(Json(state.db.copy_study(&id)?))
+}
+
+#[derive(Deserialize)]
+pub struct ProgressQuery {
+    #[serde(default = "default_user")]
+    pub user: String,
+}
+
+fn default_user() -> String {
+    "local".into()
+}
+
+pub async fn get_progress(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<ProgressQuery>,
+) -> Result<Json<Vec<StudyProgress>>, ApiError> {
+    Ok(Json(state.db.study_progress(&id, &query.user)?))
+}
+
+#[derive(Deserialize)]
+pub struct ProgressBody {
+    pub chapter_id: String,
+    pub board_id: String,
+    #[serde(default = "default_user")]
+    pub user: String,
+    #[serde(default)]
+    pub completed: bool,
+    #[serde(default)]
+    pub attempts: i64,
+    pub score: Option<f64>,
+    #[serde(default)]
+    pub hints: i64,
+    pub mastery: Option<f64>,
+}
+
+pub async fn put_progress(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ProgressBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state.db.set_study_progress(
+        &id,
+        &body.chapter_id,
+        &body.board_id,
+        &body.user,
+        body.completed,
+        body.attempts,
+        body.score,
+        body.hints,
+        body.mastery,
+    )?;
+    Ok(Json(serde_json::json!({ "saved": true })))
+}
+
+#[derive(Deserialize)]
+pub struct CreateAiSession {
+    pub title: String,
+    #[serde(default = "default_chat_mode")]
+    pub mode: String,
+    pub home_board_id: Option<String>,
+    pub target_board_id: Option<String>,
+    #[serde(default = "default_json_object")]
+    pub model_json: String,
+    #[serde(default = "default_json_object")]
+    pub context_spec_json: String,
+    #[serde(default = "default_json_object")]
+    pub permissions_json: String,
+}
+
+fn default_chat_mode() -> String {
+    "chat".into()
+}
+
+fn default_json_object() -> String {
+    "{}".into()
+}
+
+pub async fn list_ai_sessions(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<rbc_db::AiSession>>, ApiError> {
+    Ok(Json(state.db.ai_sessions()?))
+}
+
+pub async fn create_ai_session(
+    State(state): State<AppState>,
+    Json(body): Json<CreateAiSession>,
+) -> Result<Json<rbc_db::AiSession>, ApiError> {
+    Ok(Json(state.db.create_ai_session(
+        &body.title,
+        &body.mode,
+        body.home_board_id.as_deref(),
+        body.target_board_id.as_deref(),
+        &body.model_json,
+        &body.context_spec_json,
+        &body.permissions_json,
+    )?))
+}
+
+pub async fn get_ai_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<rbc_db::AiSession>, ApiError> {
+    state.db.ai_session(&id)?.map(Json).ok_or(ApiError::NotFound)
+}
+
+#[derive(Deserialize)]
+pub struct RenameAiSession {
+    pub title: String,
+}
+
+pub async fn rename_ai_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<RenameAiSession>,
+) -> Result<Json<rbc_db::AiSession>, ApiError> {
+    Ok(Json(state.db.rename_ai_session(&id, &body.title)?))
+}
+
+#[derive(Deserialize)]
+pub struct SetAiTarget {
+    pub board_id: Option<String>,
+}
+
+pub async fn set_ai_target(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<SetAiTarget>,
+) -> Result<Json<rbc_db::AiSession>, ApiError> {
+    Ok(Json(state.db.set_ai_session_target(&id, body.board_id.as_deref())?))
+}
+
+pub async fn archive_ai_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state.db.archive_ai_session(&id)?;
+    Ok(Json(serde_json::json!({"archived": true})))
+}
+
+pub async fn list_ai_turns(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<rbc_db::AiTurn>>, ApiError> {
+    Ok(Json(state.db.ai_turns(&id)?))
+}
+
+#[derive(Deserialize)]
+pub struct AppendAiTurn {
+    pub role: String,
+    #[serde(default)]
+    pub content: String,
+    pub reasoning: Option<String>,
+    #[serde(default = "default_json_array")]
+    pub tool_calls_json: String,
+    #[serde(default = "default_json_array")]
+    pub tool_results_json: String,
+    #[serde(default = "default_json_object")]
+    pub context_json: String,
+    #[serde(default)]
+    pub context_sha256: String,
+    #[serde(default)]
+    pub spec_version: String,
+    #[serde(default)]
+    pub template_version: String,
+    #[serde(default)]
+    pub tool_schema_version: String,
+    pub engine_fingerprint: Option<String>,
+    #[serde(default = "default_json_object")]
+    pub model_json: String,
+    #[serde(default)]
+    pub tokens_in: i64,
+    #[serde(default)]
+    pub tokens_out: i64,
+    #[serde(default)]
+    pub latency_ms: i64,
+    pub error_json: Option<String>,
+}
+
+fn default_json_array() -> String {
+    "[]".into()
+}
+
+pub async fn append_ai_turn(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<AppendAiTurn>,
+) -> Result<Json<rbc_db::AiTurn>, ApiError> {
+    let input = rbc_db::AiTurnInput {
+        role: body.role,
+        content: body.content,
+        reasoning: body.reasoning,
+        tool_calls_json: body.tool_calls_json,
+        tool_results_json: body.tool_results_json,
+        context_json: body.context_json,
+        context_sha256: body.context_sha256,
+        spec_version: body.spec_version,
+        template_version: body.template_version,
+        tool_schema_version: body.tool_schema_version,
+        engine_fingerprint: body.engine_fingerprint,
+        model_json: body.model_json,
+        tokens_in: body.tokens_in,
+        tokens_out: body.tokens_out,
+        latency_ms: body.latency_ms,
+        error_json: body.error_json,
+    };
+    Ok(Json(state.db.append_ai_turn(&id, &input)?))
+}
+
+#[derive(Deserialize)]
+pub struct CompileContextBody {
+    pub fen: Option<String>,
+    #[serde(default)]
+    pub history: Vec<String>,
+    pub mode: Option<String>,
+    pub side: Option<String>,
+    pub variant: Option<String>,
+    pub preset: Option<String>,
+    pub token_budget: Option<u32>,
+}
+
+pub async fn compile_context(
+    Json(body): Json<CompileContextBody>,
+) -> Result<Json<rbc_context::CompiledContext>, ApiError> {
+    let mut spec = match body.preset.as_deref().unwrap_or("chat-v1") {
+        "play-v1" => rbc_context::ContextSpec::play_v1(),
+        "rated-standard-v1" => rbc_context::ContextSpec::rated_standard_v1(),
+        "training-v1" => rbc_context::ContextSpec::training_v1(),
+        "chat-v1" => rbc_context::ContextSpec::chat_v1(),
+        other => return Err(ApiError::BadRequest(format!("unknown preset {other}"))),
+    };
+    if let Some(budget) = body.token_budget {
+        spec.token_budget = budget;
+    }
+    let mode = match body.mode.as_deref().unwrap_or("chat") {
+        "chat" => rbc_context::Mode::Chat,
+        "play" => rbc_context::Mode::Play,
+        "watch" => rbc_context::Mode::Watch,
+        other => return Err(ApiError::BadRequest(format!("unknown mode {other}"))),
+    };
+    let side = match body.side.as_deref() {
+        Some("white") => Some(rbc_context::Side::White),
+        Some("black") => Some(rbc_context::Side::Black),
+        Some(other) => return Err(ApiError::BadRequest(format!("unknown side {other}"))),
+        None => None,
+    };
+    let input = rbc_context::ContextInput {
+        fen: body.fen,
+        history: body.history,
+        mode,
+        side,
+        variant: body.variant,
+        ..Default::default()
+    };
+    Ok(Json(rbc_context::compile(&spec, &input)?))
+}
+
+#[derive(Deserialize)]
+pub struct SendAiTurn {
+    pub message: String,
+    pub fen: Option<String>,
+    pub depth: Option<u32>,
+}
+
+pub async fn send_ai_turn(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<SendAiTurn>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let session = state.db.ai_session(&id)?.ok_or(ApiError::NotFound)?;
+    let settings = crate::api::effective(&state);
+    let url = settings
+        .model_url
+        .clone()
+        .ok_or(ApiError::Unavailable("model URL is not set"))?;
+    let fen = match body.fen.filter(|value| !value.trim().is_empty()) {
+        Some(fen) => fen,
+        None => {
+            let board_id = session
+                .target_board_id
+                .as_deref()
+                .or(session.home_board_id.as_deref());
+            match board_id {
+                Some(board_id) => state
+                    .db
+                    .board(board_id)?
+                    .map(|board| board.start_fen)
+                    .unwrap_or_else(|| {
+                        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into()
+                    }),
+                None => "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into(),
+            }
+        }
+    };
+    let spec = rbc_context::ContextSpec::chat_v1();
+    let input = rbc_context::ContextInput {
+        fen: Some(fen.clone()),
+        ..Default::default()
+    };
+    let compiled = rbc_context::compile(&spec, &input)?;
+
+    let user_turn = state.db.append_ai_turn(
+        &id,
+        &rbc_db::AiTurnInput {
+            role: "user".into(),
+            content: body.message.clone(),
+            context_json: serde_json::to_string(&compiled.data).unwrap_or_default(),
+            context_sha256: compiled.sha256.clone(),
+            spec_version: format!("{}@{}", compiled.spec_id, compiled.spec_version),
+            template_version: "rbc-prompt-v1".into(),
+            tool_schema_version: "1".into(),
+            model_json: session.model_json.clone(),
+            ..Default::default()
+        },
+    )?;
+
+    let depth = body.depth.unwrap_or(settings.depth).clamp(1, 30);
+    let message = body.message;
+    let fen_for_model = fen.clone();
+    let settings_for_model = settings.clone();
+    let db_for_model = state.db.clone();
+    let reply = tokio::task::spawn_blocking(move || {
+        crate::api::chat_with_tools(
+            &url,
+            &message,
+            &fen_for_model,
+            depth,
+            &settings_for_model,
+            Some(db_for_model),
+            session.target_board_id.clone(),
+        )
+    })
+    .await
+    .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?;
+
+    let reply = match reply {
+        Ok(reply) => reply,
+        Err(error) => {
+            let error_json = serde_json::json!({
+                "code": "provider_error",
+                "message": error.to_string(),
+                "retryable": true,
+            })
+            .to_string();
+            let assistant_turn = state.db.append_ai_turn(
+                &id,
+                &rbc_db::AiTurnInput {
+                    role: "assistant".into(),
+                    context_json: serde_json::to_string(&compiled.data).unwrap_or_default(),
+                    context_sha256: compiled.sha256.clone(),
+                    spec_version: format!("{}@{}", compiled.spec_id, compiled.spec_version),
+                    template_version: "rbc-prompt-v1".into(),
+                    tool_schema_version: "1".into(),
+                    model_json: session.model_json.clone(),
+                    error_json: Some(error_json),
+                    ..Default::default()
+                },
+            )?;
+            return Ok(Json(serde_json::json!({
+                "user_turn": user_turn,
+                "assistant_turn": assistant_turn,
+                "error": error.to_string(),
+            })));
+        }
+    };
+
+    let assistant_turn = state.db.append_ai_turn(
+        &id,
+        &rbc_db::AiTurnInput {
+            role: "assistant".into(),
+            content: reply.reply.clone(),
+            tool_calls_json: serde_json::to_string(&reply.tools).unwrap_or_else(|_| "[]".into()),
+            tool_results_json: serde_json::to_string(&reply.actions).unwrap_or_else(|_| "[]".into()),
+            context_json: serde_json::to_string(&compiled.data).unwrap_or_default(),
+            context_sha256: compiled.sha256.clone(),
+            spec_version: format!("{}@{}", compiled.spec_id, compiled.spec_version),
+            template_version: "rbc-prompt-v1".into(),
+            tool_schema_version: "1".into(),
+            model_json: session.model_json.clone(),
+            ..Default::default()
+        },
+    )?;
+
+    Ok(Json(serde_json::json!({
+        "reply": reply.reply,
+        "actions": reply.actions,
+        "tools": reply.tools,
+        "user_turn": user_turn,
+        "assistant_turn": assistant_turn,
+        "context": {
+            "sha256": compiled.sha256,
+            "spec_id": compiled.spec_id,
+            "spec_version": compiled.spec_version,
+            "tokens": compiled.tokens,
+            "sections": compiled.sections,
+        },
+    })))
+}
+
+pub async fn replay_ai_turn(
+    State(state): State<AppState>,
+    Path((id, seq)): Path<(String, i64)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let session = state.db.ai_session(&id)?.ok_or(ApiError::NotFound)?;
+    let turn = state
+        .db
+        .ai_turns(&id)?
+        .into_iter()
+        .find(|turn| turn.seq == seq)
+        .ok_or(ApiError::NotFound)?;
+    let board_id = session
+        .target_board_id
+        .as_deref()
+        .or(session.home_board_id.as_deref());
+    let fen = match board_id {
+        Some(board_id) => state
+            .db
+            .board(board_id)?
+            .map(|board| board.start_fen)
+            .unwrap_or_else(|| {
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into()
+            }),
+        None => "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into(),
+    };
+    let compiled = rbc_context::compile(
+        &rbc_context::ContextSpec::chat_v1(),
+        &rbc_context::ContextInput {
+            fen: Some(fen),
+            ..Default::default()
+        },
+    )?;
+    Ok(Json(serde_json::json!({
+        "seq": seq,
+        "stored_sha256": turn.context_sha256,
+        "stored_spec": turn.spec_version,
+        "rebuilt_sha256": compiled.sha256,
+        "rebuilt_spec": format!("{}@{}", compiled.spec_id, compiled.spec_version),
+        "match": turn.context_sha256 == compiled.sha256,
+        "tokens": compiled.tokens,
+        "sections": compiled.sections,
+    })))
+}
