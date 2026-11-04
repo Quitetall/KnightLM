@@ -294,6 +294,9 @@ impl GameReport {
             4 => c.mistake,
             _ => c.blunder,
         };
-        (pick(&self.lichess_counts), pick(&self.expected_points_counts))
+        (
+            pick(&self.lichess_counts),
+            pick(&self.expected_points_counts),
+        )
     }
 }

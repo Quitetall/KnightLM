@@ -152,15 +152,14 @@ impl OpenAiProvider {
                 retry_after: None,
             }
         })?;
-        let wire: CompletionWire =
-            serde_json::from_str(&text).map_err(|e| AttemptError {
-                info: error(
-                    error_code::PROTOCOL,
-                    format!("the model response was not JSON: {e}"),
-                    false,
-                ),
-                retry_after: None,
-            })?;
+        let wire: CompletionWire = serde_json::from_str(&text).map_err(|e| AttemptError {
+            info: error(
+                error_code::PROTOCOL,
+                format!("the model response was not JSON: {e}"),
+                false,
+            ),
+            retry_after: None,
+        })?;
         if let Some(detail) = wire.error {
             return Err(AttemptError {
                 info: wire_error(detail),
@@ -178,7 +177,10 @@ impl OpenAiProvider {
         if let Some(choice) = wire.choices.first() {
             let message = &choice.message;
             if let Some(reasoning) = message.reasoning_text() {
-                accumulator.apply(&ProviderEvent::ReasoningDelta(reasoning.to_string()), on_event);
+                accumulator.apply(
+                    &ProviderEvent::ReasoningDelta(reasoning.to_string()),
+                    on_event,
+                );
             }
             if let Some(content) = &message.content {
                 accumulator.apply(&ProviderEvent::ContentDelta(content.clone()), on_event);
@@ -224,7 +226,9 @@ impl OpenAiProvider {
                 retry_after: None,
             })?;
             line.clear();
-            let read = reader.read_until(b'\n', &mut line).map_err(map_read_error)?;
+            let read = reader
+                .read_until(b'\n', &mut line)
+                .map_err(map_read_error)?;
             if read == 0 {
                 break;
             }
@@ -888,10 +892,7 @@ mod tests {
         assert_eq!(response.tool_calls.len(), 2);
         assert_eq!(response.tool_calls[0].id, "call_a");
         assert_eq!(response.tool_calls[0].name, "get_board");
-        assert_eq!(
-            response.tool_calls[0].arguments,
-            json!({"board_id": "b1"})
-        );
+        assert_eq!(response.tool_calls[0].arguments, json!({"board_id": "b1"}));
         assert_eq!(response.tool_calls[1].name, "list_boards");
         assert_eq!(response.stop_reason, StopReason::ToolCalls);
     }
@@ -902,7 +903,9 @@ mod tests {
             calls: vec![draft(0, "call_a", "", "{}")],
             ..Accumulator::default()
         };
-        let error = accumulator.finish(Instant::now()).expect_err("no tool name");
+        let error = accumulator
+            .finish(Instant::now())
+            .expect_err("no tool name");
         assert_eq!(error.code, error_code::PROTOCOL);
         assert!(error.message.contains("without a name"));
     }
@@ -913,7 +916,9 @@ mod tests {
             calls: vec![draft(0, "call_a", "play_move", "{oops")],
             ..Accumulator::default()
         };
-        let error = accumulator.finish(Instant::now()).expect_err("bad arguments");
+        let error = accumulator
+            .finish(Instant::now())
+            .expect_err("bad arguments");
         assert_eq!(error.code, error_code::PROTOCOL);
         assert!(error.message.contains("play_move"));
     }
@@ -1017,8 +1022,11 @@ mod tests {
         let config = ProviderConfig::openai_compatible("http://localhost:1/v1", "mock", "m1");
         let provider = OpenAiProvider::new(config).expect("valid config");
         let registry = crate::tools::ToolRegistry::builtin();
-        let tools: Vec<crate::provider::ToolDefinition> =
-            ["get_board", "play_move"].iter().filter_map(|name| registry.get(name)).map(Into::into).collect();
+        let tools: Vec<crate::provider::ToolDefinition> = ["get_board", "play_move"]
+            .iter()
+            .filter_map(|name| registry.get(name))
+            .map(Into::into)
+            .collect();
         let request = CompletionRequest::new("m1", vec![ChatMessage::user("hi")])
             .with_tools(tools)
             .with_max_tokens(64);
@@ -1040,10 +1048,8 @@ mod tests {
             "m1",
         ))
         .expect("valid config");
-        let body = provider.request_body(&CompletionRequest::new(
-            "m1",
-            vec![ChatMessage::user("hi")],
-        ));
+        let body =
+            provider.request_body(&CompletionRequest::new("m1", vec![ChatMessage::user("hi")]));
         assert!(body.get("tools").is_none());
         assert!(body.get("tool_choice").is_none());
         assert!(body.get("max_tokens").is_none());

@@ -7,11 +7,11 @@
 use crate::command::Shape;
 use crate::pieces::PieceSet;
 use crate::widget::{Orientation, Theme, Widget};
-use shakmaty::{
-    variant::{Variant, VariantPosition},
-    ByColor, ByRole, CastlingMode, Color as ShakColor, Position, Role as ShakRole, Square,
-};
 use knightlm_core::state::{castling_mode_for_fen, parse_variant_fen, variant_for_name};
+use shakmaty::{
+    ByColor, ByRole, CastlingMode, Color as ShakColor, Position, Role as ShakRole, Square,
+    variant::{Variant, VariantPosition},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {

@@ -1,9 +1,11 @@
 use anyhow::{Context, Result, bail, ensure};
-use shakmaty::{
-    fen::Fen, uci::UciMove, variant::{Variant, VariantPosition}, CastlingMode, Chess, Color,
-    EnPassantMode, Position, Role, Square,
-};
 use serde::{Deserialize, Serialize};
+use shakmaty::{
+    CastlingMode, Chess, Color, EnPassantMode, Position, Role, Square,
+    fen::Fen,
+    uci::UciMove,
+    variant::{Variant, VariantPosition},
+};
 use std::collections::BTreeMap;
 
 use crate::SCHEMA_VERSION;
@@ -181,13 +183,14 @@ impl GameState {
         } else {
             CastlingMode::Standard
         };
-        let (board, mode) = if variant == Variant::Chess && record.variant.eq_ignore_ascii_case("standard") {
-            // Auto-detect a Chess960 setup when a standard-tagged FEN needs it.
-            let (pos, mode) = parse_chess(&record.initial_fen)?;
-            (VariantPosition::from(pos), mode)
-        } else {
-            parse_variant_fen(&record.initial_fen, variant, mode)?
-        };
+        let (board, mode) =
+            if variant == Variant::Chess && record.variant.eq_ignore_ascii_case("standard") {
+                // Auto-detect a Chess960 setup when a standard-tagged FEN needs it.
+                let (pos, mode) = parse_chess(&record.initial_fen)?;
+                (VariantPosition::from(pos), mode)
+            } else {
+                parse_variant_fen(&record.initial_fen, variant, mode)?
+            };
         let mut initial = record.clone();
         initial.moves.clear();
         let mut state = Self {
@@ -317,7 +320,11 @@ impl GameState {
         } else {
             match self.board.outcome().known() {
                 Some(shakmaty::KnownOutcome::Decisive { winner }) => {
-                    Some(if winner == Color::White { "white_wins" } else { "black_wins" })
+                    Some(if winner == Color::White {
+                        "white_wins"
+                    } else {
+                        "black_wins"
+                    })
                 }
                 Some(shakmaty::KnownOutcome::Draw) => Some("draw"),
                 None => None,

@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
-use knightlm_core::state::{
-    castling_mode_for_fen, parse_variant_fen, variant_for_name, GameRecord, GameState, START_FEN,
-};
 use knightlm_core::SCHEMA_VERSION;
+use knightlm_core::state::{
+    GameRecord, GameState, START_FEN, castling_mode_for_fen, parse_variant_fen, variant_for_name,
+};
 use knightlm_notation::{pgn, reader, san};
-use shakmaty::{uci::UciMove, variant::Variant, CastlingMode, Position};
+use shakmaty::{CastlingMode, Position, uci::UciMove, variant::Variant};
 
 use crate::command::{Command, Event, Shape};
 use crate::pieces::PieceSet;
@@ -54,7 +54,10 @@ fn start_state() -> GameState {
 
 fn state_from_fen(fen: &str, variant_name: &str) -> Result<GameState> {
     let fields: Vec<&str> = fen.split_whitespace().collect();
-    anyhow::ensure!(fields.len() == 4 || fields.len() == 6, "FEN needs 4 or 6 fields");
+    anyhow::ensure!(
+        fields.len() == 4 || fields.len() == 6,
+        "FEN needs 4 or 6 fields"
+    );
     let full = if fields.len() == 4 {
         format!("{} 0 1", fen.trim())
     } else {
@@ -168,12 +171,7 @@ impl Widget {
     }
 
     pub fn move_uci_at(&self, index: usize) -> Option<String> {
-        self.history
-            .get(index)?
-            .record()
-            .moves
-            .last()
-            .cloned()
+        self.history.get(index)?.record().moves.last().cloned()
     }
 
     /// The move list (SAN) of the game so far.
@@ -251,7 +249,7 @@ impl Widget {
                     self.history = vec![st];
                     self.index = 0;
                     self.selection = None;
-                        vec![self.position_event()]
+                    vec![self.position_event()]
                 }
                 Err(e) => err("bad_fen", e.to_string()),
             },
@@ -265,7 +263,7 @@ impl Widget {
                     self.index = self.history.len().saturating_sub(1);
                     self.selection = None;
                     self.shapes.clear();
-                        vec![self.position_event()]
+                    vec![self.position_event()]
                 }
                 Err(e) => err("bad_pgn", e.to_string()),
             },
@@ -343,7 +341,7 @@ impl Widget {
                         self.history = vec![state];
                         self.index = 0;
                         self.selection = None;
-                                vec![self.position_event()]
+                        vec![self.position_event()]
                     }
                     Err(e) => err("bad_variant", e.to_string()),
                 }

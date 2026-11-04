@@ -82,11 +82,7 @@ impl<'a> EventLog<'a> {
     /// This is what a finished turn does: the client is watching live, so a
     /// failure to record one event must not abort the turn, and the caller
     /// gets back what was actually written.
-    pub fn append_all(
-        &self,
-        stream: &StreamKey,
-        payloads: &[AiEventPayload],
-    ) -> Vec<AiEvent> {
+    pub fn append_all(&self, stream: &StreamKey, payloads: &[AiEventPayload]) -> Vec<AiEvent> {
         let mut written = Vec::with_capacity(payloads.len());
         for payload in payloads {
             match self.append(stream, payload) {
@@ -118,8 +114,7 @@ impl<'a> EventLog<'a> {
     pub fn latest(&self, stream: &StreamKey) -> Result<u64> {
         Ok(self
             .db
-            .latest_ai_event_id(stream.kind.as_str(), &stream.id)?
-            as u64)
+            .latest_ai_event_id(stream.kind.as_str(), &stream.id)? as u64)
     }
 
     /// Whether the stream has anything after `after`.

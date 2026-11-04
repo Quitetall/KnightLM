@@ -156,7 +156,10 @@ mod tests {
         let diff = diff_contexts(&stored, &rebuilt);
         assert_eq!(diff.changed.len(), 1);
         assert_eq!(diff.changed[0].id, "position");
-        assert_ne!(diff.changed[0].stored_sha256, diff.changed[0].rebuilt_sha256);
+        assert_ne!(
+            diff.changed[0].stored_sha256,
+            diff.changed[0].rebuilt_sha256
+        );
         assert!(diff.changed[0].stored_sha256.starts_with("sha256:"));
     }
 

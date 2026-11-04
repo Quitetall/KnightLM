@@ -1,5 +1,5 @@
 use knightlm_notation::san::{parse_san, to_san};
-use shakmaty::{fen::Fen, uci::UciMove, CastlingMode, Chess, Position};
+use shakmaty::{CastlingMode, Chess, Position, fen::Fen, uci::UciMove};
 
 fn main() {
     let fens = [

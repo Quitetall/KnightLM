@@ -1,6 +1,7 @@
 use rbc_db::{Db, GameQuery};
 
-const PGN: &str = "[Event \"T\"]\n[White \"A\"]\n[Black \"B\"]\n[Result \"1-0\"]\n\n1. e4 e5 2. Nf3 Nc6 1-0\n";
+const PGN: &str =
+    "[Event \"T\"]\n[White \"A\"]\n[Black \"B\"]\n[Result \"1-0\"]\n\n1. e4 e5 2. Nf3 Nc6 1-0\n";
 
 #[test]
 fn import_query_and_get() {
@@ -61,7 +62,14 @@ fn annotations() {
     use rbc_db::AnnotationInput;
     let db = Db::open_memory().unwrap();
     let ids = db.import_pgn(PGN, None).unwrap();
-    let a = AnnotationInput { game_id: ids[0], ply: 1, path: Some("0".into()), comment: Some("good".into()), nag: Some(1), shapes: None };
+    let a = AnnotationInput {
+        game_id: ids[0],
+        ply: 1,
+        path: Some("0".into()),
+        comment: Some("good".into()),
+        nag: Some(1),
+        shapes: None,
+    };
     db.add_annotation(&a).unwrap();
     let all = db.annotations(ids[0]).unwrap();
     assert_eq!(all.len(), 1);
@@ -80,11 +88,19 @@ fn opening_classification() {
 #[test]
 fn explorer_counts_continuations() {
     let db = Db::open_memory().unwrap();
-    db.import_pgn("[Event \"T\"]\n[White \"A\"]\n[Black \"B\"]\n[Result \"1-0\"]\n\n1. e4 c5 2. Nf3 d6 1-0\n", None).unwrap();
+    db.import_pgn(
+        "[Event \"T\"]\n[White \"A\"]\n[Black \"B\"]\n[Result \"1-0\"]\n\n1. e4 c5 2. Nf3 d6 1-0\n",
+        None,
+    )
+    .unwrap();
     let fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1";
     let ex = db.explore(fen).unwrap();
     assert_eq!(ex.name.as_deref(), Some("King's Pawn Game"));
-    let c = ex.continuations.iter().find(|c| c.uci == "c7c5").expect("c5");
+    let c = ex
+        .continuations
+        .iter()
+        .find(|c| c.uci == "c7c5")
+        .expect("c5");
     assert_eq!(c.games, 1);
     assert_eq!(c.san, "c5");
 }
@@ -116,10 +132,16 @@ fn settings_round_trip() {
     db.set_setting("engine_path", "/usr/bin/stockfish").unwrap();
     let s = db.settings().unwrap();
     assert_eq!(s.get("depth").map(String::as_str), Some("12"));
-    assert_eq!(s.get("engine_path").map(String::as_str), Some("/usr/bin/stockfish"));
+    assert_eq!(
+        s.get("engine_path").map(String::as_str),
+        Some("/usr/bin/stockfish")
+    );
     // Upsert rather than duplicate.
     db.set_setting("depth", "18").unwrap();
-    assert_eq!(db.settings().unwrap().get("depth").map(String::as_str), Some("18"));
+    assert_eq!(
+        db.settings().unwrap().get("depth").map(String::as_str),
+        Some("18")
+    );
 }
 
 #[test]
@@ -156,7 +178,8 @@ fn movetext_variations_round_trip_through_export() {
 #[test]
 fn evals_round_trip() {
     let db = Db::open_memory().unwrap();
-    db.save_evals(7, 12, &[(0, Some(20), None), (1, None, Some(3))]).unwrap();
+    db.save_evals(7, 12, &[(0, Some(20), None), (1, None, Some(3))])
+        .unwrap();
     let rows = db.evals(7, 12).unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].cp, Some(20));
@@ -169,7 +192,10 @@ fn evals_round_trip() {
 #[test]
 fn puzzle_theme_filter_and_rating() {
     let db = Db::open_memory().unwrap();
-    let p = db.next_puzzle(Some(2600), Some("mateIn1")).unwrap().expect("theme puzzle");
+    let p = db
+        .next_puzzle(Some(2600), Some("mateIn1"))
+        .unwrap()
+        .expect("theme puzzle");
     assert!(p.themes.as_deref().unwrap_or("").contains("mateIn1"));
     let all = db.puzzle_themes().unwrap();
     assert!(all.iter().any(|(t, _)| t == "middlegame"));
@@ -188,15 +214,33 @@ fn annotations_are_scoped_by_path() {
     use rbc_db::AnnotationInput;
     let db = Db::open_memory().unwrap();
     db.add_annotation(&AnnotationInput {
-        game_id: 1, ply: 1, path: Some("1".into()), comment: Some("main".into()), nag: None, shapes: None,
-    }).unwrap();
+        game_id: 1,
+        ply: 1,
+        path: Some("1".into()),
+        comment: Some("main".into()),
+        nag: None,
+        shapes: None,
+    })
+    .unwrap();
     db.add_annotation(&AnnotationInput {
-        game_id: 1, ply: 1, path: Some("1.0".into()), comment: Some("variation".into()), nag: None, shapes: None,
-    }).unwrap();
+        game_id: 1,
+        ply: 1,
+        path: Some("1.0".into()),
+        comment: Some("variation".into()),
+        nag: None,
+        shapes: None,
+    })
+    .unwrap();
     assert_eq!(db.annotations(1).unwrap().len(), 2);
     db.add_annotation(&AnnotationInput {
-        game_id: 1, ply: 1, path: Some("1".into()), comment: Some("updated".into()), nag: None, shapes: None,
-    }).unwrap();
+        game_id: 1,
+        ply: 1,
+        path: Some("1".into()),
+        comment: Some("updated".into()),
+        nag: None,
+        shapes: None,
+    })
+    .unwrap();
     let all = db.annotations(1).unwrap();
     assert_eq!(all.len(), 2);
     assert!(all.iter().any(|a| a.comment.as_deref() == Some("updated")));
@@ -251,7 +295,10 @@ fn repertoire_import_and_spaced_repetition() {
     assert_eq!(reviewed.interval_days, 1.0);
     assert!(reviewed.due_at > card.due_at || reviewed.due_at != card.due_at);
 
-    let card = db.next_repertoire_card(rep.id).unwrap().expect("another due card");
+    let card = db
+        .next_repertoire_card(rep.id)
+        .unwrap()
+        .expect("another due card");
     let failed = db.review_repertoire_card(card.id, false).unwrap();
     assert_eq!(failed.lapses, 1);
     assert!(failed.ease < 2.5);
@@ -342,9 +389,10 @@ fn tree_editing_keeps_variations_consistent() {
     let id = ids[0];
 
     // Rewrite the whole tree from PGN text, including a variation.
-    assert!(db
-        .update_pgn_tree(id, "1. d4 d5 (1... Nf6 2. c4) 2. c4 e6 *")
-        .unwrap());
+    assert!(
+        db.update_pgn_tree(id, "1. d4 d5 (1... Nf6 2. c4) 2. c4 e6 *")
+            .unwrap()
+    );
     let g = db.get(id).unwrap().unwrap();
     assert_eq!(g.moves, "d4 d5 c4 e6");
     assert!(g.movetext.as_deref().unwrap().contains("Nf6"));
@@ -430,13 +478,15 @@ fn locked_or_published_boards_require_a_copy() {
         .unwrap();
     db.set_board_mutability(&board.id, "locked").unwrap();
     assert_eq!(
-        db.update_board_content(&board.id, 1, "{}", None).unwrap_err(),
+        db.update_board_content(&board.id, 1, "{}", None)
+            .unwrap_err(),
         rbc_db::BoardWriteError::CopyRequired
     );
     db.set_board_mutability(&board.id, "mutable").unwrap();
     db.set_board_lifecycle(&board.id, "published").unwrap();
     assert_eq!(
-        db.update_board_content(&board.id, 1, "{}", None).unwrap_err(),
+        db.update_board_content(&board.id, 1, "{}", None)
+            .unwrap_err(),
         rbc_db::BoardWriteError::CopyRequired
     );
     let copy = db.copy_board(&board.id, None, None, None).unwrap();
@@ -448,9 +498,7 @@ fn locked_or_published_boards_require_a_copy() {
 fn studies_copy_chapters_versions_and_progress() {
     let db = Db::open_memory().unwrap();
     let study = db.create_study("Sicilian", "A study").unwrap();
-    let (chapter, primary) = db
-        .add_chapter(&study.id, "Open", START, "notes")
-        .unwrap();
+    let (chapter, primary) = db.add_chapter(&study.id, "Open", START, "notes").unwrap();
     let extra = db
         .add_board_to_chapter(&study.id, &chapter.id, "Line", START, "{}")
         .unwrap();
@@ -463,7 +511,8 @@ fn studies_copy_chapters_versions_and_progress() {
     let ids: Vec<String> = serde_json::from_str(&chapters[0].board_ids_json).unwrap();
     assert_eq!(ids, vec![primary.id.clone(), extra.id.clone()]);
 
-    db.reorder_chapters(&study.id, &[chapter.id.clone()]).unwrap();
+    db.reorder_chapters(&study.id, &[chapter.id.clone()])
+        .unwrap();
     let version = db.publish_study(&study.id, 1).unwrap();
     assert_eq!(version.version, 2);
     let published = db.study(&study.id).unwrap().unwrap();

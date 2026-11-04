@@ -97,11 +97,7 @@ impl Store {
             tokens_in: turn.usage.tokens_in as i64,
             tokens_out: turn.usage.tokens_out as i64,
             latency_ms: turn.usage.latency_ms as i64,
-            error_json: turn
-                .error
-                .as_ref()
-                .map(serde_json::to_string)
-                .transpose()?,
+            error_json: turn.error.as_ref().map(serde_json::to_string).transpose()?,
         };
         Ok(turn_from_row(self.db.append_ai_turn(session_id, &input)?))
     }
@@ -221,7 +217,10 @@ mod tests {
             .unwrap();
         assert_eq!(first.seq, 1);
         let second = store
-            .append_turn(&session.id, &turn(&session.id, TurnRole::Assistant, "hello"))
+            .append_turn(
+                &session.id,
+                &turn(&session.id, TurnRole::Assistant, "hello"),
+            )
             .unwrap();
         assert_eq!(second.seq, 2);
         let turns = store.turns(&session.id).unwrap();
@@ -230,6 +229,9 @@ mod tests {
         assert_eq!(turns[1].role, TurnRole::Assistant);
         assert_eq!(store.sessions().unwrap().len(), 1);
         store.rename(&session.id, "Renamed").unwrap();
-        assert_eq!(store.session(&session.id).unwrap().unwrap().title, "Renamed");
+        assert_eq!(
+            store.session(&session.id).unwrap().unwrap().title,
+            "Renamed"
+        );
     }
 }

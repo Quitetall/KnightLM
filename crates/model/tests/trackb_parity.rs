@@ -7,7 +7,10 @@ mod trackb_parity {
     #[ignore = "not implemented (KLM-SAS-RQ-013)"]
     fn processor_tokenizer_parity() {
         // RED: Burn tokenizer not yet wired.
-        assert!(false, "not implemented: processor/tokenizer parity (RQ-013)");
+        assert!(
+            false,
+            "not implemented: processor/tokenizer parity (RQ-013)"
+        );
     }
     #[test]
     #[ignore = "not implemented (KLM-SAS-RQ-013)"]

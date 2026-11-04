@@ -4,7 +4,7 @@
 //! published content returns `copy_required`; the caller must copy it.
 
 use anyhow::{Context, Result};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fmt;
@@ -315,7 +315,15 @@ impl Db {
                      VALUES (?1, ?2, ?3, ?4, ?5, 'standard', ?6, 1, 'mutable', 'draft',
                              ?7, '{{}}', {NOW}, {NOW})"
                 ),
-                params![id, parent_kind, parent_id, kind, title, start_fen, content_json],
+                params![
+                    id,
+                    parent_kind,
+                    parent_id,
+                    kind,
+                    title,
+                    start_fen,
+                    content_json
+                ],
             )?;
         }
         self.board(&id)?.context("board just inserted")
@@ -488,7 +496,10 @@ impl Db {
         if primary > 0 {
             anyhow::bail!("board {id} is a chapter primary; remove the chapter first");
         }
-        conn.execute("DELETE FROM board_revisions WHERE board_id = ?1", params![id])?;
+        conn.execute(
+            "DELETE FROM board_revisions WHERE board_id = ?1",
+            params![id],
+        )?;
         conn.execute("DELETE FROM boards WHERE id = ?1", params![id])?;
         Ok(())
     }
@@ -613,7 +624,9 @@ impl Db {
                  (id, study_id, ordinal, title, primary_board_id, board_ids_json,
                   notes_md, metadata_json)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '{}')",
-                params![chapter_id, study_id, ordinal, title, board.id, board_ids, notes_md],
+                params![
+                    chapter_id, study_id, ordinal, title, board.id, board_ids, notes_md
+                ],
             )?;
             conn.execute(
                 "UPDATE studies SET updated = CAST(strftime('%s','now') AS INTEGER)
@@ -682,10 +695,7 @@ impl Db {
             .study(study_id)?
             .with_context(|| format!("study {study_id} not found"))?;
         if study.current_version != expected_version {
-            anyhow::bail!(
-                "study version conflict (current {})",
-                study.current_version
-            );
+            anyhow::bail!("study version conflict (current {})", study.current_version);
         }
         let chapters = self.chapters(study_id)?;
         let mut chapter_values = Vec::new();
@@ -760,10 +770,7 @@ impl Db {
         let study = self
             .study(study_id)?
             .with_context(|| format!("study {study_id} not found"))?;
-        let copy = self.create_study(
-            &format!("{} (copy)", study.title),
-            &study.description_md,
-        )?;
+        let copy = self.create_study(&format!("{} (copy)", study.title), &study.description_md)?;
         for chapter in self.chapters(study_id)? {
             let old_primary = self.board(&chapter.primary_board_id)?;
             let start_fen = old_primary
@@ -772,12 +779,8 @@ impl Db {
                 .unwrap_or_else(|| {
                     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into()
                 });
-            let (new_chapter, new_primary) = self.add_chapter(
-                &copy.id,
-                &chapter.title,
-                &start_fen,
-                &chapter.notes_md,
-            )?;
+            let (new_chapter, new_primary) =
+                self.add_chapter(&copy.id, &chapter.title, &start_fen, &chapter.notes_md)?;
             if let Some(old) = old_primary {
                 let _ = self.update_board_content(
                     &new_primary.id,
@@ -813,8 +816,7 @@ impl Db {
                 params![metadata.to_string(), copy.id],
             )?;
         }
-        self.study(&copy.id)?
-            .context("copied study just inserted")
+        self.study(&copy.id)?.context("copied study just inserted")
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1151,7 +1153,11 @@ impl Db {
     ///
     /// The profile decides what the policy auto-approves, so it is a write a
     /// person makes deliberately, not something a turn can change.
-    pub fn set_ai_session_permissions(&self, id: &str, permissions_json: &str) -> Result<AiSession> {
+    pub fn set_ai_session_permissions(
+        &self,
+        id: &str,
+        permissions_json: &str,
+    ) -> Result<AiSession> {
         {
             let conn = self.conn.lock().expect("db lock");
             conn.execute(
@@ -1271,8 +1277,7 @@ impl Db {
                 ],
             )?;
         }
-        self.ai_approval(&id)?
-            .context("approval just inserted")
+        self.ai_approval(&id)?.context("approval just inserted")
     }
 
     pub fn ai_approval(&self, id: &str) -> Result<Option<AiApproval>> {
@@ -1385,10 +1390,7 @@ impl Db {
              ORDER BY event_id"
         ))?;
         Ok(stmt
-            .query_map(
-                params![stream_kind, stream_id, after],
-                ai_event_row,
-            )?
+            .query_map(params![stream_kind, stream_id, after], ai_event_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?)
     }
 

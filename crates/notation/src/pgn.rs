@@ -89,7 +89,11 @@ impl Visitor for Collector {
         ControlFlow::Continue(())
     }
 
-    fn san(&mut self, _movetext: &mut Self::Movetext, san_plus: SanPlus) -> ControlFlow<Self::Output> {
+    fn san(
+        &mut self,
+        _movetext: &mut Self::Movetext,
+        san_plus: SanPlus,
+    ) -> ControlFlow<Self::Output> {
         let pre = self.pending_pre.take();
         self.push_node(PgnNode {
             san: san_plus.to_string(),
@@ -108,8 +112,14 @@ impl Visitor for Collector {
         ControlFlow::Continue(())
     }
 
-    fn comment(&mut self, _movetext: &mut Self::Movetext, comment: RawComment<'_>) -> ControlFlow<Self::Output> {
-        let text = String::from_utf8_lossy(comment.as_bytes()).trim().to_owned();
+    fn comment(
+        &mut self,
+        _movetext: &mut Self::Movetext,
+        comment: RawComment<'_>,
+    ) -> ControlFlow<Self::Output> {
+        let text = String::from_utf8_lossy(comment.as_bytes())
+            .trim()
+            .to_owned();
         if let Some(last) = self.last_mut() {
             match &mut last.post_comment {
                 Some(prev) => {
@@ -124,7 +134,10 @@ impl Visitor for Collector {
         ControlFlow::Continue(())
     }
 
-    fn begin_variation(&mut self, _movetext: &mut Self::Movetext) -> ControlFlow<Self::Output, Skip> {
+    fn begin_variation(
+        &mut self,
+        _movetext: &mut Self::Movetext,
+    ) -> ControlFlow<Self::Output, Skip> {
         // Descend into the variation rather than skipping it.
         self.stack.push(Vec::new());
         ControlFlow::Continue(Skip(false))
@@ -140,7 +153,11 @@ impl Visitor for Collector {
         ControlFlow::Continue(())
     }
 
-    fn outcome(&mut self, _movetext: &mut Self::Movetext, outcome: Outcome) -> ControlFlow<Self::Output> {
+    fn outcome(
+        &mut self,
+        _movetext: &mut Self::Movetext,
+        outcome: Outcome,
+    ) -> ControlFlow<Self::Output> {
         self.result = Some(outcome.to_string());
         ControlFlow::Continue(())
     }

@@ -56,11 +56,7 @@ impl Provider for ScriptedProvider {
             .lock()
             .expect("requests lock")
             .push(request.clone());
-        let next = self
-            .responses
-            .lock()
-            .expect("responses lock")
-            .pop_front();
+        let next = self.responses.lock().expect("responses lock").pop_front();
         match next {
             Some(Ok(response)) => {
                 if !response.content.is_empty() {
@@ -157,9 +153,7 @@ impl ToolHost for FakeHost {
         if let Some(before) = self.before_call.as_mut() {
             before(call);
         }
-        self.queued
-            .pop_front()
-            .unwrap_or_else(|| applied(call, 1))
+        self.queued.pop_front().unwrap_or_else(|| applied(call, 1))
     }
 }
 
@@ -238,9 +232,8 @@ fn run(
 ) -> (rbc_ai::agent::AgentOutcome, Vec<AiEventPayload>) {
     let registry = ToolRegistry::builtin();
     let mut events = Vec::new();
-    let outcome = AgentLoop::new(provider, &registry, host).run(plan, cancel, &mut |event| {
-        events.push(event)
-    });
+    let outcome = AgentLoop::new(provider, &registry, host)
+        .run(plan, cancel, &mut |event| events.push(event));
     (outcome, events)
 }
 
@@ -314,7 +307,11 @@ fn agent_loop_uses_the_compiled_context_as_the_only_system_message() {
         system[0].content.as_deref(),
         Some("You are the KnightLM chess assistant.")
     );
-    let roles: Vec<TurnRole> = request.messages.iter().map(|message| message.role).collect();
+    let roles: Vec<TurnRole> = request
+        .messages
+        .iter()
+        .map(|message| message.role)
+        .collect();
     assert_eq!(
         roles,
         vec![
@@ -325,7 +322,12 @@ fn agent_loop_uses_the_compiled_context_as_the_only_system_message() {
         ]
     );
     assert_eq!(
-        request.messages.last().expect("user turn").content.as_deref(),
+        request
+            .messages
+            .last()
+            .expect("user turn")
+            .content
+            .as_deref(),
         Some("what is the best move?")
     );
 }
@@ -376,7 +378,12 @@ fn agent_loop_runs_a_tool_and_feeds_its_result_back() {
         .find(|message| message.role == TurnRole::Tool)
         .expect("tool message");
     assert_eq!(tool.tool_call_id.as_deref(), Some("call_1"));
-    assert!(tool.content.as_deref().unwrap_or_default().contains("applied"));
+    assert!(
+        tool.content
+            .as_deref()
+            .unwrap_or_default()
+            .contains("applied")
+    );
 
     // Usage is the sum of both rounds.
     assert_eq!(outcome.usage.tokens_in, 22);
@@ -450,7 +457,10 @@ fn agent_loop_refuses_a_denied_tool_without_calling_the_host() {
     plan.mode = SessionMode::Play;
     let (outcome, _events) = run(&provider, &mut host, &plan, &Cancellation::new());
 
-    assert!(host.calls.is_empty(), "a denied tool never reaches the host");
+    assert!(
+        host.calls.is_empty(),
+        "a denied tool never reaches the host"
+    );
     assert_eq!(outcome.tool_results[0].code, result_code::DENIED);
     assert_eq!(outcome.stop_reason, StopReason::EndTurn);
 }
@@ -506,7 +516,11 @@ fn agent_loop_retries_an_illegal_move_then_succeeds() {
     let mut host = FakeHost::new();
     // The first attempt is illegal; the host would accept a corrected one.
     host.queued = VecDeque::from(vec![
-        refused(&move_call("call_1"), result_code::ILLEGAL, "e4 is not legal"),
+        refused(
+            &move_call("call_1"),
+            result_code::ILLEGAL,
+            "e4 is not legal",
+        ),
         applied(&move_call("call_2"), 2),
     ]);
     let mut plan = plan();
@@ -564,7 +578,11 @@ fn agent_loop_answers_when_the_model_asks_for_a_tool_that_does_not_exist() {
         calls(
             1,
             1,
-            vec![ToolCall::new("call_1", "summon_dragon", serde_json::json!({}))],
+            vec![ToolCall::new(
+                "call_1",
+                "summon_dragon",
+                serde_json::json!({}),
+            )],
         ),
         text(1, 1, "That tool does not exist."),
     ]);

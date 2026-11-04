@@ -1,8 +1,11 @@
-use brick_chess::{Command, Event, Widget};
 use brick_chess::protocol;
+use brick_chess::{Command, Event, Widget};
 
 fn play(w: &mut Widget, san: &str) -> Vec<Event> {
-    w.apply(Command::Play { san: Some(san.into()), uci: None })
+    w.apply(Command::Play {
+        san: Some(san.into()),
+        uci: None,
+    })
 }
 
 #[test]
@@ -10,7 +13,10 @@ fn plays_san_and_updates_fen() {
     let mut w = Widget::new();
     let ev = play(&mut w, "e4");
     assert!(matches!(&ev[0], Event::Move { uci, san, .. } if uci == "e2e4" && san == "e4"));
-    assert!(w.fen().starts_with("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b"));
+    assert!(
+        w.fen()
+            .starts_with("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b")
+    );
     play(&mut w, "e5");
     assert!(w.fen().contains("4p3"));
 }
@@ -18,14 +24,19 @@ fn plays_san_and_updates_fen() {
 #[test]
 fn illegal_move_is_an_error_event() {
     let mut w = Widget::new();
-    let ev = w.apply(Command::Play { san: None, uci: Some("e2e5".into()) });
+    let ev = w.apply(Command::Play {
+        san: None,
+        uci: Some("e2e5".into()),
+    });
     assert!(matches!(&ev[0], Event::Error { code, .. } if code == "illegal_move"));
 }
 
 #[test]
 fn select_reports_legal_targets() {
     let mut w = Widget::new();
-    let ev = w.apply(Command::Select { square: "e2".into() });
+    let ev = w.apply(Command::Select {
+        square: "e2".into(),
+    });
     match &ev[0] {
         Event::Selected { square, targets } => {
             assert_eq!(square, "e2");
@@ -43,7 +54,10 @@ fn history_goto_and_undo() {
     play(&mut w, "e5");
     let fen_after = w.fen();
     w.apply(Command::Goto { index: 0 });
-    assert!(w.fen().starts_with("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"));
+    assert!(
+        w.fen()
+            .starts_with("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w")
+    );
     w.apply(Command::Goto { index: 2 });
     assert_eq!(w.fen(), fen_after);
     w.apply(Command::Undo);
@@ -64,7 +78,10 @@ fn checkmate_reports_game_over() {
     );
     // Any further move is refused explicitly, never silently played.
     let ev = play(&mut w, "e4");
-    assert!(matches!(&ev[0], Event::Error { .. }), "expected refusal, got {ev:?}");
+    assert!(
+        matches!(&ev[0], Event::Error { .. }),
+        "expected refusal, got {ev:?}"
+    );
 }
 
 #[test]
@@ -73,7 +90,12 @@ fn pgn_load_and_export() {
     let pgn = "1. e4 e5 2. Nf3 Nc6 1-0";
     let ev = w.apply(Command::LoadPgn { pgn: pgn.into() });
     assert!(matches!(&ev[0], Event::Position { .. }));
-    let exported = match w.apply(Command::Export { format: "pgn".into() }).pop() {
+    let exported = match w
+        .apply(Command::Export {
+            format: "pgn".into(),
+        })
+        .pop()
+    {
         Some(Event::Exported { data, .. }) => data,
         other => panic!("expected export, got {other:?}"),
     };
@@ -84,7 +106,9 @@ fn pgn_load_and_export() {
 #[test]
 fn pgn_load_keeps_full_history() {
     let mut w = Widget::new();
-    w.apply(Command::LoadPgn { pgn: "1. e4 e5 2. Nf3 Nc6".into() });
+    w.apply(Command::LoadPgn {
+        pgn: "1. e4 e5 2. Nf3 Nc6".into(),
+    });
     // initial position + four plies
     assert_eq!(w.history_len(), 5);
     assert_eq!(w.history_index(), 4);

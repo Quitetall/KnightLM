@@ -12,7 +12,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
-use vampirc_uci::{parse_one, UciInfoAttribute, UciMessage};
+use vampirc_uci::{UciInfoAttribute, UciMessage, parse_one};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Analysis {
@@ -277,7 +277,10 @@ impl Engine {
                 _ => {}
             }
         }
-        ensure!(!best_move.is_empty() && best_move != "(none)", "no best move");
+        ensure!(
+            !best_move.is_empty() && best_move != "(none)",
+            "no best move"
+        );
         Ok(Analysis {
             engine: self.name.clone(),
             version: self.version.clone(),
@@ -298,8 +301,17 @@ impl Engine {
         self.send(&format!("setoption name MultiPV value {n}"))?;
         self.send(&format!("position fen {fen}"))?;
         self.send(&format!("go depth {depth}"))?;
-        let mut best: BTreeMap<u16, (u32, Option<i32>, Option<i32>, Vec<String>, Option<u64>, Option<u64>)> =
-            BTreeMap::new();
+        let mut best: BTreeMap<
+            u16,
+            (
+                u32,
+                Option<i32>,
+                Option<i32>,
+                Vec<String>,
+                Option<u64>,
+                Option<u64>,
+            ),
+        > = BTreeMap::new();
         let deadline = Instant::now() + self.timeout;
         loop {
             match self.recv_until(deadline)? {

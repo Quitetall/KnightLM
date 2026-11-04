@@ -20,10 +20,19 @@ const START: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 fn setup(moves: &[&str]) -> (Db, Board) {
     let db = Db::open_memory().expect("in-memory database");
-    let workspace = db.create_workspace("Analysis", "analysis").expect("workspace");
+    let workspace = db
+        .create_workspace("Analysis", "analysis")
+        .expect("workspace");
     let content = serde_json::json!({ "moves": moves }).to_string();
     let board = db
-        .create_board("workspace", &workspace.id, "analysis", "Board 1", START, &content)
+        .create_board(
+            "workspace",
+            &workspace.id,
+            "analysis",
+            "Board 1",
+            START,
+            &content,
+        )
         .expect("board");
     (db, board)
 }
@@ -150,8 +159,13 @@ fn read_tools_get_history_replays_every_ply_with_its_fen() {
     assert_eq!(plies[0]["ply"], serde_json::json!(1));
     assert_eq!(plies[0]["san"], serde_json::json!("e4"));
     assert_eq!(plies[1]["san"], serde_json::json!("e5"));
-    assert!(plies[1]["fen"].as_str().expect("fen").contains("3.5N2")
-        || plies[1]["fen"].as_str().expect("fen").starts_with("rnbqkbnr/pppp1ppp/8/4p3"));
+    assert!(
+        plies[1]["fen"].as_str().expect("fen").contains("3.5N2")
+            || plies[1]["fen"]
+                .as_str()
+                .expect("fen")
+                .starts_with("rnbqkbnr/pppp1ppp/8/4p3")
+    );
 }
 
 #[test]
@@ -185,7 +199,10 @@ fn read_tools_legal_moves_are_sorted_san_and_uci() {
 fn read_tools_refuse_a_board_whose_stored_moves_cannot_be_played() {
     let (db, _board) = setup(&["Qh9"]);
     let board = db
-        .boards("workspace", &db.workspaces(false).expect("workspaces")[0].id)
+        .boards(
+            "workspace",
+            &db.workspaces(false).expect("workspaces")[0].id,
+        )
         .expect("boards")
         .remove(0);
     let mut host = ReadHost::new(&db);
@@ -222,7 +239,11 @@ fn read_tools_analyze_returns_lines_and_pins_the_engine_fingerprint() {
     // The engine saw the position after the board's own move.
     let seen = engine.seen.borrow();
     assert_eq!(seen.len(), 1);
-    assert!(seen[0].0.starts_with("rnbqkbnr/pppppppp/8/8/4P3"), "{}", seen[0].0);
+    assert!(
+        seen[0].0.starts_with("rnbqkbnr/pppppppp/8/8/4P3"),
+        "{}",
+        seen[0].0
+    );
     assert_eq!(seen[0].1, 18);
 }
 
@@ -235,7 +256,10 @@ fn read_tools_evaluate_answers_with_a_shallow_search() {
     let result = host.call(&call("evaluate", on_board(&board)));
 
     assert!(result.ok, "{result:?}");
-    assert_eq!(result.data.as_ref().expect("data")["depth"], serde_json::json!(12));
+    assert_eq!(
+        result.data.as_ref().expect("data")["depth"],
+        serde_json::json!(12)
+    );
 }
 
 #[test]
@@ -331,7 +355,13 @@ fn read_tools_list_workspaces_counts_their_boards() {
     let result = host.call(&call("list_workspaces", serde_json::json!({})));
 
     assert!(result.ok, "{result:?}");
-    let rows = result.data.as_ref().expect("data").as_array().expect("rows").clone();
+    let rows = result
+        .data
+        .as_ref()
+        .expect("data")
+        .as_array()
+        .expect("rows")
+        .clone();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["title"], serde_json::json!("Analysis"));
     assert_eq!(rows[0]["boards"], serde_json::json!(1));

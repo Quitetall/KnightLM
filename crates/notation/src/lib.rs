@@ -5,10 +5,10 @@
 //! `nota-reader`, `nota-detect`, `nota-annot` (the last two land in later
 //! Warrants).
 
-pub mod san;
-pub mod pgn;
 pub mod frc;
+pub mod pgn;
 pub mod reader;
+pub mod san;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
@@ -27,5 +27,5 @@ pub fn detect(bytes: &[u8]) -> Format {
     }
 }
 
-pub use san::{parse_san, to_san};
 pub use frc::scharnagl_starts;
+pub use san::{parse_san, to_san};

@@ -1,8 +1,8 @@
 use anyhow::Result;
-use knightlm_core::state::{GameRecord, GameState, START_FEN};
 use knightlm_core::SCHEMA_VERSION;
+use knightlm_core::state::{GameRecord, GameState, START_FEN};
 use std::io::{BufRead, BufReader, Write};
-use vampirc_uci::{parse_one, UciMessage};
+use vampirc_uci::{UciMessage, parse_one};
 
 pub trait Player {
     fn select(&self, state: &GameState) -> Result<String>;

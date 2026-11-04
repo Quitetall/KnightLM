@@ -68,12 +68,18 @@ fn write_tools_play_move_applies_san_and_bumps_the_revision() {
     assert_eq!(result.code, result_code::APPLIED);
     assert_eq!(result.summary, "played e4");
     assert_eq!(result.revision, Some(2));
-    assert_eq!(result.data.as_ref().expect("data")["san"], serde_json::json!("e4"));
+    assert_eq!(
+        result.data.as_ref().expect("data")["san"],
+        serde_json::json!("e4")
+    );
     let fen = result.data.as_ref().expect("data")["fen"]
         .as_str()
         .expect("fen")
         .to_string();
-    assert!(fen.starts_with("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b"), "{fen}");
+    assert!(
+        fen.starts_with("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b"),
+        "{fen}"
+    );
 
     let stored = db.board(&board.id).expect("board").expect("row");
     assert_eq!(stored.revision, 2);
@@ -167,10 +173,7 @@ fn write_tools_draw_shapes_and_clear_them() {
     let board = fresh(&db, &board);
     let circle = host.call(&call(
         "draw_circle",
-        edit_args(
-            &board,
-            serde_json::json!({"square": "d5", "color": "red"}),
-        ),
+        edit_args(&board, serde_json::json!({"square": "d5", "color": "red"})),
     ));
     assert!(circle.ok, "{circle:?}");
 
@@ -188,7 +191,10 @@ fn write_tools_draw_shapes_and_clear_them() {
     assert_eq!(content.circles[0].square, "d5");
 
     let board = fresh(&db, &board);
-    let cleared = host.call(&call("clear_shapes", edit_args(&board, serde_json::json!({}))));
+    let cleared = host.call(&call(
+        "clear_shapes",
+        edit_args(&board, serde_json::json!({})),
+    ));
     assert!(cleared.ok, "{cleared:?}");
     let content = content_of(&db, &board);
     assert!(content.arrows.is_empty());
@@ -216,7 +222,10 @@ fn write_tools_annotate_replaces_the_same_ply() {
 
     let first = host.call(&call(
         "annotate",
-        edit_args(&board, serde_json::json!({"ply": 2, "nag": "!?", "comment": "interesting"})),
+        edit_args(
+            &board,
+            serde_json::json!({"ply": 2, "nag": "!?", "comment": "interesting"}),
+        ),
     ));
     assert!(first.ok, "{first:?}");
 
@@ -238,7 +247,10 @@ fn write_tools_annotate_needs_a_nag_or_a_comment() {
     let (db, board) = setup();
     let mut host = BoardWriteHost::new(&db, "test");
 
-    let result = host.call(&call("annotate", edit_args(&board, serde_json::json!({"ply": 1}))));
+    let result = host.call(&call(
+        "annotate",
+        edit_args(&board, serde_json::json!({"ply": 1})),
+    ));
 
     assert!(!result.ok);
     assert_eq!(result.code, result_code::INVALID_ARGUMENTS);
@@ -251,7 +263,10 @@ fn write_tools_write_note_replaces_the_markdown() {
 
     let result = host.call(&call(
         "write_note",
-        edit_args(&board, serde_json::json!({"markdown": "# Plan\n\nPlay e4."})),
+        edit_args(
+            &board,
+            serde_json::json!({"markdown": "# Plan\n\nPlay e4."}),
+        ),
     ));
 
     assert!(result.ok, "{result:?}");
@@ -350,10 +365,7 @@ fn write_tools_lock_then_unlock_a_board() {
 }
 
 fn content_of_mutability(db: &Db, board: &Board) -> String {
-    db.board(&board.id)
-        .expect("board")
-        .expect("row")
-        .mutability
+    db.board(&board.id).expect("board").expect("row").mutability
 }
 
 // --- reads and refusals ----------------------------------------------------

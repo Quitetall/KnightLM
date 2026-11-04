@@ -1,6 +1,6 @@
 // quick demo: render a real position to SVG using core's glyph renderer
+use knightlm_core::state::{GameRecord, GameState};
 use knightlm_core::vision::render_glyph_svg;
-use knightlm_core::state::{GameState, GameRecord};
 
 fn main() {
     // A recognizable middlegame: after 1.e4 e5 2.Nf3 Nc6 3.Bb5 (Ruy Lopez)
@@ -10,7 +10,13 @@ fn main() {
         source: "demo".into(),
         initial_fen: knightlm_core::state::START_FEN.into(),
         history_complete: true,
-        moves: vec!["e2e4".into(), "e7e5".into(), "g1f3".into(), "b8c6".into(), "f1b5".into()],
+        moves: vec![
+            "e2e4".into(),
+            "e7e5".into(),
+            "g1f3".into(),
+            "b8c6".into(),
+            "f1b5".into(),
+        ],
         variant: "standard".into(),
     };
     let state = GameState::replay(&rec).unwrap();

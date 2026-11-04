@@ -1,12 +1,10 @@
 use std::io::Read;
 
 use anyhow::{Context, Result};
-use knightlm_core::state::{
-    castling_mode_for_fen, parse_variant_fen, GameRecord, START_FEN,
-};
 use knightlm_core::SCHEMA_VERSION;
+use knightlm_core::state::{GameRecord, START_FEN, castling_mode_for_fen, parse_variant_fen};
 use ruzstd::decoding::FrameDecoder;
-use shakmaty::{variant::Variant, san::SanPlus, uci::UciMove, CastlingMode, Position};
+use shakmaty::{CastlingMode, Position, san::SanPlus, uci::UciMove, variant::Variant};
 
 use crate::pgn::{self, PgnGame};
 
@@ -93,16 +91,17 @@ pub fn read_stream<R: Read>(reader: R, source: &str) -> Result<Vec<GameRecord>> 
     let mut buf = Vec::new();
     let mut r = reader;
     r.read_to_end(&mut buf).context("read input")?;
-    let text = if buf.len() >= 4 && buf[0] == 0x28 && buf[1] == 0xb5 && buf[2] == 0x2f && buf[3] == 0xfd {
-        let mut dec = FrameDecoder::new();
-        dec.init(&buf[..])
-            .map_err(|e| anyhow::anyhow!("zstd decode: {e}"))?;
-        let mut out = String::new();
-        dec.read_to_string(&mut out).context("zstd read")?;
-        out
-    } else {
-        String::from_utf8(buf).context("utf8")?
-    };
+    let text =
+        if buf.len() >= 4 && buf[0] == 0x28 && buf[1] == 0xb5 && buf[2] == 0x2f && buf[3] == 0xfd {
+            let mut dec = FrameDecoder::new();
+            dec.init(&buf[..])
+                .map_err(|e| anyhow::anyhow!("zstd decode: {e}"))?;
+            let mut out = String::new();
+            dec.read_to_string(&mut out).context("zstd read")?;
+            out
+        } else {
+            String::from_utf8(buf).context("utf8")?
+        };
 
     // Stream-parse every game with pgn-reader.
     let games = pgn::parse_all(text.as_bytes())?;

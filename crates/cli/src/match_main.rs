@@ -5,7 +5,11 @@ use knightlm_cli::players::{EnginePlayer, ModelPlayer, RandomLegal};
 use knightlm_cli::uci::Player;
 
 #[derive(Parser)]
-#[command(name = "knightlm-match", version, about = "KnightLM headless match driver")]
+#[command(
+    name = "knightlm-match",
+    version,
+    about = "KnightLM headless match driver"
+)]
 struct Args {
     /// White player.
     #[arg(long, default_value = "random")]
@@ -49,7 +53,10 @@ fn make_player(kind: &str, side: &str, args: &Args) -> Result<Box<dyn Player>> {
             Ok(Box::new(EnginePlayer::spawn(&path, args.depth, 120)?))
         }
         "model" => {
-            let url = args.model.clone().with_context(|| format!("{side} model player: --model URL"))?;
+            let url = args
+                .model
+                .clone()
+                .with_context(|| format!("{side} model player: --model URL"))?;
             Ok(Box::new(ModelPlayer::new(&url)))
         }
         other => anyhow::bail!("unknown {side} player kind: {other}"),
@@ -69,7 +76,11 @@ fn main() -> Result<()> {
         pgn_out.push('\n');
         summary.push(format!(
             "game {}: {} {} ({}) [{}]",
-            g + 1, res.result, res.white, res.black, res.termination
+            g + 1,
+            res.result,
+            res.white,
+            res.black,
+            res.termination
         ));
     }
     if let Some(path) = &a.pgn {

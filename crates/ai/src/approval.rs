@@ -219,7 +219,11 @@ impl<'a> ApprovalStore<'a> {
             session_id: session_id.map(str::to_string),
             target_kind: target_kind.to_string(),
             target_id,
-            action: changeset.board.as_ref().map(|board| board.action.clone()).unwrap_or_else(|| call.name.clone()),
+            action: changeset
+                .board
+                .as_ref()
+                .map(|board| board.action.clone())
+                .unwrap_or_else(|| call.name.clone()),
             tool: call.name.clone(),
             summary: changeset.summary.clone(),
             changeset_json: changeset.to_json(),
@@ -236,7 +240,10 @@ impl<'a> ApprovalStore<'a> {
 
     /// The status of one request, for an MCP client that polls.
     pub fn status(&self, id: &str) -> Result<Option<ApprovalStatus>> {
-        Ok(self.db.ai_approval(id)?.map(|row| parse_status(&row.status)))
+        Ok(self
+            .db
+            .ai_approval(id)?
+            .map(|row| parse_status(&row.status)))
     }
 
     /// Everything still actionable, oldest first, after expiring what is due.
@@ -265,12 +272,7 @@ impl<'a> ApprovalStore<'a> {
         Ok(self.db.expire_ai_approvals(now)?)
     }
 
-    fn resolve(
-        &self,
-        id: &str,
-        status: &str,
-        now: i64,
-    ) -> Result<ApprovalRequest, ApprovalError> {
+    fn resolve(&self, id: &str, status: &str, now: i64) -> Result<ApprovalRequest, ApprovalError> {
         let row = self
             .db
             .ai_approval(id)
@@ -358,7 +360,14 @@ mod tests {
 
     #[test]
     fn approvals_changeset_notes_the_move_that_would_be_played() {
-        let changeset = Changeset::for_board("b1", "Board", 3, "play_move", content(&["e4"]), content(&["e4", "e5"]));
+        let changeset = Changeset::for_board(
+            "b1",
+            "Board",
+            3,
+            "play_move",
+            content(&["e4"]),
+            content(&["e4", "e5"]),
+        );
         assert_eq!(changeset.notes, vec!["moves 1 -> 2 (e5)"]);
         assert_eq!(changeset.summary, "play_move: moves 1 -> 2 (e5)");
         let board = changeset.board.expect("board change");
@@ -368,7 +377,14 @@ mod tests {
 
     #[test]
     fn approvals_changeset_says_when_nothing_visible_changes() {
-        let changeset = Changeset::for_board("b1", "Board", 1, "clear_shapes", content(&["e4"]), content(&["e4"]));
+        let changeset = Changeset::for_board(
+            "b1",
+            "Board",
+            1,
+            "clear_shapes",
+            content(&["e4"]),
+            content(&["e4"]),
+        );
         assert_eq!(changeset.notes, vec!["no visible change"]);
     }
 
@@ -382,8 +398,18 @@ mod tests {
         });
         after.notes_md = "a plan".into();
         let changeset = Changeset::for_board("b1", "Board", 1, "draw_arrow", content(&[]), after);
-        assert!(changeset.notes.iter().any(|note| note.contains("arrows 0 -> 1")));
-        assert!(changeset.notes.iter().any(|note| note.contains("notes 0 -> 6 chars")));
+        assert!(
+            changeset
+                .notes
+                .iter()
+                .any(|note| note.contains("arrows 0 -> 1"))
+        );
+        assert!(
+            changeset
+                .notes
+                .iter()
+                .any(|note| note.contains("notes 0 -> 6 chars"))
+        );
     }
 
     #[test]

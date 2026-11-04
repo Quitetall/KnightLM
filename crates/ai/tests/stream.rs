@@ -253,7 +253,10 @@ fn stream_diff_names_the_section_that_drifted() {
     assert!(!diff.identical);
     assert_eq!(diff.changed.len(), 1);
     assert_eq!(diff.changed[0].id, "position");
-    assert_ne!(diff.changed[0].stored_sha256, diff.changed[0].rebuilt_sha256);
+    assert_ne!(
+        diff.changed[0].stored_sha256,
+        diff.changed[0].rebuilt_sha256
+    );
     assert!(diff.added.is_empty() && diff.removed.is_empty());
 }
 

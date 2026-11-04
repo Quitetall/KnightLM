@@ -67,8 +67,7 @@ fn approvals_changeset_shows_the_before_and_after_board() {
         content(&["e4"]),
         content(&["e4", "e5"]),
     );
-    let round_trip: Changeset =
-        serde_json::from_str(&changeset.to_json()).expect("changeset json");
+    let round_trip: Changeset = serde_json::from_str(&changeset.to_json()).expect("changeset json");
     assert_eq!(round_trip.summary, "play_move: moves 1 -> 2 (e5)");
     let board = round_trip.board.expect("board change");
     assert_eq!(board.before.moves, vec!["e4"]);
@@ -92,7 +91,13 @@ fn approvals_request_starts_pending_and_is_pollable() {
     );
 
     let request = store
-        .request(Origin::InApp, Some("session-1"), &move_call(&board, "e4"), &changeset, 1_000)
+        .request(
+            Origin::InApp,
+            Some("session-1"),
+            &move_call(&board, "e4"),
+            &changeset,
+            1_000,
+        )
         .expect("queued");
 
     assert_eq!(request.status, ApprovalStatus::Pending);
@@ -100,20 +105,42 @@ fn approvals_request_starts_pending_and_is_pollable() {
     assert_eq!(request.target_kind.as_deref(), Some("board"));
     assert_eq!(request.target_id.as_deref(), Some(board.id.as_str()));
     assert_eq!(request.session_id.as_deref(), Some("session-1"));
-    assert_eq!(request.expires_at, Some(1_000 + rbc_ai::approval::DEFAULT_TTL_MS));
+    assert_eq!(
+        request.expires_at,
+        Some(1_000 + rbc_ai::approval::DEFAULT_TTL_MS)
+    );
     // An MCP client polls by id.
-    assert_eq!(store.status(&request.id).expect("status"), Some(ApprovalStatus::Pending));
-    assert_eq!(store.get(&request.id).expect("get").expect("row").id, request.id);
+    assert_eq!(
+        store.status(&request.id).expect("status"),
+        Some(ApprovalStatus::Pending)
+    );
+    assert_eq!(
+        store.get(&request.id).expect("get").expect("row").id,
+        request.id
+    );
 }
 
 #[test]
 fn approvals_approve_and_deny_move_only_a_pending_request() {
     let (db, board) = setup();
     let store = ApprovalStore::new(&db);
-    let changeset = Changeset::for_board(board.id.clone(), board.title.clone(), 1, "play_move", content(&[]), content(&["e4"]));
+    let changeset = Changeset::for_board(
+        board.id.clone(),
+        board.title.clone(),
+        1,
+        "play_move",
+        content(&[]),
+        content(&["e4"]),
+    );
 
     let approved = store
-        .request(Origin::InApp, None, &move_call(&board, "e4"), &changeset, 1_000)
+        .request(
+            Origin::InApp,
+            None,
+            &move_call(&board, "e4"),
+            &changeset,
+            1_000,
+        )
         .expect("queued");
     let resolved = store.approve(&approved.id, 2_000).expect("approved");
     assert_eq!(resolved.status, ApprovalStatus::Approved);
@@ -121,7 +148,13 @@ fn approvals_approve_and_deny_move_only_a_pending_request() {
     assert!(store.pending(2_000).expect("pending").is_empty());
 
     let denied = store
-        .request(Origin::InApp, None, &move_call(&board, "e4"), &changeset, 3_000)
+        .request(
+            Origin::InApp,
+            None,
+            &move_call(&board, "e4"),
+            &changeset,
+            3_000,
+        )
         .expect("queued");
     let resolved = store.deny(&denied.id, 4_000).expect("denied");
     assert_eq!(resolved.status, ApprovalStatus::Denied);
@@ -131,14 +164,34 @@ fn approvals_approve_and_deny_move_only_a_pending_request() {
 fn approvals_cannot_be_answered_twice() {
     let (db, board) = setup();
     let store = ApprovalStore::new(&db);
-    let changeset = Changeset::for_board(board.id.clone(), board.title.clone(), 1, "play_move", content(&[]), content(&["e4"]));
+    let changeset = Changeset::for_board(
+        board.id.clone(),
+        board.title.clone(),
+        1,
+        "play_move",
+        content(&[]),
+        content(&["e4"]),
+    );
     let request = store
-        .request(Origin::InApp, None, &move_call(&board, "e4"), &changeset, 1_000)
+        .request(
+            Origin::InApp,
+            None,
+            &move_call(&board, "e4"),
+            &changeset,
+            1_000,
+        )
         .expect("queued");
 
-    store.approve(&request.id, 2_000).expect("first answer wins");
-    let error = store.deny(&request.id, 3_000).expect_err("second answer refused");
-    assert_eq!(error, ApprovalError::AlreadyResolved(ApprovalStatus::Approved));
+    store
+        .approve(&request.id, 2_000)
+        .expect("first answer wins");
+    let error = store
+        .deny(&request.id, 3_000)
+        .expect_err("second answer refused");
+    assert_eq!(
+        error,
+        ApprovalError::AlreadyResolved(ApprovalStatus::Approved)
+    );
     assert_eq!(
         store.status(&request.id).expect("status"),
         Some(ApprovalStatus::Approved),
@@ -150,15 +203,26 @@ fn approvals_cannot_be_answered_twice() {
 fn approvals_expire_at_their_deadline() {
     let (db, board) = setup();
     let store = ApprovalStore::with_ttl(&db, 1_000);
-    let changeset = Changeset::for_board(board.id.clone(), board.title.clone(), 1, "play_move", content(&[]), content(&["e4"]));
+    let changeset = Changeset::for_board(
+        board.id.clone(),
+        board.title.clone(),
+        1,
+        "play_move",
+        content(&[]),
+        content(&["e4"]),
+    );
     let request = store
-        .request(Origin::InApp, None, &move_call(&board, "e4"), &changeset, 10_000)
+        .request(
+            Origin::InApp,
+            None,
+            &move_call(&board, "e4"),
+            &changeset,
+            10_000,
+        )
         .expect("queued");
 
     // A second after the deadline, approving is refused and the row is expired.
-    let error = store
-        .approve(&request.id, 11_000)
-        .expect_err("too late");
+    let error = store.approve(&request.id, 11_000).expect_err("too late");
     assert_eq!(error, ApprovalError::Expired);
     assert_eq!(
         store.status(&request.id).expect("status"),
@@ -170,12 +234,31 @@ fn approvals_expire_at_their_deadline() {
 fn approvals_sweep_expires_what_nobody_answered() {
     let (db, board) = setup();
     let store = ApprovalStore::with_ttl(&db, 1_000);
-    let changeset = Changeset::for_board(board.id.clone(), board.title.clone(), 1, "play_move", content(&[]), content(&["e4"]));
+    let changeset = Changeset::for_board(
+        board.id.clone(),
+        board.title.clone(),
+        1,
+        "play_move",
+        content(&[]),
+        content(&["e4"]),
+    );
     let stale = store
-        .request(Origin::InApp, None, &move_call(&board, "e4"), &changeset, 1_000)
+        .request(
+            Origin::InApp,
+            None,
+            &move_call(&board, "e4"),
+            &changeset,
+            1_000,
+        )
         .expect("queued");
     let fresh = store
-        .request(Origin::InApp, None, &move_call(&board, "e4"), &changeset, 1_500)
+        .request(
+            Origin::InApp,
+            None,
+            &move_call(&board, "e4"),
+            &changeset,
+            1_500,
+        )
         .expect("queued");
 
     // The stale request's deadline is 2_000, the fresh one's is 2_500.
@@ -192,12 +275,31 @@ fn approvals_sweep_expires_what_nobody_answered() {
 fn approvals_pending_is_oldest_first_and_ignores_answered_requests() {
     let (db, board) = setup();
     let store = ApprovalStore::new(&db);
-    let changeset = Changeset::for_board(board.id.clone(), board.title.clone(), 1, "play_move", content(&[]), content(&["e4"]));
+    let changeset = Changeset::for_board(
+        board.id.clone(),
+        board.title.clone(),
+        1,
+        "play_move",
+        content(&[]),
+        content(&["e4"]),
+    );
     let first = store
-        .request(Origin::InApp, None, &move_call(&board, "e4"), &changeset, 1_000)
+        .request(
+            Origin::InApp,
+            None,
+            &move_call(&board, "e4"),
+            &changeset,
+            1_000,
+        )
         .expect("queued");
     let second = store
-        .request(Origin::InApp, None, &move_call(&board, "d4"), &changeset, 2_000)
+        .request(
+            Origin::InApp,
+            None,
+            &move_call(&board, "d4"),
+            &changeset,
+            2_000,
+        )
         .expect("queued");
     store.approve(&second.id, 3_000).expect("approved");
 
@@ -224,14 +326,31 @@ fn approvals_changeset_survives_storage_unchanged() {
     let store = ApprovalStore::new(&db);
     let mut after = content(&["e4"]);
     after.notes_md = "plan".into();
-    let changeset = Changeset::for_board(board.id.clone(), board.title.clone(), 1, "write_note", content(&[]), after);
+    let changeset = Changeset::for_board(
+        board.id.clone(),
+        board.title.clone(),
+        1,
+        "write_note",
+        content(&[]),
+        after,
+    );
     let request = store
-        .request(Origin::Mcp, None, &call("write_note", serde_json::json!({"board_id": board.id})), &changeset, 1_000)
+        .request(
+            Origin::Mcp,
+            None,
+            &call("write_note", serde_json::json!({"board_id": board.id})),
+            &changeset,
+            1_000,
+        )
         .expect("queued");
 
     let stored = rbc_ai::approval::changeset_of(&request).expect("changeset");
     assert_eq!(stored, changeset);
-    assert_eq!(request.origin, Origin::Mcp, "MCP requests keep their origin");
+    assert_eq!(
+        request.origin,
+        Origin::Mcp,
+        "MCP requests keep their origin"
+    );
 }
 
 // --- bypass ----------------------------------------------------------------
@@ -385,7 +504,10 @@ fn approvals_ungranted_write_becomes_a_request_and_never_runs() {
         &mut |event| events.push(event),
     );
 
-    assert!(host.executed.borrow().is_empty(), "the board was never written");
+    assert!(
+        host.executed.borrow().is_empty(),
+        "the board was never written"
+    );
     assert_eq!(outcome.tool_results[0].code, result_code::APPROVAL_REQUIRED);
     let approval_id = outcome.tool_results[0]
         .data
@@ -436,7 +558,10 @@ fn approvals_granted_scope_writes_without_asking() {
     assert_eq!(host.executed.borrow().as_slice(), ["play_move"]);
     assert!(outcome.tool_results[0].ok);
     assert!(
-        ApprovalStore::new(&db).pending(2_000).expect("pending").is_empty(),
+        ApprovalStore::new(&db)
+            .pending(2_000)
+            .expect("pending")
+            .is_empty(),
         "an auto-approved write creates no request"
     );
     let stored = db.board(&board.id).expect("board").expect("row");
@@ -469,5 +594,11 @@ fn approvals_an_mcp_call_cannot_borrow_the_in_app_grant() {
 
     assert!(host.executed.borrow().is_empty());
     assert_eq!(outcome.tool_results[0].code, result_code::APPROVAL_REQUIRED);
-    assert_eq!(ApprovalStore::new(&db).pending(2_000).expect("pending").len(), 1);
+    assert_eq!(
+        ApprovalStore::new(&db)
+            .pending(2_000)
+            .expect("pending")
+            .len(),
+        1
+    );
 }

@@ -28,12 +28,22 @@ fn main() {
     let author = "KnightLM";
     let engine = match a.player.as_str() {
         "engine" => {
-            let path = a.engine.clone().or_else(|| std::env::var("STOCKFISH_PATH").ok())
+            let path = a
+                .engine
+                .clone()
+                .or_else(|| std::env::var("STOCKFISH_PATH").ok())
                 .expect("--engine or STOCKFISH_PATH required for --player engine");
-            UciEngine::new(Box::new(EnginePlayer::spawn(&path, a.depth, 120).expect("spawn engine")), &a.name, author)
+            UciEngine::new(
+                Box::new(EnginePlayer::spawn(&path, a.depth, 120).expect("spawn engine")),
+                &a.name,
+                author,
+            )
         }
         "model" => {
-            let url = a.model.clone().expect("--model URL required for --player model");
+            let url = a
+                .model
+                .clone()
+                .expect("--model URL required for --player model");
             UciEngine::new(Box::new(ModelPlayer::new(&url)), &a.name, author)
         }
         _ => UciEngine::new(Box::new(RandomLegal { seed: a.seed }), &a.name, author),

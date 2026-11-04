@@ -212,7 +212,9 @@ impl Match {
             Color::White => MatchState::AwaitingWhite,
             Color::Black => MatchState::AwaitingBlack,
         };
-        let clock = config.time_control.map(|control| ClockState::start(&control));
+        let clock = config
+            .time_control
+            .map(|control| ClockState::start(&control));
         Ok(Self {
             config,
             state,
@@ -351,7 +353,12 @@ impl Match {
         self.position = next;
         let record = MatchMove {
             ply: self.moves.len() as u32 + 1,
-            color: if color == Color::White { "white" } else { "black" }.into(),
+            color: if color == Color::White {
+                "white"
+            } else {
+                "black"
+            }
+            .into(),
             san,
             uci,
             fen: self.fen(),
@@ -450,7 +457,10 @@ impl Match {
 
     /// Stop the game where it stands; a paused match is not over.
     pub fn pause(&mut self) -> bool {
-        if matches!(self.state, MatchState::Finished | MatchState::Aborted | MatchState::Paused) {
+        if matches!(
+            self.state,
+            MatchState::Finished | MatchState::Aborted | MatchState::Paused
+        ) {
             return false;
         }
         self.state = MatchState::Paused;
@@ -475,11 +485,7 @@ impl Match {
     fn awaiting_state(&self) -> MatchState {
         if self.result.is_some() || self.moves.len() >= self.config.max_plies as usize {
             MatchState::Finished
-        } else if self
-            .position
-            .turn()
-            .eq(&shakmaty::Color::White)
-        {
+        } else if self.position.turn().eq(&shakmaty::Color::White) {
             MatchState::AwaitingWhite
         } else {
             MatchState::AwaitingBlack
@@ -556,9 +562,16 @@ impl Match {
                 (format!("{provider}/{model}"), name.clone())
             }
             (Player::Human { name: w }, Player::Human { name: b }) => (w.clone(), b.clone()),
-            (Player::Model { provider: p1, model: m1 }, Player::Model { provider: p2, model: m2 }) => {
-                (format!("{p1}/{m1}"), format!("{p2}/{m2}"))
-            }
+            (
+                Player::Model {
+                    provider: p1,
+                    model: m1,
+                },
+                Player::Model {
+                    provider: p2,
+                    model: m2,
+                },
+            ) => (format!("{p1}/{m1}"), format!("{p2}/{m2}")),
         };
         out.push_str("[Event \"Assistant match\"]\n");
         if let Some(control) = self.config.time_control {
@@ -572,7 +585,10 @@ impl Match {
         out.push_str(&format!("[Black \"{black}\"]\n"));
         out.push_str(&format!(
             "[Result \"{}\"]\n",
-            self.result.as_ref().map(|r| r.score.as_str()).unwrap_or("*")
+            self.result
+                .as_ref()
+                .map(|r| r.score.as_str())
+                .unwrap_or("*")
         ));
         out.push_str(&format!(
             "[Termination \"{}\"]\n\n",

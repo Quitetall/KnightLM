@@ -232,13 +232,8 @@ pub fn request_move(
             }
         }
     }
-    Err(last_error.unwrap_or_else(|| {
-        error(
-            error_code::PROTOCOL,
-            "the model gave no legal move",
-            true,
-        )
-    }))
+    Err(last_error
+        .unwrap_or_else(|| error(error_code::PROTOCOL, "the model gave no legal move", true)))
 }
 
 /// Ask a model to talk about the position.
@@ -336,11 +331,7 @@ pub fn watch_step(
     cancel: &Cancellation,
 ) -> Result<WatchStep, ErrorInfo> {
     if game.is_paused() {
-        return Err(error(
-            error_code::UNSUPPORTED,
-            "the game is paused",
-            false,
-        ));
+        return Err(error(error_code::UNSUPPORTED, "the game is paused", false));
     }
     let color = game.turn();
     let model = if color == shakmaty::Color::White {

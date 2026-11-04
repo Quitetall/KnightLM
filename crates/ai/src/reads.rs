@@ -154,7 +154,11 @@ impl ToolHost for ReadHost<'_> {
             "search_database" => self.search_database(call),
             "tablebase" => self.tablebase(call),
             "list_workspaces" => self.list_workspaces(call),
-            other => refused(call, result_code::NOT_FOUND, format!("no tool called {other}")),
+            other => refused(
+                call,
+                result_code::NOT_FOUND,
+                format!("no tool called {other}"),
+            ),
         }
     }
 }
@@ -291,7 +295,11 @@ impl ReadHost<'_> {
             .clamp(1, 30) as u32;
         let fen = fen_of(&position);
         match engine.analyse(&fen, depth) {
-            Ok(line) => ok(call, engine_summary(&line), engine_data(&fen, &line, engine)),
+            Ok(line) => ok(
+                call,
+                engine_summary(&line),
+                engine_data(&fen, &line, engine),
+            ),
             Err(message) => refused(call, result_code::INTERNAL, message),
         }
     }
@@ -306,7 +314,11 @@ impl ReadHost<'_> {
         };
         let fen = fen_of(&position);
         match engine.evaluate(&fen) {
-            Ok(line) => ok(call, engine_summary(&line), engine_data(&fen, &line, engine)),
+            Ok(line) => ok(
+                call,
+                engine_summary(&line),
+                engine_data(&fen, &line, engine),
+            ),
             Err(message) => refused(call, result_code::INTERNAL, message),
         }
     }
@@ -365,11 +377,7 @@ impl ReadHost<'_> {
             return unavailable(call, "the game database");
         };
         let Some(query) = call.arguments.get("query").and_then(Value::as_str) else {
-            return refused(
-                call,
-                result_code::INVALID_ARGUMENTS,
-                "query is required",
-            );
+            return refused(call, result_code::INVALID_ARGUMENTS, "query is required");
         };
         match games.search(query) {
             Ok(samples) => {
@@ -407,9 +415,13 @@ impl ReadHost<'_> {
         match tablebase.probe(&fen) {
             Ok(entry) => ok(
                 call,
-                format!("{:?}: {}", entry.outcome, entry.best_move.clone().unwrap_or_default())
-                    .trim()
-                    .to_string(),
+                format!(
+                    "{:?}: {}",
+                    entry.outcome,
+                    entry.best_move.clone().unwrap_or_default()
+                )
+                .trim()
+                .to_string(),
                 serde_json::json!({
                     "board_id": board.id,
                     "fen": fen,
@@ -488,10 +500,11 @@ impl ReadHost<'_> {
 
     fn position(&self, call: &ToolCall) -> Result<(rbc_db::Board, Chess), ToolResult> {
         let board = self.board(call)?;
-        let content = BoardContent::parse(&board.content_json).map_err(|error| internal(call, error))?;
-        let position = content.position(&board.start_fen).map_err(|message| {
-            refused(call, result_code::INTERNAL, message)
-        })?;
+        let content =
+            BoardContent::parse(&board.content_json).map_err(|error| internal(call, error))?;
+        let position = content
+            .position(&board.start_fen)
+            .map_err(|message| refused(call, result_code::INTERNAL, message))?;
         Ok((board, position))
     }
 }

@@ -8,7 +8,10 @@ fn reads_plain_pgn() {
     assert_eq!(recs.len(), 1);
     assert_eq!(recs[0].source, "test-src");
     assert!(recs[0].history_complete);
-    assert_eq!(recs[0].moves, vec!["e2e4","e7e5","g1f3","b8c6","f1b5","a7a6"]);
+    assert_eq!(
+        recs[0].moves,
+        vec!["e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6"]
+    );
 }
 
 #[test]

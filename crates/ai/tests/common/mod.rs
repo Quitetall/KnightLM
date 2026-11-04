@@ -32,12 +32,10 @@ pub enum Reply {
 impl Reply {
     /// A completion whose content is `content`.
     pub fn content(content: &str) -> Self {
-        Self::Json(
-            format!(
-                r#"{{"id":"mock","choices":[{{"message":{{"content":{}}},"finish_reason":"stop"}}],"usage":{{"prompt_tokens":10,"completion_tokens":2}}}}"#,
-                serde_json::to_string(content).expect("json")
-            ),
-        )
+        Self::Json(format!(
+            r#"{{"id":"mock","choices":[{{"message":{{"content":{}}},"finish_reason":"stop"}}],"usage":{{"prompt_tokens":10,"completion_tokens":2}}}}"#,
+            serde_json::to_string(content).expect("json")
+        ))
     }
 
     /// A completion that also carries reasoning.

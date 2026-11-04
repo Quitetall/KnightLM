@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result};
 use knightlm_core::state::GameState;
-use shakmaty::{san::SanPlus, uci::UciMove, CastlingMode, Position};
+use shakmaty::{CastlingMode, Position, san::SanPlus, uci::UciMove};
 
 /// Render a UCI move as SAN in `pos`.
 pub fn to_san<P: Position + Clone>(pos: &P, uci: &str) -> Result<String> {

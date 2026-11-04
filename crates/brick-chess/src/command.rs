@@ -87,7 +87,10 @@ pub enum Event {
         fen: String,
     },
     /// A square was selected (empty targets means a deselect was reported).
-    Selected { square: String, targets: Vec<String> },
+    Selected {
+        square: String,
+        targets: Vec<String>,
+    },
     /// The game ended.
     GameOver { result: String, reason: String },
     /// A requested export.

@@ -27,7 +27,11 @@ fn mock_answers_a_plain_completion_and_records_the_request() {
     let provider = provider(&server);
 
     let response = provider
-        .complete(&request(), &Cancellation::new(), &mut |_event: ProviderEvent| {})
+        .complete(
+            &request(),
+            &Cancellation::new(),
+            &mut |_event: ProviderEvent| {},
+        )
         .expect("completion");
 
     assert_eq!(response.content, "hi there");
@@ -36,7 +40,11 @@ fn mock_answers_a_plain_completion_and_records_the_request() {
     assert_eq!(sent[0].path, "/v1/chat");
     // The body is the OpenAI chat-completions shape, with the model named.
     // The adapter pretty-prints, so compare without whitespace.
-    let compact: String = sent[0].body.chars().filter(|c| !c.is_whitespace()).collect();
+    let compact: String = sent[0]
+        .body
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
     assert!(compact.contains("\"model\":\"m1\""), "{}", sent[0].body);
     assert!(compact.contains("hello"), "{}", sent[0].body);
     assert!(compact.contains("\"messages\""), "{}", sent[0].body);
@@ -67,7 +75,11 @@ fn mock_reasoning_travels_with_the_answer() {
     let server = MockServer::start(vec![Reply::content_with_reasoning("Nf3", "develops")]);
     let provider = provider(&server);
     let response = provider
-        .complete(&request(), &Cancellation::new(), &mut |_event: ProviderEvent| {})
+        .complete(
+            &request(),
+            &Cancellation::new(),
+            &mut |_event: ProviderEvent| {},
+        )
         .expect("completion");
     assert_eq!(response.content, "Nf3");
     assert_eq!(response.reasoning.as_deref(), Some("develops"));
@@ -78,7 +90,11 @@ fn mock_429_is_rate_limited_and_retryable() {
     let server = MockServer::start(vec![Reply::rate_limited()]);
     let provider = provider(&server);
     let failure = provider
-        .complete(&request(), &Cancellation::new(), &mut |_event: ProviderEvent| {})
+        .complete(
+            &request(),
+            &Cancellation::new(),
+            &mut |_event: ProviderEvent| {},
+        )
         .expect_err("429");
     assert_eq!(failure.code, error_code::RATE_LIMITED);
     assert!(failure.retryable, "a 429 is worth retrying");
@@ -89,7 +105,11 @@ fn mock_500_is_a_provider_error_not_a_retry_forever() {
     let server = MockServer::start(vec![Reply::server_error()]);
     let provider = provider(&server);
     let failure = provider
-        .complete(&request(), &Cancellation::new(), &mut |_event: ProviderEvent| {})
+        .complete(
+            &request(),
+            &Cancellation::new(),
+            &mut |_event: ProviderEvent| {},
+        )
         .expect_err("500");
     assert_eq!(failure.code, error_code::SERVER, "{}", failure.message);
     // It answered once; the adapter must not hammer a broken endpoint.
@@ -99,12 +119,19 @@ fn mock_500_is_a_provider_error_not_a_retry_forever() {
 #[test]
 fn mock_that_never_answers_times_out() {
     let server = MockServer::start(vec![Reply::Hang]);
-    let config = ProviderConfig::openai_compatible(server.url(), "mock", "m1")
-        .with_timeouts(Duration::from_millis(200), Duration::from_millis(200), Duration::from_millis(400));
+    let config = ProviderConfig::openai_compatible(server.url(), "mock", "m1").with_timeouts(
+        Duration::from_millis(200),
+        Duration::from_millis(200),
+        Duration::from_millis(400),
+    );
     let provider = OpenAiProvider::new(config).expect("provider");
 
     let failure = provider
-        .complete(&request(), &Cancellation::new(), &mut |_event: ProviderEvent| {})
+        .complete(
+            &request(),
+            &Cancellation::new(),
+            &mut |_event: ProviderEvent| {},
+        )
         .expect_err("no answer");
     assert_eq!(failure.code, error_code::TIMEOUT, "{}", failure.message);
 }
@@ -114,7 +141,11 @@ fn mock_that_drops_the_connection_is_an_error_not_a_panic() {
     let server = MockServer::start(vec![Reply::Drop]);
     let provider = provider(&server);
     let failure = provider
-        .complete(&request(), &Cancellation::new(), &mut |_event: ProviderEvent| {})
+        .complete(
+            &request(),
+            &Cancellation::new(),
+            &mut |_event: ProviderEvent| {},
+        )
         .expect_err("dropped");
     assert!(!failure.message.is_empty());
     assert!(
@@ -188,7 +219,11 @@ fn mock_tool_call_is_parsed_with_its_arguments() {
     )]);
     let provider = provider(&server);
     let response = provider
-        .complete(&request(), &Cancellation::new(), &mut |_event: ProviderEvent| {})
+        .complete(
+            &request(),
+            &Cancellation::new(),
+            &mut |_event: ProviderEvent| {},
+        )
         .expect("completion");
 
     assert_eq!(response.tool_calls.len(), 1);
@@ -196,5 +231,8 @@ fn mock_tool_call_is_parsed_with_its_arguments() {
     assert_eq!(call.name, "play_move");
     assert_eq!(call.arguments["move"], serde_json::json!("e4"));
     assert_eq!(call.arguments["expected_revision"], serde_json::json!(1));
-    assert_eq!(response.stop_reason, rbc_ai::protocol::StopReason::ToolCalls);
+    assert_eq!(
+        response.stop_reason,
+        rbc_ai::protocol::StopReason::ToolCalls
+    );
 }

@@ -402,7 +402,9 @@ impl<'a> AgentLoop<'a> {
                 }
                 if let (Some(board_id), Some(revision)) = (
                     result.data.as_ref().and_then(|data| {
-                        data.get("board_id").and_then(Value::as_str).map(str::to_string)
+                        data.get("board_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
                     }),
                     result.revision,
                 ) {

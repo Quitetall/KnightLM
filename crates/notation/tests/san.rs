@@ -1,8 +1,11 @@
 use knightlm_notation::san::{parse_san, to_san};
-use shakmaty::{fen::Fen, uci::UciMove, CastlingMode, Chess, Position};
+use shakmaty::{CastlingMode, Chess, Position, fen::Fen, uci::UciMove};
 
 fn pos_from_fen(fen: &str) -> Chess {
-    Fen::from_ascii(fen.as_bytes()).unwrap().into_position(CastlingMode::Standard).unwrap()
+    Fen::from_ascii(fen.as_bytes())
+        .unwrap()
+        .into_position(CastlingMode::Standard)
+        .unwrap()
 }
 
 #[test]
@@ -14,7 +17,10 @@ fn every_legal_move_round_trips_from_startpos() {
         let uci = UciMove::from_move(mv, CastlingMode::Standard).to_string();
         let san = to_san(&pos, &uci).expect("to_san");
         let parsed = parse_san(&pos, &san).expect("parse_san");
-        assert_eq!(parsed, uci, "round-trip failed for {uci} -> {san} -> {parsed}");
+        assert_eq!(
+            parsed, uci,
+            "round-trip failed for {uci} -> {san} -> {parsed}"
+        );
     }
 }
 
@@ -24,7 +30,10 @@ fn kingside_castling_san() {
     let mut pos = Chess::default();
     let mut sans = Vec::new();
     for uci in &moves {
-        let mv = UciMove::from_ascii(uci.as_bytes()).unwrap().to_move(&pos).unwrap();
+        let mv = UciMove::from_ascii(uci.as_bytes())
+            .unwrap()
+            .to_move(&pos)
+            .unwrap();
         sans.push(to_san(&pos, uci).unwrap());
         pos = pos.play(mv).unwrap();
     }
@@ -33,7 +42,10 @@ fn kingside_castling_san() {
     let mut p2 = Chess::default();
     for san in &sans {
         let uci = parse_san(&p2, san).expect("parse");
-        let mv = UciMove::from_ascii(uci.as_bytes()).unwrap().to_move(&p2).unwrap();
+        let mv = UciMove::from_ascii(uci.as_bytes())
+            .unwrap()
+            .to_move(&p2)
+            .unwrap();
         p2 = p2.play(mv).unwrap();
     }
     assert_eq!(p2.board(), pos.board());
@@ -64,19 +76,27 @@ fn refusal_bad_san() {
 
 #[test]
 fn round_trip_short_game() {
-    let ucis = ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6", "e1g1", "f6e4", "d2d4", "d7d5"];
+    let ucis = [
+        "e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6", "e1g1", "f6e4", "d2d4", "d7d5",
+    ];
     let mut pos = Chess::default();
     let mut sans = Vec::new();
     for uci in &ucis {
         let san = to_san(&pos, uci).expect(uci);
         sans.push(san);
-        let mv = UciMove::from_ascii(uci.as_bytes()).unwrap().to_move(&pos).unwrap();
+        let mv = UciMove::from_ascii(uci.as_bytes())
+            .unwrap()
+            .to_move(&pos)
+            .unwrap();
         pos = pos.play(mv).unwrap();
     }
     let mut p2 = Chess::default();
     for san in &sans {
         let uci = parse_san(&p2, san).expect(san);
-        let mv = UciMove::from_ascii(uci.as_bytes()).unwrap().to_move(&p2).unwrap();
+        let mv = UciMove::from_ascii(uci.as_bytes())
+            .unwrap()
+            .to_move(&p2)
+            .unwrap();
         p2 = p2.play(mv).unwrap();
     }
     assert_eq!(p2.board(), pos.board());

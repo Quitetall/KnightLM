@@ -162,7 +162,11 @@ impl ToolHost for BoardWriteHost<'_> {
             "list_studies" => self.list_studies(call),
             "get_study" => self.get_study(call),
             "create_study" => self.create_study(call),
-            other => refused(call, result_code::NOT_FOUND, format!("no tool called {other}")),
+            other => refused(
+                call,
+                result_code::NOT_FOUND,
+                format!("no tool called {other}"),
+            ),
         }
     }
 }
@@ -228,7 +232,9 @@ impl BoardWriteHost<'_> {
         }
         let color = string_arg(call, "color").unwrap_or_else(|| "green".to_string());
         self.edit(call, |content| {
-            content.arrows.retain(|arrow| arrow.from != from || arrow.to != to);
+            content
+                .arrows
+                .retain(|arrow| arrow.from != from || arrow.to != to);
             content.arrows.push(Arrow {
                 from: from.clone(),
                 to: to.clone(),
@@ -286,7 +292,9 @@ impl BoardWriteHost<'_> {
         }
         self.edit(call, |content| {
             let ply = ply as u32;
-            content.annotations.retain(|annotation| annotation.ply != ply);
+            content
+                .annotations
+                .retain(|annotation| annotation.ply != ply);
             content.annotations.push(PlyAnnotation {
                 ply,
                 nag: nag.clone(),
@@ -375,8 +383,11 @@ impl BoardWriteHost<'_> {
         };
         match self.db.set_board_mutability(&board_id, mutability) {
             Ok(board) => {
-                let mut result =
-                    ok(call, format!("board is now {mutability}"), board_data(&board));
+                let mut result = ok(
+                    call,
+                    format!("board is now {mutability}"),
+                    board_data(&board),
+                );
                 result.revision = Some(board.revision as u64);
                 result
             }
@@ -429,11 +440,7 @@ impl BoardWriteHost<'_> {
         match boards {
             Ok(boards) => {
                 let rows: Vec<Value> = boards.iter().map(board_data).collect();
-                ok(
-                    call,
-                    format!("{} board(s)", rows.len()),
-                    Value::Array(rows),
-                )
+                ok(call, format!("{} board(s)", rows.len()), Value::Array(rows))
             }
             Err(error) => refused(
                 call,
@@ -627,9 +634,11 @@ impl BoardWriteHost<'_> {
                 result_code::COPY_REQUIRED,
                 "the board is locked or published; copy it and edit the copy".to_string(),
             ),
-            Err(BoardWriteError::NotFound(id)) => {
-                refused(call, result_code::NOT_FOUND, format!("no board with id {id}"))
-            }
+            Err(BoardWriteError::NotFound(id)) => refused(
+                call,
+                result_code::NOT_FOUND,
+                format!("no board with id {id}"),
+            ),
             Err(BoardWriteError::Invalid(message) | BoardWriteError::Db(message)) => {
                 refused(call, result_code::INTERNAL, message)
             }
@@ -668,9 +677,7 @@ fn default_fen() -> String {
 
 fn square_ok(name: &str) -> bool {
     let bytes = name.as_bytes();
-    bytes.len() == 2
-        && (b'a'..=b'h').contains(&bytes[0])
-        && (b'1'..=b'8').contains(&bytes[1])
+    bytes.len() == 2 && (b'a'..=b'h').contains(&bytes[0]) && (b'1'..=b'8').contains(&bytes[1])
 }
 
 fn string_arg(call: &ToolCall, name: &str) -> Option<String> {
@@ -693,7 +700,6 @@ fn board_data(board: &Board) -> Value {
         "lifecycle": board.lifecycle,
     })
 }
-
 
 /// A newly created or copied board, reported as an applied write.
 fn created(call: &ToolCall, board: &Board) -> ToolResult {

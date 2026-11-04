@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use rbc_ai::game::{Match, MatchConfig, MatchState, Player, WatchSettings};
 use rbc_ai::play::{PlayPolicy, WatchSeats, model_seat, watch_seats, watch_step};
-use rbc_ai::protocol::{ErrorInfo, ModelRef, StopReason};
+use rbc_ai::protocol::{ErrorInfo, StopReason};
 use rbc_ai::provider::{
     Cancellation, CompletionRequest, CompletionResponse, Provider, ProviderEvent, error_code,
 };
@@ -21,7 +21,9 @@ impl Scripted {
             replies: Mutex::new(
                 replies
                     .into_iter()
-                    .map(|(content, reasoning)| (content.to_string(), reasoning.map(str::to_string)))
+                    .map(|(content, reasoning)| {
+                        (content.to_string(), reasoning.map(str::to_string))
+                    })
                     .collect(),
             ),
             seen: Mutex::new(0),
@@ -197,10 +199,7 @@ fn watch_annotates_only_the_side_whose_toggle_is_on() {
 #[test]
 fn watch_pgn_is_annotated_when_both_sides_ask() {
     let mut game = watched(WatchSettings::both());
-    let provider = Scripted::new(vec![
-        ("e4", Some("centre first")),
-        ("e5", Some("mirror")),
-    ]);
+    let provider = Scripted::new(vec![("e4", Some("centre first")), ("e5", Some("mirror"))]);
     let seats = seats();
     watch_step(&mut game, &provider, &seats, &Cancellation::new()).expect("white");
     watch_step(&mut game, &provider, &seats, &Cancellation::new()).expect("black");

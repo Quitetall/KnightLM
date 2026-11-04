@@ -13,8 +13,8 @@
 use std::sync::Mutex;
 
 use rbc_ai::game::{Match, MatchConfig, MatchState, Player, TimeControl};
-use rbc_ai::play::{PlayPolicy, WatchSeats, request_move, watch_seats, watch_step};
-use rbc_ai::protocol::{ErrorInfo, ModelRef, StopReason};
+use rbc_ai::play::{WatchSeats, watch_seats, watch_step};
+use rbc_ai::protocol::{ErrorInfo, StopReason};
 use rbc_ai::provider::{
     Cancellation, CompletionRequest, CompletionResponse, Provider, ProviderEvent, error_code,
 };
@@ -34,7 +34,12 @@ struct Script {
 impl Script {
     fn replies(moves: &[&str]) -> Self {
         Self {
-            steps: Mutex::new(moves.iter().map(|m| Scripted::Reply((*m).to_string())).collect()),
+            steps: Mutex::new(
+                moves
+                    .iter()
+                    .map(|m| Scripted::Reply((*m).to_string()))
+                    .collect(),
+            ),
             asked: Mutex::new(0),
         }
     }
@@ -156,12 +161,16 @@ fn match_forfeits_the_turn_when_no_legal_move_comes() {
     let script = Script::replies(&["e5", "e5", "e5"]);
     let seats = seats(&game);
 
-    let failure = watch_step(&mut game, &script, &seats, &Cancellation::new())
-        .expect_err("no legal move");
+    let failure =
+        watch_step(&mut game, &script, &seats, &Cancellation::new()).expect_err("no legal move");
 
     assert_eq!(failure.code, error_code::PROTOCOL);
     assert!(game.moves().is_empty(), "nothing was recorded");
-    assert_eq!(game.state(), &MatchState::AwaitingWhite, "it is still white's turn");
+    assert_eq!(
+        game.state(),
+        &MatchState::AwaitingWhite,
+        "it is still white's turn"
+    );
     assert!(game.result().is_none(), "a forfeited turn is not a result");
 }
 
@@ -178,8 +187,8 @@ fn match_leaves_the_game_unrated_when_the_provider_times_out() {
     });
     let seats = seats(&game);
 
-    let failure = watch_step(&mut game, &script, &seats, &Cancellation::new())
-        .expect_err("timeout");
+    let failure =
+        watch_step(&mut game, &script, &seats, &Cancellation::new()).expect_err("timeout");
 
     assert_eq!(failure.code, error_code::TIMEOUT);
     assert!(game.result().is_none(), "a timeout is not a draw or a loss");
@@ -200,8 +209,8 @@ fn match_leaves_the_game_unrated_when_the_provider_errors() {
     });
     let seats = seats(&game);
 
-    let failure = watch_step(&mut game, &script, &seats, &Cancellation::new())
-        .expect_err("server error");
+    let failure =
+        watch_step(&mut game, &script, &seats, &Cancellation::new()).expect_err("server error");
     assert_eq!(failure.code, error_code::SERVER);
     assert!(game.result().is_none());
     assert_eq!(game.moves().len(), 0);
@@ -224,7 +233,11 @@ fn match_ends_on_checkmate() {
     let result = game.result().expect("a result");
     assert_eq!(game.state(), &MatchState::Finished);
     assert_eq!(result.score, "0-1", "black delivered mate");
-    assert!(result.termination.contains("mate"), "{}", result.termination);
+    assert!(
+        result.termination.contains("mate"),
+        "{}",
+        result.termination
+    );
     assert!(game.legal_moves().is_empty(), "the game is over");
     // A finished game refuses further play.
     assert!(watch_step(&mut game, &script, &seats, &Cancellation::new()).is_err());
@@ -242,7 +255,11 @@ fn match_ends_on_resignation() {
     let result = game.result().expect("a result");
     assert_eq!(result.score, "0-1", "white resigned");
     assert_eq!(game.state(), &MatchState::Finished);
-    assert!(result.termination.contains("resign"), "{}", result.termination);
+    assert!(
+        result.termination.contains("resign"),
+        "{}",
+        result.termination
+    );
 }
 
 #[test]
@@ -258,7 +275,11 @@ fn match_ends_at_the_ply_limit() {
 
     assert_eq!(game.state(), &MatchState::Finished);
     let result = game.result().expect("a result");
-    assert!(result.termination.contains("plies"), "{}", result.termination);
+    assert!(
+        result.termination.contains("plies"),
+        "{}",
+        result.termination
+    );
     assert_eq!(result.score, "1/2-1/2", "a truncated game scores as a draw");
 }
 
@@ -282,5 +303,9 @@ fn match_clock_runs_and_a_flag_falls() {
     // After e4 it is black's turn, so it is black's clock that runs out.
     let flagged = game.tick(1_500).expect("the side to move ran out of time");
     assert_eq!(flagged.score, "1-0", "black flagged");
-    assert!(flagged.termination.contains("time"), "{}", flagged.termination);
+    assert!(
+        flagged.termination.contains("time"),
+        "{}",
+        flagged.termination
+    );
 }

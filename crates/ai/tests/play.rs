@@ -115,7 +115,11 @@ fn play_policy_competitive_is_moves_only() {
     ] {
         let refusal = policy.check(action).expect("refused");
         assert_eq!(refusal.code, error_code::UNSUPPORTED);
-        assert!(refusal.message.contains("competitive"), "{}", refusal.message);
+        assert!(
+            refusal.message.contains("competitive"),
+            "{}",
+            refusal.message
+        );
     }
 }
 
@@ -129,7 +133,10 @@ fn play_policy_casual_allows_the_conversation() {
         PlayAction::Engine,
         PlayAction::Takeback,
     ] {
-        assert!(policy.check(action).is_none(), "{action:?} should be allowed");
+        assert!(
+            policy.check(action).is_none(),
+            "{action:?} should be allowed"
+        );
     }
     assert_eq!(
         policy.keep_reasoning(Some("because".into())),
@@ -177,7 +184,10 @@ fn play_asks_for_a_move_and_records_it() {
         .content
         .clone()
         .expect("system prompt");
-    assert!(prompt.contains("FEN: rnbqkbnr/pppppppp/8/8/4P3"), "{prompt}");
+    assert!(
+        prompt.contains("FEN: rnbqkbnr/pppppppp/8/8/4P3"),
+        "{prompt}"
+    );
     assert!(prompt.contains("Your side: black"));
     assert!(prompt.contains("Legal moves:"));
     assert!(prompt.contains("exactly one move"));
@@ -205,7 +215,12 @@ fn play_retries_an_illegal_reply_with_the_reason() {
     // The retry carried the refusal back to the model.
     let retry = &provider.requests()[1];
     let last = retry.messages.last().expect("retry message");
-    assert!(last.content.as_deref().unwrap_or("").contains("not a legal move"));
+    assert!(
+        last.content
+            .as_deref()
+            .unwrap_or("")
+            .contains("not a legal move")
+    );
 }
 
 #[test]
@@ -324,7 +339,11 @@ fn play_takeback_restores_the_position() {
     assert_eq!(taken.san, "Nf3");
     assert_eq!(game.moves().len(), 2);
     assert_ne!(game.fen(), before);
-    assert_eq!(game.turn(), shakmaty::Color::White, "white is to move again");
+    assert_eq!(
+        game.turn(),
+        shakmaty::Color::White,
+        "white is to move again"
+    );
 
     // Two more takebacks reach the start, and then there is nothing to take.
     game.takeback();
@@ -345,7 +364,10 @@ fn play_takeback_is_refused_once_the_match_is_finished() {
     }
     game.resign(shakmaty::Color::Black);
     assert_eq!(game.state(), &MatchState::Finished);
-    assert!(game.takeback().is_none(), "a finished match is not reopened");
+    assert!(
+        game.takeback().is_none(),
+        "a finished match is not reopened"
+    );
 }
 
 #[test]
@@ -355,12 +377,8 @@ fn play_finds_the_model_seat() {
     assert_eq!(seat.qualified_id(), "scripted/m1");
 
     let human_only = Match::new(MatchConfig {
-        white: Player::Human {
-            name: "a".into(),
-        },
-        black: Player::Human {
-            name: "b".into(),
-        },
+        white: Player::Human { name: "a".into() },
+        black: Player::Human { name: "b".into() },
         ..MatchConfig::default()
     })
     .expect("match");
@@ -373,5 +391,8 @@ fn play_prompt_is_explicit_about_the_side_and_format() {
     let prompt = move_prompt(&game, &PlayPolicy::competitive());
     assert!(prompt.contains("Your side: white"));
     assert!(prompt.contains("Reply with exactly one move"));
-    assert!(prompt.contains("Nf3") || prompt.contains("g1f3"), "examples are given");
+    assert!(
+        prompt.contains("Nf3") || prompt.contains("g1f3"),
+        "examples are given"
+    );
 }

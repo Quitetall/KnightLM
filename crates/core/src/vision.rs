@@ -50,7 +50,11 @@ pub fn render_svg(state: &GameState, black_bottom: bool, blue_theme: bool) -> St
 ///
 /// `orientation_white_bottom` controls which side is at the bottom. This is a
 /// render, not a recognizer: it draws the board, it does not read images.
-pub fn render_glyph_svg(state: &GameState, orientation_white_bottom: bool, blue_theme: bool) -> String {
+pub fn render_glyph_svg(
+    state: &GameState,
+    orientation_white_bottom: bool,
+    blue_theme: bool,
+) -> String {
     let fen = state.fen();
     let mut squares = Vec::new();
     for c in fen.split_whitespace().next().unwrap().chars() {
@@ -67,8 +71,18 @@ pub fn render_glyph_svg(state: &GameState, orientation_white_bottom: bool, blue_
     };
     let glyph = |p: char| -> char {
         match p {
-            'K' => '♔', 'Q' => '♕', 'R' => '♖', 'B' => '♗', 'N' => '♘', 'P' => '♙',
-            'k' => '♚', 'q' => '♛', 'r' => '♜', 'b' => '♝', 'n' => '♞', 'p' => '♟',
+            'K' => '♔',
+            'Q' => '♕',
+            'R' => '♖',
+            'B' => '♗',
+            'N' => '♘',
+            'P' => '♙',
+            'k' => '♚',
+            'q' => '♛',
+            'r' => '♜',
+            'b' => '♝',
+            'n' => '♞',
+            'p' => '♟',
             _ => ' ',
         }
     };
@@ -77,7 +91,11 @@ pub fn render_glyph_svg(state: &GameState, orientation_white_bottom: bool, blue_
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"512\" height=\"512\" viewBox=\"0 0 512 512\">\n"
     );
     for display in 0..64usize {
-        let index = if orientation_white_bottom { display } else { 63 - display };
+        let index = if orientation_white_bottom {
+            display
+        } else {
+            63 - display
+        };
         let x = (display % 8) as u32 * size;
         let y = (display / 8) as u32 * size;
         svg.push_str(&format!(
@@ -86,7 +104,11 @@ pub fn render_glyph_svg(state: &GameState, orientation_white_bottom: bool, blue_
         ));
         let piece = squares[index];
         if piece != ' ' {
-            let ink = if piece.is_ascii_uppercase() { "#1a1a1a" } else { "#1a1a1a" };
+            let ink = if piece.is_ascii_uppercase() {
+                "#1a1a1a"
+            } else {
+                "#1a1a1a"
+            };
             let g = glyph(piece);
             svg.push_str(&format!(
                 "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" font-family=\"DejaVu Sans, Noto Sans Symbols, sans-serif\" font-size=\"52\" fill=\"{ink}\">{}</text>\n",

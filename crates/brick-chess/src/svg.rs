@@ -5,7 +5,7 @@
 //! scenes keep this interchangeable with a Leptos/egui front end.
 
 use crate::command::Shape;
-use crate::scene::{index_to_name, Color, Kind, Scene};
+use crate::scene::{Color, Kind, Scene, index_to_name};
 use crate::widget::{Orientation, Theme};
 
 const SIZE: f64 = 512.0;
@@ -20,18 +20,30 @@ fn palette(theme: Theme) -> [&'static str; 2] {
     }
 }
 
-fn piece_svg(set: crate::pieces::PieceSet, kind: Kind, color: Color, x: f64, y: f64, size: f64) -> String {
+fn piece_svg(
+    set: crate::pieces::PieceSet,
+    kind: Kind,
+    color: Color,
+    x: f64,
+    y: f64,
+    size: f64,
+) -> String {
     // Scale by the set's own viewBox, honouring a non-zero min-x/min-y (pixel set).
     let vb = crate::pieces::view_box(set);
-    let nums: Vec<f64> = vb.split_whitespace().filter_map(|t| t.parse().ok()).collect();
-    let (min_x, min_y, w) = if nums.len() == 4 { (nums[0], nums[1], nums[2]) } else { (0.0, 0.0, 800.0) };
+    let nums: Vec<f64> = vb
+        .split_whitespace()
+        .filter_map(|t| t.parse().ok())
+        .collect();
+    let (min_x, min_y, w) = if nums.len() == 4 {
+        (nums[0], nums[1], nums[2])
+    } else {
+        (0.0, 0.0, 800.0)
+    };
     let scale = size / w;
     let tx = x - min_x * scale;
     let ty = y - min_y * scale;
     let markup = crate::pieces::piece_markup(set, kind, color);
-    format!(
-        "<g transform=\"translate({tx:.3},{ty:.3}) scale({scale:.6})\">{markup}</g>"
-    )
+    format!("<g transform=\"translate({tx:.3},{ty:.3}) scale({scale:.6})\">{markup}</g>")
 }
 
 fn shape_color(name: &str) -> &'static str {
@@ -46,9 +58,7 @@ fn shape_color(name: &str) -> &'static str {
 
 fn center(idx: usize, scene: &Scene) -> (f64, f64) {
     // Find the display cell for this board index under the scene's orientation.
-    let display = (0..64)
-        .find(|&d| scene.square_at(d) == idx)
-        .unwrap_or(idx);
+    let display = (0..64).find(|&d| scene.square_at(d) == idx).unwrap_or(idx);
     let x = (display % 8) as f64 * SQUARE + SQUARE / 2.0;
     let y = (display / 8) as f64 * SQUARE + SQUARE / 2.0;
     (x, y)
@@ -65,7 +75,11 @@ pub fn render(scene: &Scene) -> String {
     for display in 0..64 {
         let x = (display % 8) as f64 * SQUARE;
         let y = (display / 8) as f64 * SQUARE;
-        let fill = if scene.is_light(display) { colors[0] } else { colors[1] };
+        let fill = if scene.is_light(display) {
+            colors[0]
+        } else {
+            colors[1]
+        };
         svg.push_str(&format!(
             "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{SQUARE}\" height=\"{SQUARE}\" fill=\"{fill}\"/>\n"
         ));

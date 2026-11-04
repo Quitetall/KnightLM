@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use knightlm_core::state::{GameRecord, GameState, START_FEN};
 use knightlm_core::SCHEMA_VERSION;
+use knightlm_core::state::{GameRecord, GameState, START_FEN};
 use serde::Serialize;
 use std::fmt::Write as _;
 
@@ -32,11 +32,7 @@ fn start() -> GameState {
 
 /// Play one game between two players. White and black take turns. Returns the
 /// result with per-ply UCI moves and the SANs (for PGN export).
-pub fn play_game(
-    white: &dyn Player,
-    black: &dyn Player,
-    max_plies: usize,
-) -> Result<MatchResult> {
+pub fn play_game(white: &dyn Player, black: &dyn Player, max_plies: usize) -> Result<MatchResult> {
     let mut state = start();
     let mut sans = Vec::new();
     let mut moves = Vec::new();
@@ -45,17 +41,51 @@ pub fn play_game(
     loop {
         let facts = state.facts();
         if facts.checkmate {
-            let result = if state.record().moves.len() % 2 == 0 { "1-0" } else { "0-1" };
-            return Ok(finish(moves, sans, result, "checkmate".into(), white.name(), black.name()));
+            let result = if state.record().moves.len() % 2 == 0 {
+                "1-0"
+            } else {
+                "0-1"
+            };
+            return Ok(finish(
+                moves,
+                sans,
+                result,
+                "checkmate".into(),
+                white.name(),
+                black.name(),
+            ));
         }
         if facts.stalemate {
-            return Ok(finish(moves, sans, "1/2-1/2", "stalemate".into(), white.name(), black.name()));
+            return Ok(finish(
+                moves,
+                sans,
+                "1/2-1/2",
+                "stalemate".into(),
+                white.name(),
+                black.name(),
+            ));
         }
         if facts.terminal_reason.is_some() {
-            return Ok(finish(moves, sans, "1/2-1/2", facts.terminal_reason.unwrap_or_else(|| "terminal".to_string()), white.name(), black.name()));
+            return Ok(finish(
+                moves,
+                sans,
+                "1/2-1/2",
+                facts
+                    .terminal_reason
+                    .unwrap_or_else(|| "terminal".to_string()),
+                white.name(),
+                black.name(),
+            ));
         }
         if plies >= max_plies {
-            return Ok(finish(moves, sans, "1/2-1/2", "move limit".into(), white.name(), black.name()));
+            return Ok(finish(
+                moves,
+                sans,
+                "1/2-1/2",
+                "move limit".into(),
+                white.name(),
+                black.name(),
+            ));
         }
         let white_to_move = state.record().moves.len() % 2 == 0;
         let mv = if white_to_move {
@@ -69,7 +99,10 @@ pub fn play_game(
                 moves,
                 sans,
                 result,
-                format!("illegal move by {}", if white_to_move { "white" } else { "black" }),
+                format!(
+                    "illegal move by {}",
+                    if white_to_move { "white" } else { "black" }
+                ),
                 white.name(),
                 black.name(),
             ));
@@ -90,7 +123,14 @@ fn finish(
     white: &str,
     black: &str,
 ) -> MatchResult {
-    MatchResult { moves, sans, result: result.to_owned(), termination, white: white.to_owned(), black: black.to_owned() }
+    MatchResult {
+        moves,
+        sans,
+        result: result.to_owned(),
+        termination,
+        white: white.to_owned(),
+        black: black.to_owned(),
+    }
 }
 
 /// Render a MatchResult as a PGN game string.

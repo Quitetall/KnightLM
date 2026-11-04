@@ -36,7 +36,8 @@ fn play(moves: &[&str]) -> Match {
 
 #[test]
 fn match_config_round_trips_through_json_with_and_without_a_clock() {
-    let untimed: MatchConfig = serde_json::from_str(&serde_json::to_string(&untimed()).unwrap()).unwrap();
+    let untimed: MatchConfig =
+        serde_json::from_str(&serde_json::to_string(&untimed()).unwrap()).unwrap();
     assert!(untimed.time_control.is_none());
 
     let with_clock: MatchConfig =
@@ -178,7 +179,11 @@ fn match_clock_charges_the_side_to_move_and_adds_the_increment() {
     // White thinks for 4s and moves.
     game.apply_at("e4", 4_000).expect("e4");
     let clock = game.clock().expect("clock");
-    assert_eq!(clock.white_ms, 60_000 - 4_000 + 1_000, "4s spent, 1s increment");
+    assert_eq!(
+        clock.white_ms,
+        60_000 - 4_000 + 1_000,
+        "4s spent, 1s increment"
+    );
     assert_eq!(clock.black_ms, 60_000);
 
     // Black thinks for 2.5s.
@@ -209,7 +214,10 @@ fn match_clock_refuses_to_move_once_flagged() {
     let error = game.apply_at("e4", 2_500).expect_err("out of time");
     assert!(error.to_string().contains("clock"));
     assert_eq!(game.state(), &MatchState::Finished);
-    assert!(game.tick(3_000).is_none(), "a flagged match has nothing to charge");
+    assert!(
+        game.tick(3_000).is_none(),
+        "a flagged match has nothing to charge"
+    );
 }
 
 #[test]
@@ -255,7 +263,10 @@ fn match_pgn_names_both_players_and_the_result() {
     assert!(pgn.contains("[Termination \"checkmate\"]"));
     assert!(pgn.contains("1. e4 e5 2. Qh5 Nc6"));
     assert!(pgn.trim_end().ends_with("1-0"));
-    assert!(!pgn.contains("[TimeControl"), "an untimed match has no clock header");
+    assert!(
+        !pgn.contains("[TimeControl"),
+        "an untimed match has no clock header"
+    );
 }
 
 #[test]
@@ -271,7 +282,11 @@ fn match_pgn_records_an_unfinished_match_as_open() {
 fn match_pgn_carries_the_time_control_when_timed() {
     let mut game = Match::new(timed(300_000, 2_000)).unwrap();
     game.apply("e4").unwrap();
-    assert!(game.pgn().contains("[TimeControl \"300:2\"]"), "{}", game.pgn());
+    assert!(
+        game.pgn().contains("[TimeControl \"300:2\"]"),
+        "{}",
+        game.pgn()
+    );
 }
 
 #[test]
@@ -334,7 +349,9 @@ fn match_survives_the_repository_and_resumes() {
     let mut resumed = Match::from_snapshot(snapshot).expect("resume");
     assert_eq!(resumed.fen(), game.fen());
     assert_eq!(resumed.clock(), game.clock());
-    resumed.apply_at("Nf3", 8_000).expect("continue after reload");
+    resumed
+        .apply_at("Nf3", 8_000)
+        .expect("continue after reload");
     assert_eq!(resumed.moves().len(), 3);
 }
 
@@ -382,7 +399,10 @@ fn match_pgn_writes_ply_comments() {
     assert!(game.annotate_ply(1, "the king's pawn"), "ply 1 exists");
     assert!(game.annotate_ply(2, "symmetry"));
     let pgn = game.pgn();
-    assert!(pgn.contains("1. e4 {the king's pawn} e5 {symmetry}"), "{pgn}");
+    assert!(
+        pgn.contains("1. e4 {the king's pawn} e5 {symmetry}"),
+        "{pgn}"
+    );
 }
 
 #[test]

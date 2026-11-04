@@ -6,11 +6,13 @@
 //! AIX extension. The public API is what the app and the frontend speak.
 
 use anyhow::{Context, Result};
-use knightlm_core::state::{parse_chess, parse_variant_fen, variant_for_name, START_FEN};
+use knightlm_core::state::{START_FEN, parse_chess, parse_variant_fen, variant_for_name};
 use rusqlite::types::Value;
 use rusqlite::{Connection, params, params_from_iter};
 use serde::{Deserialize, Serialize};
-use shakmaty::{CastlingMode, Chess, EnPassantMode, Position, fen::Fen, san::SanPlus, uci::UciMove};
+use shakmaty::{
+    CastlingMode, Chess, EnPassantMode, Position, fen::Fen, san::SanPlus, uci::UciMove,
+};
 use std::collections::BTreeMap;
 
 mod domain;
@@ -175,8 +177,18 @@ CREATE TABLE IF NOT EXISTS explorer_cache (
 "#;
 
 const STANDARD_TAGS: &[&str] = &[
-    "Event", "Site", "Date", "Round", "White", "Black", "Result", "WhiteElo", "BlackElo",
-    "TimeControl", "FEN", "SetUp",
+    "Event",
+    "Site",
+    "Date",
+    "Round",
+    "White",
+    "Black",
+    "Result",
+    "WhiteElo",
+    "BlackElo",
+    "TimeControl",
+    "FEN",
+    "SetUp",
 ];
 
 #[derive(Debug, Clone, Default)]
@@ -449,7 +461,11 @@ impl Db {
     /// Insert a game from an archive export (Parquet). Stores SAN moves; the
     /// per-ply position index is optional because archive imports are usually
     /// browse-only.
-    pub fn insert_archive_game(&self, game: &ArchiveGame, index_positions_wanted: bool) -> Result<i64> {
+    pub fn insert_archive_game(
+        &self,
+        game: &ArchiveGame,
+        index_positions_wanted: bool,
+    ) -> Result<i64> {
         let variant = normalize_variant(game.variant.as_deref());
         let variant_value = (variant != "standard").then(|| variant.clone());
         let ply_count = game.moves.split_whitespace().count() as i64;
@@ -544,7 +560,10 @@ impl Db {
     }
 
     pub fn rollback_bulk(&self) -> Result<()> {
-        self.conn.lock().expect("db lock").execute_batch("ROLLBACK")?;
+        self.conn
+            .lock()
+            .expect("db lock")
+            .execute_batch("ROLLBACK")?;
         Ok(())
     }
 
@@ -704,9 +723,7 @@ impl Db {
         }
         if let Some(variant) = q.variant.as_deref().filter(|v| !v.trim().is_empty()) {
             if variant == "standard" {
-                filters.push(
-                    "(variant IS NULL OR variant = '' OR variant = 'standard')".into(),
-                );
+                filters.push("(variant IS NULL OR variant = '' OR variant = 'standard')".into());
             } else {
                 filters.push("variant = ?".into());
                 args.push(Value::Text(variant.to_owned()));
@@ -850,8 +867,8 @@ impl Db {
         if cached == 0 {
             build_catalogs_locked(&conn)?;
         }
-        let mut stmt =
-            conn.prepare("SELECT name, games FROM event_stats ORDER BY games DESC, name LIMIT 300")?;
+        let mut stmt = conn
+            .prepare("SELECT name, games FROM event_stats ORDER BY games DESC, name LIMIT 300")?;
         let rows = stmt.query_map([], |row| {
             Ok(EventRow {
                 name: row.get(0)?,
@@ -910,7 +927,9 @@ impl Db {
         }
         let conn = self.conn.lock().expect("db lock");
         let positions: i64 =
-            conn.query_row("SELECT COALESCE(MAX(rowid), 0) FROM positions", [], |row| row.get(0))?;
+            conn.query_row("SELECT COALESCE(MAX(rowid), 0) FROM positions", [], |row| {
+                row.get(0)
+            })?;
         if positions > 5_000_000 {
             anyhow::bail!(
                 "partial search is limited to 5M indexed positions; use an exact FEN on this database"
@@ -1021,7 +1040,6 @@ impl Db {
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Openings (CC0 Lichess chess-openings)
 // ---------------------------------------------------------------------------
@@ -1064,8 +1082,7 @@ fn opening_book() -> &'static BTreeMap<String, Opening> {
         for src in sources {
             for line in src.lines().skip(1) {
                 let mut parts = line.splitn(3, '\t');
-                let (Some(eco), Some(name), Some(pgn)) =
-                    (parts.next(), parts.next(), parts.next())
+                let (Some(eco), Some(name), Some(pgn)) = (parts.next(), parts.next(), parts.next())
                 else {
                     continue;
                 };
@@ -1249,9 +1266,7 @@ impl Db {
             sql.push_str(" ORDER BY RANDOM() LIMIT 1");
         }
         let mut stmt = conn.prepare(&sql)?;
-        let row = stmt
-            .query_row(params_from_iter(args), row_to_puzzle)
-            .ok();
+        let row = stmt.query_row(params_from_iter(args), row_to_puzzle).ok();
         Ok(row)
     }
 
@@ -1344,7 +1359,12 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    pub fn save_evals(&self, game_id: i64, depth: u32, evals: &[(i64, Option<i32>, Option<i32>)]) -> Result<()> {
+    pub fn save_evals(
+        &self,
+        game_id: i64,
+        depth: u32,
+        evals: &[(i64, Option<i32>, Option<i32>)],
+    ) -> Result<()> {
         let mut conn = self.conn.lock().expect("db lock");
         let tx = conn.transaction()?;
         tx.execute(
@@ -1448,7 +1468,11 @@ impl Db {
     }
 
     pub fn create_repertoire(&self, name: &str, color: &str) -> Result<Repertoire> {
-        let color = if color.eq_ignore_ascii_case("black") { "black" } else { "white" };
+        let color = if color.eq_ignore_ascii_case("black") {
+            "black"
+        } else {
+            "white"
+        };
         let id = {
             let conn = self.conn.lock().expect("db lock");
             conn.execute(
@@ -1489,7 +1513,10 @@ impl Db {
     pub fn delete_repertoire(&self, id: i64) -> Result<bool> {
         let mut conn = self.conn.lock().expect("db lock");
         let tx = conn.transaction()?;
-        tx.execute("DELETE FROM repertoire_cards WHERE repertoire_id = ?1", params![id])?;
+        tx.execute(
+            "DELETE FROM repertoire_cards WHERE repertoire_id = ?1",
+            params![id],
+        )?;
         let removed = tx.execute("DELETE FROM repertoires WHERE id = ?1", params![id])?;
         tx.commit()?;
         Ok(removed > 0)
@@ -1500,9 +1527,11 @@ impl Db {
     pub fn import_repertoire_pgn(&self, id: i64, pgn: &str) -> Result<usize> {
         let color = {
             let conn = self.conn.lock().expect("db lock");
-            conn.query_row("SELECT color FROM repertoires WHERE id = ?1", params![id], |row| {
-                row.get::<_, String>(0)
-            })?
+            conn.query_row(
+                "SELECT color FROM repertoires WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )?
         };
         let want = if color == "black" {
             shakmaty::Color::Black
@@ -1629,8 +1658,7 @@ impl Db {
         })?;
         if catalogs == 0 {
             build_catalogs_locked(&conn)?;
-            catalogs = conn
-                .query_row("SELECT COUNT(*) FROM player_stats", [], |row| row.get(0))?;
+            catalogs = conn.query_row("SELECT COUNT(*) FROM player_stats", [], |row| row.get(0))?;
         }
         let players = catalogs;
         let events = count("SELECT COUNT(DISTINCT event) FROM games WHERE event IS NOT NULL")?;
@@ -1676,7 +1704,10 @@ impl Db {
         let mut conn = self.conn.lock().expect("db lock");
         let tx = conn.transaction()?;
         for table in ["positions", "annotations", "evals", "collection_games"] {
-            tx.execute(&format!("DELETE FROM {table} WHERE game_id = ?1"), params![id])?;
+            tx.execute(
+                &format!("DELETE FROM {table} WHERE game_id = ?1"),
+                params![id],
+            )?;
         }
         let removed = tx.execute("DELETE FROM games WHERE id = ?1", params![id])?;
         tx.commit()?;
@@ -1727,7 +1758,10 @@ impl Db {
             params![id, sans.join(" "), movetext, sans.len() as i64],
         )?;
         for table in ["positions", "evals", "annotations"] {
-            tx.execute(&format!("DELETE FROM {table} WHERE game_id = ?1"), params![id])?;
+            tx.execute(
+                &format!("DELETE FROM {table} WHERE game_id = ?1"),
+                params![id],
+            )?;
         }
         index_positions(
             &tx,
@@ -1771,9 +1805,7 @@ impl Db {
             let (line, idx) = resolve_tree_path(&mut nodes, path)?;
             let first_variation = line
                 .get_mut(idx)
-                .and_then(|node| {
-                    (!node.variations.is_empty()).then(|| node.variations.remove(0))
-                });
+                .and_then(|node| (!node.variations.is_empty()).then(|| node.variations.remove(0)));
             line.truncate(idx);
             if let Some(variation) = first_variation {
                 line.extend(variation);
@@ -1861,9 +1893,7 @@ impl Db {
 
         let (new_path, existing) = if parent_path.is_empty() {
             match nodes.first() {
-                Some(next) if next.san == canonical => {
-                    ("0".to_owned(), true)
-                }
+                Some(next) if next.san == canonical => ("0".to_owned(), true),
                 Some(_) => {
                     let mut node = new_node(&canonical, clock);
                     // A new first move is an alternative to the existing one.
@@ -1936,7 +1966,10 @@ impl Db {
             params![id, sans.join(" "), movetext, sans.len() as i64],
         )?;
         for table in ["positions", "evals", "annotations"] {
-            tx.execute(&format!("DELETE FROM {table} WHERE game_id = ?1"), params![id])?;
+            tx.execute(
+                &format!("DELETE FROM {table} WHERE game_id = ?1"),
+                params![id],
+            )?;
         }
         index_positions(
             &tx,
@@ -1988,7 +2021,9 @@ impl Db {
         let movetext = game
             .movetext
             .as_deref()
-            .and_then(|json| serde_json::from_str::<Vec<knightlm_notation::pgn::PgnNode>>(json).ok())
+            .and_then(|json| {
+                serde_json::from_str::<Vec<knightlm_notation::pgn::PgnNode>>(json).ok()
+            })
             .unwrap_or_else(|| {
                 game.moves
                     .split_whitespace()
@@ -2133,9 +2168,10 @@ fn row_to_puzzle(row: &rusqlite::Row<'_>) -> rusqlite::Result<Puzzle> {
 }
 
 fn moves_to_san(fen: &str, moves: &str) -> String {
-    let Ok(mut pos) = Fen::from_ascii(fen.as_bytes())
-        .and_then(|f| f.into_position::<Chess>(CastlingMode::Standard).map_err(|_| shakmaty::fen::ParseFenError::InvalidBoard))
-    else {
+    let Ok(mut pos) = Fen::from_ascii(fen.as_bytes()).and_then(|f| {
+        f.into_position::<Chess>(CastlingMode::Standard)
+            .map_err(|_| shakmaty::fen::ParseFenError::InvalidBoard)
+    }) else {
         return moves.to_owned();
     };
     let mut out = Vec::new();
@@ -2495,7 +2531,6 @@ fn migrate_v4(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-
 /// v5: the replayable event log behind `GET .../stream`.
 ///
 /// One row per emitted event, ordered by `event_id` within a stream. A stream
@@ -2516,7 +2551,6 @@ fn migrate_v5(conn: &Connection) -> Result<()> {
     )?;
     Ok(())
 }
-
 
 /// v6: the approval queue's own fields.
 ///
@@ -2613,7 +2647,12 @@ fn index_positions(
         pos = pos.play(mv)?;
         conn.execute(
             "INSERT OR REPLACE INTO positions (game_id, ply, key, uci) VALUES (?1, ?2, ?3, ?4)",
-            params![game_id, (i + 1) as i64, position_key_variant(&pos, variant), uci],
+            params![
+                game_id,
+                (i + 1) as i64,
+                position_key_variant(&pos, variant),
+                uci
+            ],
         )?;
     }
     Ok(())
@@ -2828,9 +2867,7 @@ fn play_sans(
 ) -> Result<shakmaty::variant::VariantPosition> {
     let mut pos = pos.clone();
     for san in sans {
-        let mv = SanPlus::from_ascii(san.as_bytes())?
-            .san
-            .to_move(&pos)?;
+        let mv = SanPlus::from_ascii(san.as_bytes())?.san.to_move(&pos)?;
         pos = pos.play(mv)?;
     }
     Ok(pos)
@@ -2847,7 +2884,10 @@ fn split_tree_path(path: &str) -> Result<(usize, Vec<(usize, usize)>)> {
     for segment in segments {
         let mut parts = segment.split('.');
         let j = parts.next().context("bad variation")?.parse::<usize>()?;
-        let i = parts.next().context("bad variation node")?.parse::<usize>()?;
+        let i = parts
+            .next()
+            .context("bad variation node")?
+            .parse::<usize>()?;
         rest.push((j, i));
     }
     Ok((first, rest))
@@ -2987,7 +3027,9 @@ mod v4_migration_tests {
             "ai_providers",
         ] {
             let count: i64 = conn
-                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
                 .unwrap();
             assert_eq!(count, 0, "{table}");
         }

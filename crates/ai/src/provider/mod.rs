@@ -21,15 +21,13 @@
 //! without string matching. Secrets never appear in an error message: request
 //! headers and the API key are never echoed.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::{
-    ErrorInfo, ModelRef, ProviderKind, StopReason, ToolCall, TurnRole, Usage,
-};
+use crate::protocol::{ErrorInfo, ModelRef, ProviderKind, StopReason, ToolCall, TurnRole, Usage};
 
 pub mod openai;
 pub mod sse;
@@ -435,12 +433,7 @@ impl ProviderConfig {
     }
 
     /// Replace the three timeouts at once.
-    pub fn with_timeouts(
-        mut self,
-        connect: Duration,
-        idle: Duration,
-        total: Duration,
-    ) -> Self {
+    pub fn with_timeouts(mut self, connect: Duration, idle: Duration, total: Duration) -> Self {
         self.connect_timeout = connect;
         self.idle_timeout = idle;
         self.total_timeout = total;
@@ -515,17 +508,26 @@ pub fn error_for_status(status: u16, body: &str) -> ErrorInfo {
             error_code::CONTEXT_TOO_LONG,
             "the request is too large for this model",
         ),
-        422 => (error_code::BAD_REQUEST, "the model provider rejected the request"),
+        422 => (
+            error_code::BAD_REQUEST,
+            "the model provider rejected the request",
+        ),
         429 => (
             error_code::RATE_LIMITED,
             "the model provider is rate limiting this key",
         ),
-        400..=499 => (error_code::BAD_REQUEST, "the model provider rejected the request"),
+        400..=499 => (
+            error_code::BAD_REQUEST,
+            "the model provider rejected the request",
+        ),
         500..=599 => (
             error_code::SERVER,
             "the model provider reported a server error",
         ),
-        _ => (error_code::PROTOCOL, "the model provider gave an unexpected status"),
+        _ => (
+            error_code::PROTOCOL,
+            "the model provider gave an unexpected status",
+        ),
     };
     let mut info = error(code, message, is_retryable_status(status));
     let snippet = body_snippet(body);
@@ -540,10 +542,7 @@ pub fn error_for_status(status: u16, body: &str) -> ErrorInfo {
 
 /// The part of an error body worth showing: trimmed, single-line and short.
 pub fn body_snippet(body: &str) -> String {
-    let collapsed: String = body
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let collapsed: String = body.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut out: String = collapsed.chars().take(240).collect();
     if collapsed.chars().count() > 240 {
         out.push('…');
@@ -663,7 +662,10 @@ mod tests {
         assert!(cancel.check().is_ok());
         worker.cancel();
         assert!(cancel.is_cancelled());
-        assert_eq!(cancel.check().expect_err("cancelled").code, error_code::CANCELLED);
+        assert_eq!(
+            cancel.check().expect_err("cancelled").code,
+            error_code::CANCELLED
+        );
     }
 
     #[test]
@@ -696,7 +698,10 @@ mod tests {
     fn provider_retry_after_parses_seconds_only() {
         assert_eq!(retry_after_seconds(Some("3")), Some(Duration::from_secs(3)));
         assert_eq!(retry_after_seconds(Some(" 0 ")), Some(Duration::ZERO));
-        assert_eq!(retry_after_seconds(Some("Wed, 21 Oct 2015 07:28:00 GMT")), None);
+        assert_eq!(
+            retry_after_seconds(Some("Wed, 21 Oct 2015 07:28:00 GMT")),
+            None
+        );
         assert_eq!(retry_after_seconds(None), None);
     }
 }

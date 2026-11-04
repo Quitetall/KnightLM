@@ -1,10 +1,14 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
 use brick_chess::{Command, Event, Widget};
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "brick-chess", version, about = "BrickChess widget: JSON command/event protocol + renderer")]
+#[command(
+    name = "brick-chess",
+    version,
+    about = "BrickChess widget: JSON command/event protocol + renderer"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Cmd>,
@@ -51,7 +55,12 @@ fn main() -> anyhow::Result<()> {
         Cmd::Repl => {
             brick_chess::protocol::run(std::io::stdin().lock(), std::io::stdout().lock())?;
         }
-        Cmd::Render { fen, theme, pieces, flip } => {
+        Cmd::Render {
+            fen,
+            theme,
+            pieces,
+            flip,
+        } => {
             let mut w = Widget::from_fen(&fen)?;
             if flip {
                 w.apply(Command::Flip);
@@ -60,7 +69,12 @@ fn main() -> anyhow::Result<()> {
             w.apply(Command::SetPieces { pieces });
             print!("{}", w.export("svg")?);
         }
-        Cmd::Play { pgn, render, theme, pieces } => {
+        Cmd::Play {
+            pgn,
+            render,
+            theme,
+            pieces,
+        } => {
             let text = std::fs::read_to_string(&pgn)?;
             let mut w = Widget::new();
             let events = w.apply(Command::LoadPgn { pgn: text });

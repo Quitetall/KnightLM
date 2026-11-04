@@ -104,8 +104,8 @@ fn compile_command(args: &[String]) -> Result<()> {
         }
         index += 1;
     }
-    let mut spec = ContextSpec::preset(&preset)
-        .with_context(|| format!("unknown preset `{preset}`"))?;
+    let mut spec =
+        ContextSpec::preset(&preset).with_context(|| format!("unknown preset `{preset}`"))?;
     if let Some(budget) = budget {
         spec.token_budget = budget;
     }
@@ -181,8 +181,8 @@ fn batch_command(args: &[String]) -> Result<()> {
     }
     let input_path = input_path.context("--input is required")?;
     let output_path = output_path.context("--output is required")?;
-    let spec = ContextSpec::preset(&preset)
-        .with_context(|| format!("unknown preset `{preset}`"))?;
+    let spec =
+        ContextSpec::preset(&preset).with_context(|| format!("unknown preset `{preset}`"))?;
     let reader = BufReader::new(fs::File::open(&input_path)?);
     let mut out = fs::File::create(&output_path)?;
     for (line_number, line) in reader.lines().enumerate() {
