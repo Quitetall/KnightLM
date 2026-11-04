@@ -107,6 +107,21 @@ pub fn router(state: api::AppState) -> Router {
             "/api/ai/matches",
             get(domain_api::list_matches).post(domain_api::create_match),
         )
+        .route("/api/ai/ratings", get(domain_api::list_ratings))
+        .route("/api/ai/metrics", get(domain_api::list_metrics))
+        .route(
+            "/api/ai/tournaments",
+            get(domain_api::list_tournaments).post(domain_api::create_tournament),
+        )
+        .route("/api/ai/tournaments/{id}", get(domain_api::get_tournament))
+        .route(
+            "/api/ai/tournaments/{id}/pgn",
+            get(domain_api::tournament_pgn),
+        )
+        .route(
+            "/api/ai/tournaments/{id}/{action}",
+            post(domain_api::tournament_action),
+        )
         .route("/api/ai/matches/{id}", get(domain_api::get_match))
         .route("/api/ai/matches/{id}/move", post(domain_api::play_match_move))
         .route("/api/ai/matches/{id}/model-move", post(domain_api::model_match_move))

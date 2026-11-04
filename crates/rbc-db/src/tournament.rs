@@ -21,7 +21,7 @@ pub struct TournamentRow {
 }
 
 /// One projected standing.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StandingRow {
     pub competitor: String,
     pub points: f64,
@@ -146,5 +146,130 @@ impl Db {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
+    }
+}
+
+/// Usage per model, aggregated from the session log.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsageRow {
+    pub model: String,
+    pub turns: i64,
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+    pub errors: i64,
+    pub average_latency_ms: f64,
+    pub duration_ms: i64,
+}
+
+/// How often a model's moves were legal first time, per match.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttemptsRow {
+    pub model: String,
+    pub plies: i64,
+    pub clean_plies: i64,
+}
+
+impl Db {
+    /// Usage per model, from the turns the session log already holds.
+    pub fn ai_usage_by_model(&self) -> Result<Vec<UsageRow>> {
+        let conn = self.conn.lock().expect("db lock");
+        let mut statement = conn.prepare(
+            "SELECT
+                 COALESCE(json_extract(model_json, '$.model'), '') AS model,
+                 COUNT(*) AS turns,
+                 SUM(tokens_in) AS tokens_in,
+                 SUM(tokens_out) AS tokens_out,
+                 SUM(CASE WHEN error_json IS NOT NULL AND error_json != '' THEN 1 ELSE 0 END) AS errors,
+                 AVG(latency_ms) AS latency,
+                 SUM(latency_ms) AS duration
+             FROM ai_turns
+             WHERE role = 'assistant'
+             GROUP BY model
+             ORDER BY turns DESC",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(UsageRow {
+                    model: row.get(0)?,
+                    turns: row.get(1)?,
+                    tokens_in: row.get(2)?,
+                    tokens_out: row.get(3)?,
+                    errors: row.get(4)?,
+                    average_latency_ms: row.get(5)?,
+                    duration_ms: row.get(6)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Plies played per model seat, and how many needed only one attempt.
+    ///
+    /// The attempts live inside each match's state JSON, which is why this walks
+    /// the recent matches rather than aggregating in SQL.
+    pub fn ai_match_attempts(&self) -> Result<Vec<AttemptsRow>> {
+        let conn = self.conn.lock().expect("db lock");
+        let mut statement = conn.prepare(
+            "SELECT white_json, black_json, state_json FROM ai_matches ORDER BY created DESC LIMIT 200",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+        drop(conn);
+
+        let mut totals: std::collections::BTreeMap<String, (i64, i64)> =
+            std::collections::BTreeMap::new();
+        for (white_json, black_json, state_json) in rows {
+            let seat = |json: &str| -> String {
+                serde_json::from_str::<serde_json::Value>(json)
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .get("model")
+                            .and_then(|m| m.as_str())
+                            .map(str::to_string)
+                    })
+                    .unwrap_or_default()
+            };
+            let white = seat(&white_json);
+            let black = seat(&black_json);
+            let Ok(state) = serde_json::from_str::<serde_json::Value>(&state_json) else {
+                continue;
+            };
+            let Some(moves) = state.get("moves").and_then(|m| m.as_array()) else {
+                continue;
+            };
+            for mv in moves {
+                let color = mv.get("color").and_then(|c| c.as_str()).unwrap_or("");
+                let attempts = mv.get("attempts").and_then(|a| a.as_u64()).unwrap_or(0);
+                if attempts == 0 {
+                    continue; // a human or a replayed move
+                }
+                let model = if color == "white" { &white } else { &black };
+                if model.is_empty() {
+                    continue;
+                }
+                let entry = totals.entry(model.clone()).or_insert((0, 0));
+                entry.0 += 1;
+                if attempts == 1 {
+                    entry.1 += 1;
+                }
+            }
+        }
+        Ok(totals
+            .into_iter()
+            .map(|(model, (plies, clean))| AttemptsRow {
+                model,
+                plies,
+                clean_plies: clean,
+            })
+            .collect())
     }
 }

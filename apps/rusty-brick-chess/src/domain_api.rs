@@ -1592,3 +1592,147 @@ pub async fn watch_reset(
     save_match_after(&state, &id, &game)?;
     Ok(Json(serde_json::json!({ "match": match_payload(&id, &game) })))
 }
+
+
+// --- leaderboard and metrics ----------------------------------------------
+
+/// `GET /api/ai/ratings`
+///
+/// The leaderboard, best conservative rank first.
+pub async fn list_ratings(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<rbc_ai::ratings::LeaderboardRow>>, ApiError> {
+    Ok(Json(rbc_ai::ratings::leaderboard_rows(&state.db)?))
+}
+
+/// `GET /api/ai/metrics`
+///
+/// Usage and legal rate per model: what a leaderboard needs beside the rating.
+pub async fn list_metrics(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<rbc_ai::ratings::ModelMetrics>>, ApiError> {
+    Ok(Json(rbc_ai::ratings::metrics(&state.db)?))
+}
+
+// --- tournaments -----------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct CreateTournament {
+    pub name: String,
+    /// `swiss`, `knockout` or `double-round-robin`.
+    pub format: String,
+    #[serde(default)]
+    pub rounds: Option<u32>,
+    #[serde(default)]
+    pub competitors: Vec<String>,
+    #[serde(default)]
+    pub concurrency: Option<u32>,
+}
+
+fn parse_format(name: &str, rounds: Option<u32>, players: usize) -> Result<rbc_ai::tournament::Format, ApiError> {
+    use rbc_ai::tournament::Format;
+    Ok(match name {
+        "swiss" => Format::Swiss {
+            rounds: rounds.unwrap_or_else(|| Format::swiss_default_rounds(players)),
+        },
+        "knockout" => Format::Knockout,
+        "double-round-robin" => Format::DoubleRoundRobin,
+        other => return Err(ApiError::BadRequest(format!("unknown format {other}"))),
+    })
+}
+
+/// `POST /api/ai/tournaments`
+pub async fn create_tournament(
+    State(state): State<AppState>,
+    Json(body): Json<CreateTournament>,
+) -> Result<Json<rbc_ai::tournament::Running>, ApiError> {
+    use rbc_ai::tournament::{Entrant, Running, Tournament};
+    if body.competitors.len() < 2 {
+        return Err(ApiError::BadRequest(
+            "a tournament needs at least two competitors".into(),
+        ));
+    }
+    let format = parse_format(&body.format, body.rounds, body.competitors.len())?;
+    let entrants: Vec<Entrant> = body
+        .competitors
+        .iter()
+        .enumerate()
+        .map(|(index, competitor)| Entrant::model(competitor.clone(), index as u32 + 1))
+        .collect();
+    let schedule = Tournament::new(format, entrants);
+    let id = format!(
+        "tour-{}-{}",
+        crate::ai_host::now_ms(),
+        body.name
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .take(16)
+            .collect::<String>()
+    );
+    let mut running = Running::new(id, body.name.clone(), schedule);
+    if let Some(concurrency) = body.concurrency {
+        running.concurrency = concurrency.max(1);
+    }
+    rbc_ai::tournament_store::save(&state.db, &running, "")?;
+    Ok(Json(running))
+}
+
+/// `GET /api/ai/tournaments`
+pub async fn list_tournaments(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<rbc_ai::tournament::Running>>, ApiError> {
+    Ok(Json(rbc_ai::tournament_store::all(&state.db)?))
+}
+
+/// `GET /api/ai/tournaments/{id}`
+pub async fn get_tournament(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let running = rbc_ai::tournament_store::load(&state.db, &id)?
+        .ok_or(ApiError::NotFound)?;
+    let standings = rbc_ai::tournament_store::standings(&state.db, &id)?;
+    Ok(Json(serde_json::json!({
+        "tournament": running,
+        "standings": standings,
+    })))
+}
+
+/// `POST /api/ai/tournaments/{id}/{action}` — step, pause, resume.
+pub async fn tournament_action(
+    State(state): State<AppState>,
+    Path((id, action)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let mut running = rbc_ai::tournament_store::load(&state.db, &id)?
+        .ok_or(ApiError::NotFound)?;
+    let mut started = Vec::new();
+    match action.as_str() {
+        "pause" => running.pause(),
+        "resume" => running.resume(),
+        "step" => {
+            // One batch of ready pairings, then persist what the schedule now is.
+            started = running.next_batch();
+        }
+        other => return Err(ApiError::BadRequest(format!("unknown action {other}"))),
+    }
+    rbc_ai::tournament_store::save(&state.db, &running, "")?;
+    Ok(Json(serde_json::json!({
+        "status": running.status.as_str(),
+        "started": started,
+        "tournament": running,
+    })))
+}
+
+/// `GET /api/ai/tournaments/{id}/pgn`
+pub async fn tournament_pgn(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<String, ApiError> {
+    let running = rbc_ai::tournament_store::load(&state.db, &id)?
+        .ok_or(ApiError::NotFound)?;
+    Ok(rbc_ai::tournament::combined_pgn(
+        &running.name,
+        &running.schedule.rounds,
+        &[],
+    ))
+}

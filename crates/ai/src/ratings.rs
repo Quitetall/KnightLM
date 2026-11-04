@@ -157,3 +157,102 @@ pub fn rebuild(db: &rbc_db::Db) -> Result<Vec<CurrentRating>> {
 pub fn leaderboard(db: &rbc_db::Db) -> Result<Vec<CurrentRating>> {
     db.current_ratings()
 }
+
+// --- the leaderboard and its metrics ---------------------------------------
+
+/// One row of the leaderboard: a rating plus what it took to get it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct LeaderboardRow {
+    pub competitor: String,
+    pub rating: f64,
+    pub deviation: f64,
+    pub volatility: f64,
+    /// `rating - 2*RD`, the rank a leaderboard sorts and shows.
+    pub conservative: f64,
+    pub games: i64,
+    pub period: i64,
+    /// The last change from the ledger, if this competitor has one.
+    pub last_change: Option<f64>,
+}
+
+/// What a model's turns cost and how often it needed correcting.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize)]
+pub struct ModelMetrics {
+    pub model: String,
+    pub turns: i64,
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+    pub errors: i64,
+    pub average_latency_ms: f64,
+    pub duration_ms: i64,
+    /// Model plies taken from matches, and how many were legal first time.
+    pub plies: i64,
+    pub clean_plies: i64,
+    /// `clean_plies / plies`, or `None` when the model has not played.
+    pub legal_rate: Option<f64>,
+}
+
+/// The leaderboard, best conservative rank first.
+pub fn leaderboard_rows(db: &rbc_db::Db) -> Result<Vec<LeaderboardRow>> {
+    let ledger = db.rating_ledger()?;
+    let mut last: BTreeMap<String, (f64, f64)> = BTreeMap::new();
+    for row in &ledger {
+        // The ledger is oldest first, so the last write wins.
+        last.insert(row.competitor.clone(), (row.before.0, row.after.0));
+    }
+    Ok(db
+        .current_ratings()?
+        .into_iter()
+        .map(|row| LeaderboardRow {
+            conservative: crate::glicko::conservative_rank(crate::glicko::Rating::new(
+                row.rating,
+                row.deviation,
+                row.volatility,
+            )),
+            competitor: row.competitor.clone(),
+            rating: row.rating,
+            deviation: row.deviation,
+            volatility: row.volatility,
+            games: row.games,
+            period: row.period,
+            last_change: last
+                .get(&row.competitor)
+                .map(|(before, after)| after - before),
+        })
+        .collect())
+}
+
+/// Usage per model, with the match-side legal rate folded in.
+///
+/// Turns are counted from the session log; plies and attempts come from the
+/// stored matches, which is where a correction is recorded.
+pub fn metrics(db: &rbc_db::Db) -> Result<Vec<ModelMetrics>> {
+    let mut by_model: BTreeMap<String, ModelMetrics> = BTreeMap::new();
+    for row in db.ai_usage_by_model()? {
+        by_model.insert(
+            row.model.clone(),
+            ModelMetrics {
+                model: row.model,
+                turns: row.turns,
+                tokens_in: row.tokens_in,
+                tokens_out: row.tokens_out,
+                errors: row.errors,
+                average_latency_ms: row.average_latency_ms,
+                duration_ms: row.duration_ms,
+                ..ModelMetrics::default()
+            },
+        );
+    }
+    for row in db.ai_match_attempts()? {
+        let entry = by_model.entry(row.model.clone()).or_insert_with(|| ModelMetrics {
+            model: row.model.clone(),
+            ..ModelMetrics::default()
+        });
+        entry.plies += row.plies;
+        entry.clean_plies += row.clean_plies;
+    }
+    for entry in by_model.values_mut() {
+        entry.legal_rate = (entry.plies > 0).then(|| entry.clean_plies as f64 / entry.plies as f64);
+    }
+    Ok(by_model.into_values().collect())
+}

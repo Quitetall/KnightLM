@@ -440,3 +440,79 @@ pub async fn match_action(
         Err(_) => Err(text),
     }
 }
+
+// --- leaderboard and tournaments -------------------------------------------
+
+/// One leaderboard row.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LeaderboardRow {
+    pub competitor: String,
+    pub rating: f64,
+    pub deviation: f64,
+    pub conservative: f64,
+    pub games: i64,
+    #[serde(default)]
+    pub last_change: Option<f64>,
+}
+
+/// Usage per model.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ModelMetrics {
+    pub model: String,
+    pub turns: i64,
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+    #[serde(default)]
+    pub legal_rate: Option<f64>,
+}
+
+pub async fn leaderboard() -> Result<Vec<LeaderboardRow>, String> {
+    let resp = Request::get("/api/ai/ratings").send().await.map_err(|e| e.to_string())?;
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    serde_json::from_str(&body).map_err(|_| body)
+}
+
+pub async fn metrics() -> Result<Vec<ModelMetrics>, String> {
+    let resp = Request::get("/api/ai/metrics").send().await.map_err(|e| e.to_string())?;
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    serde_json::from_str(&body).map_err(|_| body)
+}
+
+pub async fn list_tournaments() -> Result<Vec<serde_json::Value>, String> {
+    let resp = Request::get("/api/ai/tournaments").send().await.map_err(|e| e.to_string())?;
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    serde_json::from_str(&body).map_err(|_| body)
+}
+
+pub async fn create_tournament(
+    name: &str,
+    format: &str,
+    competitors: &[String],
+) -> Result<serde_json::Value, String> {
+    let resp = Request::post("/api/ai/tournaments")
+        .json(&serde_json::json!({
+            "name": name,
+            "format": format,
+            "competitors": competitors,
+        }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(value) if value.get("error").is_none() => Ok(value),
+        Ok(value) => Err(value.get("error").and_then(|e| e.as_str()).unwrap_or("could not create").to_string()),
+        Err(_) => Err(text),
+    }
+}
+
+pub async fn tournament_action(id: &str, action: &str) -> Result<serde_json::Value, String> {
+    match_action(id, action, serde_json::json!({})).await
+}
+
+pub async fn tournament_detail(id: &str) -> Result<serde_json::Value, String> {
+    let resp = Request::get(&format!("/api/ai/tournaments/{id}")).send().await.map_err(|e| e.to_string())?;
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    serde_json::from_str(&body).map_err(|_| body)
+}

@@ -175,6 +175,14 @@ pub struct MatchMove {
     /// PGN comment written after the move, as `{...}`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+    /// How many replies the model needed before one was legal. `0` means the
+    /// move did not come from a model (a human, or a replay); `1` is a clean
+    /// first answer, and more means the model had to be corrected.
+    ///
+    /// This is what "legal rate" is measured from, so it is recorded rather than
+    /// inferred.
+    #[serde(default)]
+    pub attempts: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -361,6 +369,7 @@ impl Match {
             uci,
             fen: self.fen(),
             comment: None,
+            attempts: 0,
         };
         self.moves.push(record.clone());
         self.update_state();
@@ -435,6 +444,20 @@ impl Match {
         self.clock = clock;
         taken.comment = None;
         Some(taken)
+    }
+
+    /// Record how many replies a model needed for a ply.
+    ///
+    /// The move is already on the board; this only annotates it, so the record
+    /// can say that a ply took three attempts without the move being replayed.
+    pub fn note_attempts(&mut self, ply: u32, attempts: u32) -> bool {
+        match self.moves.iter_mut().find(|mv| mv.ply == ply) {
+            Some(record) => {
+                record.attempts = attempts;
+                true
+            }
+            None => false,
+        }
     }
 
     /// Attach a comment to an already-played ply, shown in the PGN export.

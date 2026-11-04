@@ -104,6 +104,14 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     let detail = RwSignal::new(None::<serde_json::Value>);
     let busy = RwSignal::new(false);
     let message = RwSignal::new(String::new());
+    // The leaderboard and the tournaments live beside the matches: they are the
+    // same question — who is playing well — asked over a longer window.
+    let board_rows = RwSignal::new(Vec::<ai_api::LeaderboardRow>::new());
+    let board_metrics = RwSignal::new(Vec::<ai_api::ModelMetrics>::new());
+    let board_filter = RwSignal::new(String::new());
+    let tournaments = RwSignal::new(Vec::<serde_json::Value>::new());
+    let tournament_id = RwSignal::new(None::<String>);
+    let tournament_detail = RwSignal::new(None::<serde_json::Value>);
 
     let reload = move || {
         spawn_local(async move {
@@ -123,8 +131,37 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
         });
     };
 
+    let reload_board = move || {
+        spawn_local(async move {
+            if let Ok(rows) = ai_api::leaderboard().await {
+                board_rows.set(rows);
+            }
+            if let Ok(rows) = ai_api::metrics().await {
+                board_metrics.set(rows);
+            }
+        });
+    };
+    let reload_tournaments = move || {
+        spawn_local(async move {
+            if let Ok(list) = ai_api::list_tournaments().await {
+                tournaments.set(list);
+            }
+        });
+    };
+
     // Load once, and whenever the list is asked for again.
     Effect::new(move |_| reload());
+    Effect::new(move |_| reload_board());
+    Effect::new(move |_| reload_tournaments());
+    Effect::new(move |_| {
+        if let Some(id) = tournament_id.get() {
+            spawn_local(async move {
+                if let Ok(detail) = ai_api::tournament_detail(&id).await {
+                    tournament_detail.set(Some(detail));
+                }
+            });
+        }
+    });
 
     // Follow the selection.
     Effect::new(move |_| {
@@ -332,6 +369,178 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                 </ul>
 
                 <div class="match-panel">
+                    <section class="leaderboard">
+                        <h3>{move || i18n::t(&language.get(), "play.leaderboard")}</h3>
+                        <input
+                            class="board-filter"
+                            placeholder=move || i18n::t(&language.get(), "play.filter")
+                            prop:value=move || board_filter.get()
+                            on:input=move |event| board_filter.set(event_target_value(&event))
+                        />
+                        <table class="leaderboard-table">
+                            <thead>
+                                <tr>
+                                    <th>{move || i18n::t(&language.get(), "play.competitor")}</th>
+                                    <th>{move || i18n::t(&language.get(), "play.rating")}</th>
+                                    <th>"RD"</th>
+                                    <th>{move || i18n::t(&language.get(), "play.conservative")}</th>
+                                    <th>{move || i18n::t(&language.get(), "play.games")}</th>
+                                    <th>{move || i18n::t(&language.get(), "play.legal")}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {move || {
+                                    let filter = board_filter.get().to_lowercase();
+                                    let metrics = board_metrics.get();
+                                    board_rows.get()
+                                        .into_iter()
+                                        .filter(|row| filter.is_empty() || row.competitor.to_lowercase().contains(&filter))
+                                        .map(|row| {
+                                            let legal = metrics
+                                                .iter()
+                                                .find(|m| row.competitor.contains(&m.model))
+                                                .and_then(|m| m.legal_rate)
+                                                .map(|rate| format!("{:.0}%", rate * 100.0))
+                                                .unwrap_or_else(|| "—".to_string());
+                                            view! {
+                                                <tr>
+                                                    <td>{row.competitor.clone()}</td>
+                                                    <td>{format!("{:.0}", row.rating)}</td>
+                                                    <td>{format!("{:.0}", row.deviation)}</td>
+                                                    <td>{format!("{:.0}", row.conservative)}</td>
+                                                    <td>{row.games}</td>
+                                                    <td>{legal}</td>
+                                                </tr>
+                                            }
+                                        })
+                                        .collect_view()
+                                }}
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <section class="tournaments">
+                        <h3>{move || i18n::t(&language.get(), "play.tournaments")}</h3>
+                        <div class="tournament-actions">
+                            <button
+                                class="tournament-create"
+                                on:click=move |_| {
+                                    let competitors = vec![
+                                        "llm:a:v1".to_string(),
+                                        "llm:b:v1".to_string(),
+                                        "llm:c:v1".to_string(),
+                                        "llm:d:v1".to_string(),
+                                    ];
+                                    spawn_local(async move {
+                                        match ai_api::create_tournament("Round robin", "double-round-robin", &competitors).await {
+                                            Ok(value) => {
+                                                reload_tournaments();
+                                                if let Some(id) = value.get("id").and_then(|id| id.as_str()) {
+                                                    tournament_id.set(Some(id.to_string()));
+                                                }
+                                            }
+                                            Err(error) => message.set(error),
+                                        }
+                                    });
+                                }
+                            >
+                                {move || i18n::t(&language.get(), "play.new_tournament")}
+                            </button>
+                            <button class="tournament-step" on:click=move |_| {
+                                if let Some(id) = tournament_id.get_untracked() {
+                                    spawn_local(async move {
+                                        if let Ok(value) = ai_api::tournament_action(&id, "step").await {
+                                            message.set(format!("started {} game(s)", value.get("started").and_then(|s| s.as_array()).map(|a| a.len()).unwrap_or(0)));
+                                        }
+                                        reload_tournaments();
+                                    });
+                                }
+                            }>
+                                {move || i18n::t(&language.get(), "play.step")}
+                            </button>
+                            <button class="tournament-pause" on:click=move |_| {
+                                if let Some(id) = tournament_id.get_untracked() {
+                                    spawn_local(async move {
+                                        if let Ok(value) = ai_api::tournament_action(&id, "pause").await {
+                                            message.set(format!("tournament {}", value.get("status").and_then(|s| s.as_str()).unwrap_or("")));
+                                        }
+                                    });
+                                }
+                            }>
+                                {move || i18n::t(&language.get(), "play.pause")}
+                            </button>
+                            <button class="tournament-resume" on:click=move |_| {
+                                if let Some(id) = tournament_id.get_untracked() {
+                                    spawn_local(async move {
+                                        if let Ok(value) = ai_api::tournament_action(&id, "resume").await {
+                                            message.set(format!("tournament {}", value.get("status").and_then(|s| s.as_str()).unwrap_or("")));
+                                        }
+                                    });
+                                }
+                            }>
+                                {move || i18n::t(&language.get(), "play.resume")}
+                            </button>
+                        </div>
+                        <ul class="tournament-list">
+                            {move || {
+                                let list = tournaments.get();
+                                if list.is_empty() {
+                                    return view! { <li class="muted">{move || i18n::t(&language.get(), "play.no_tournaments")}</li> }.into_any();
+                                }
+                                list.into_iter().map(|row| {
+                                    let id = row.get("id").and_then(|id| id.as_str()).unwrap_or("").to_string();
+                                    let id_click = id.clone();
+                                    let name = row.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                                    let status = row.get("status").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                                    view! {
+                                        <li>
+                                            <button
+                                                class=move || if tournament_id.get().as_deref() == Some(id.as_str()) {
+                                                    "tournament-row active"
+                                                } else {
+                                                    "tournament-row"
+                                                }
+                                                on:click=move |_| tournament_id.set(Some(id_click.clone()))
+                                            >
+                                                <span>{name}</span>
+                                                <span class="muted">{status}</span>
+                                            </button>
+                                        </li>
+                                    }
+                                }).collect_view().into_any()
+                            }}
+                        </ul>
+                        {move || tournament_detail.get().map(|detail| {
+                            let rows = detail.get("standings").and_then(|s| s.as_array()).cloned().unwrap_or_default();
+                            view! {
+                                <table class="standings-table">
+                                    <thead>
+                                        <tr>
+                                            <th>{move || i18n::t(&language.get(), "play.competitor")}</th>
+                                            <th>"P"</th>
+                                            <th>{move || i18n::t(&language.get(), "play.wins")}</th>
+                                            <th>"Buchholz"</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {rows.into_iter().map(|row| {
+                                            let name = row.get("competitor").and_then(|c| c.as_str()).unwrap_or("").to_string();
+                                            let points = row.get("points").and_then(|p| p.as_f64()).unwrap_or(0.0);
+                                            let wins = row.get("wins").and_then(|w| w.as_i64()).unwrap_or(0);
+                                            let buchholz = row.get("buchholz").and_then(|b| b.as_f64()).unwrap_or(0.0);
+                                            view! {
+                                                <tr>
+                                                    <td>{name}</td>
+                                                    <td>{format!("{points}")}</td>
+                                                    <td>{wins}</td>
+                                                    <td>{format!("{buchholz:.1}")}</td>
+                                                </tr>
+                                            }
+                                        }).collect_view()}
+                                    </tbody>
+                                </table>
+                            }.into_any()
+                        })}
                     {move || {
                         let Some(payload) = detail.get() else {
                             return view! {
@@ -483,6 +692,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             </div>
                         }.into_any()
                     }}
+                    </section>
                     <div class="muted">{move || message.get()}</div>
                 </div>
             </div>

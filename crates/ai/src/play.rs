@@ -210,6 +210,7 @@ pub fn request_move(
         let raw = response.content.trim().to_string();
         match game.apply(&raw) {
             Ok(mv) => {
+                game.note_attempts(mv.ply, attempt);
                 return Ok(ModelMove {
                     mv,
                     reasoning: policy.keep_reasoning(response.reasoning),
