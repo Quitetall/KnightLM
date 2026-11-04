@@ -3397,7 +3397,15 @@ pub fn App() -> impl IntoView {
                     <span class="status" aria-live="polite">{move || status.get()}</span>
                 </header>
                 {views::workspaces::workspaces_bar(app_ctx)}
-                {views::boards::boards_bar(app_ctx)}
+                // Stored boards belong to the analysis workspace, so the strip
+                // only appears where a board is on screen.
+                {move || {
+                    if tab.get() == Tab::Analysis {
+                        views::boards::boards_bar(app_ctx).into_any()
+                    } else {
+                        ().into_any()
+                    }
+                }}
                 {move || match tab.get() {
                     Tab::Home => home_view().into_any(),
                     Tab::Database => database_view().into_any(),
