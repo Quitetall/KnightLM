@@ -974,6 +974,53 @@ impl Db {
         Ok(games)
     }
 
+    /// Append an audit row and return its id.
+    ///
+    /// Append-only: nothing in this crate updates or deletes an audit row, which
+    /// is what makes it worth reading later.
+    pub fn append_audit(
+        &self,
+        actor: &str,
+        action: &str,
+        target_kind: &str,
+        target_id: &str,
+        detail_json: &str,
+    ) -> Result<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let conn = self.conn.lock().expect("db lock");
+        conn.execute(
+            "INSERT INTO ai_audit (id, at, actor, action, target_kind, target_id, detail_json)
+             VALUES (?1, unixepoch(), ?2, ?3, ?4, ?5, ?6)",
+            params![id, actor, action, target_kind, target_id, detail_json],
+        )?;
+        Ok(id)
+    }
+
+    /// The audit log, newest first.
+    pub fn audit_log(&self, limit: i64) -> Result<Vec<serde_json::Value>> {
+        let conn = self.conn.lock().expect("db lock");
+        let mut statement = conn.prepare(
+            "SELECT id, at, actor, action, target_kind, target_id, detail_json
+             FROM ai_audit ORDER BY at DESC LIMIT ?1",
+        )?;
+        let rows = statement
+            .query_map(params![limit.clamp(1, 500)], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "at": row.get::<_, i64>(1)?,
+                    "actor": row.get::<_, String>(2)?,
+                    "action": row.get::<_, String>(3)?,
+                    "target_kind": row.get::<_, String>(4)?,
+                    "target_id": row.get::<_, String>(5)?,
+                    "detail": serde_json::from_str::<serde_json::Value>(
+                        &row.get::<_, String>(6)?
+                    ).unwrap_or(serde_json::Value::Null),
+                }))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     /// One setting, if it has been written.
     pub fn setting(&self, key: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().expect("db lock");
@@ -2202,7 +2249,7 @@ fn moves_to_san(fen: &str, moves: &str) -> String {
 /// Additive migrations for databases created by older builds.
 /// Current schema version. Bump this and add a `migrate_vN` step for changes
 /// that `CREATE ... IF NOT EXISTS` cannot express.
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 10;
 
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -2252,6 +2299,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if version < 9 {
         migrate_v9(conn)?;
         version = 9;
+    }
+    if version < 10 {
+        migrate_v10(conn)?;
+        version = 10;
     }
     conn.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
@@ -2580,6 +2631,25 @@ fn migrate_v5(conn: &Connection) -> Result<()> {
 /// The v4 table knew an approval's origin, target, action and changeset. The
 /// service also needs the tool that asked, the one-line summary a queue shows,
 /// and when an untouched request stops being actionable.
+/// v10: the audit log. `ToolResult.audit_id` has been a field since the protocol
+/// landed with nothing behind it; every approval transition and every write a
+/// person approved now leaves a row here.
+fn migrate_v10(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS ai_audit (
+             id TEXT PRIMARY KEY,
+             at INTEGER NOT NULL,
+             actor TEXT NOT NULL,
+             action TEXT NOT NULL,
+             target_kind TEXT NOT NULL DEFAULT '',
+             target_id TEXT NOT NULL DEFAULT '',
+             detail_json TEXT NOT NULL DEFAULT '{}'
+         );
+         CREATE INDEX IF NOT EXISTS idx_ai_audit_at ON ai_audit(at DESC);",
+    )?;
+    Ok(())
+}
+
 /// v9: a session's own spend ceiling, so a runaway conversation stops on its own
 /// budget rather than only on the provider's kindness.
 fn migrate_v9(conn: &Connection) -> Result<()> {

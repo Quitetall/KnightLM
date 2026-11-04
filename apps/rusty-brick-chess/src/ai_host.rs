@@ -71,6 +71,9 @@ impl<'a> SessionHost<'a> {
 
 impl ToolHost for SessionHost<'_> {
     fn call(&mut self, call: &ToolCall) -> ToolResult {
+        if call.name == "approval_status" {
+            return self.approval_status(call);
+        }
         if BOARD_TOOLS.contains(&call.name.as_str()) {
             self.board.call(call)
         } else {
@@ -195,4 +198,52 @@ impl Engine for LocalEngine {
     fn fingerprint(&self) -> String {
         self.label.clone()
     }
+}
+
+impl<'a> SessionHost<'a> {
+    /// Report one approval's state, for a client polling after
+    /// `approval_required`.
+    fn approval_status(&self, call: &ToolCall) -> ToolResult {
+        let Some(id) = call.arguments.get("approval_id").and_then(|v| v.as_str()) else {
+            return rbc_ai::result::refused(
+                call,
+                rbc_ai::protocol::result_code::INVALID_ARGUMENTS,
+                "approval_status needs an approval_id",
+            );
+        };
+        match self.approvals.get(id) {
+            Ok(Some(request)) => {
+                let status = match request.status {
+                    rbc_ai::protocol::ApprovalStatus::Pending => "pending",
+                    rbc_ai::protocol::ApprovalStatus::Approved => "approved",
+                    rbc_ai::protocol::ApprovalStatus::Denied => "denied",
+                    rbc_ai::protocol::ApprovalStatus::Expired => "expired",
+                };
+                let mut result = rbc_ai::result::ok(
+                    call,
+                    format!("approval {status}"),
+                    serde_json::json!({
+                        "approval_id": request.id,
+                        "status": status,
+                        "tool": request.tool,
+                        "changeset_summary": request.changeset_summary,
+                        "revision": null,
+                    }),
+                );
+                result.data.as_mut().and_then(|data| data.as_object_mut()).map(|_| ());
+                result
+            }
+            Ok(None) => rbc_ai::result::refused(
+                call,
+                rbc_ai::protocol::result_code::NOT_FOUND,
+                format!("no approval {id}"),
+            ),
+            Err(error) => rbc_ai::result::refused(
+                call,
+                rbc_ai::protocol::result_code::INTERNAL,
+                error.to_string(),
+            ),
+        }
+    }
+
 }

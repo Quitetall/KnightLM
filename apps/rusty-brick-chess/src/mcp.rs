@@ -18,6 +18,33 @@ use crate::api::{ApiError, AppState};
 /// The setting the token lives under. Generated on first use.
 const TOKEN_KEY: &str = "mcp_token";
 
+/// The setting holding the scopes MCP may take without asking.
+///
+/// Empty by default: the design's rule is that board writes prompt for MCP and
+/// study/destructive always do, so an auto-approve is something a person turns
+/// on deliberately.
+const SCOPES_KEY: &str = "mcp_auto_approve";
+
+fn mcp_profile(state: &AppState) -> rbc_ai::policy::PermissionProfile {
+    let granted = state
+        .db
+        .setting(SCOPES_KEY)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let mut profile = rbc_ai::policy::PermissionProfile::default();
+    for name in granted.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+        let scope = match name {
+            "board-write" => rbc_ai::policy::PermissionScope::BoardWrite,
+            "study-content" => rbc_ai::policy::PermissionScope::StudyContent,
+            "destructive" => rbc_ai::policy::PermissionScope::Destructive,
+            _ => continue,
+        };
+        profile.grant(rbc_ai::policy::Origin::Mcp, scope);
+    }
+    profile
+}
+
 /// The design's per-connection budget: generous for a working agent, a wall for
 /// one stuck in a loop.
 const REQUESTS_PER_MINUTE: u32 = 240;
@@ -168,7 +195,8 @@ pub async fn mcp_http(
     );
     let id = request.get("id").cloned();
     let resources = BoardResources { db: &state.db };
-    let dispatched = rbc_ai::mcp::dispatch(&request, &registry, &mut host, &resources, &info);
+    let profile = mcp_profile(&state);
+    let dispatched = rbc_ai::mcp::dispatch(&request, &registry, &mut host, &resources, &profile, &info);
     match rbc_ai::mcp::response(id.as_ref(), dispatched) {
         Some(reply) => Ok((StatusCode::OK, Json(reply))),
         // A notification: accepted, nothing to say.
@@ -249,7 +277,28 @@ pub fn serve_stdio(db: &rbc_db::Db) -> anyhow::Result<()> {
         );
         let id = request.get("id").cloned();
         let resources = BoardResources { db };
-        let dispatched = rbc_ai::mcp::dispatch(&request, &registry, &mut host, &resources, &info);
+        // stdio inherits process trust, so it may take the scopes a person
+        // granted for MCP without asking again.
+        let mut profile = rbc_ai::policy::PermissionProfile::default();
+        if let Ok(Some(granted)) = db.setting(SCOPES_KEY) {
+            for name in granted.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+                let scope = match name {
+                    "board-write" => rbc_ai::policy::PermissionScope::BoardWrite,
+                    "study-content" => rbc_ai::policy::PermissionScope::StudyContent,
+                    "destructive" => rbc_ai::policy::PermissionScope::Destructive,
+                    _ => continue,
+                };
+                profile.grant(rbc_ai::policy::Origin::Mcp, scope);
+            }
+        }
+        let dispatched = rbc_ai::mcp::dispatch(
+            &request,
+            &registry,
+            &mut host,
+            &resources,
+            &profile,
+            &info,
+        );
         if let Some(reply) = rbc_ai::mcp::response(id.as_ref(), dispatched) {
             writeln!(stdout, "{reply}")?;
             stdout.flush()?;

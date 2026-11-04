@@ -230,7 +230,9 @@ impl<'a> ApprovalStore<'a> {
             created: now,
             expires: Some(now + self.ttl_ms.max(0)),
         })?;
-        Ok(to_request(row))
+        let request = to_request(row);
+        self.audit("approval.created", &request);
+        Ok(request)
     }
 
     /// Read one request.
@@ -267,12 +269,43 @@ impl<'a> ApprovalStore<'a> {
         self.resolve(id, "denied", now)
     }
 
+    /// Write an audit row for one approval transition, returning its id.
+    fn audit(&self, action: &str, request: &ApprovalRequest) -> Option<String> {
+        self.db
+            .append_audit(
+                "approval",
+                action,
+                request.target_kind.as_deref().unwrap_or(""),
+                request.target_id.as_deref().unwrap_or(""),
+                &serde_json::json!({
+                    "approval_id": request.id,
+                    "tool": request.tool,
+                    "origin": request.origin,
+                })
+                .to_string(),
+            )
+            .ok()
+    }
+
     /// Expire every request whose deadline has passed.
     pub fn expire_due(&self, now: i64) -> Result<usize> {
         self.db.expire_ai_approvals(now)
     }
 
     fn resolve(&self, id: &str, status: &str, now: i64) -> Result<ApprovalRequest, ApprovalError> {
+        let request = self.resolve_inner(id, status, now)?;
+        // Every transition leaves a row; the approval row alone is a current
+        // state, not a history.
+        self.audit(&format!("approval.{status}"), &request);
+        Ok(request)
+    }
+
+    fn resolve_inner(
+        &self,
+        id: &str,
+        status: &str,
+        now: i64,
+    ) -> Result<ApprovalRequest, ApprovalError> {
         let row = self
             .db
             .ai_approval(id)

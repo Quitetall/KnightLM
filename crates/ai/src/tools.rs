@@ -904,6 +904,17 @@ fn builtin_specs() -> Vec<ToolSpec> {
             CHAT_ONLY,
         ),
         // --- Study writes -------------------------------------------------
+        // The one tool an MCP client needs to poll an approval. Read-only.
+        read(
+            "approval_status",
+            "Read the state of a queued approval: pending, approved, denied or expired.",
+            object(
+                json!({
+                    "approval_id": {"type": "string", "minLength": 1}
+                }),
+                &["approval_id"],
+            ),
+        ),
         session_write(
             "create_study",
             "Create a new study in draft state.",
@@ -987,6 +998,7 @@ mod tests {
     use super::*;
 
     const EXPECTED_TOOLS: &[&str] = &[
+        "approval_status",
         "get_position",
         "get_history",
         "legal_moves",

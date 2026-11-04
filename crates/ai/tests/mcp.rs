@@ -35,12 +35,25 @@ impl ToolHost for EchoHost {
     }
 }
 
+/// A profile that grants MCP no scopes: the server's default posture.
+const GRANTS_NOTHING: rbc_ai::policy::PermissionProfile = rbc_ai::policy::PermissionProfile {
+    in_app: Vec::new(),
+    mcp: Vec::new(),
+};
+
 fn serve(request: Value) -> (Option<Value>, Vec<String>) {
     let registry = ToolRegistry::builtin();
     let mut host = EchoHost::new();
     let info = ServerInfo::default();
     let id = request.get("id").cloned();
-    let dispatched = dispatch(&request, &registry, &mut host, &NoResources, &info);
+    let dispatched = dispatch(
+        &request,
+        &registry,
+        &mut host,
+        &NoResources,
+        &GRANTS_NOTHING,
+        &info,
+    );
     let calls = host.calls.iter().map(|(name, _)| name.clone()).collect();
     (response(id.as_ref(), dispatched), calls)
 }
@@ -162,8 +175,15 @@ fn mcp_a_non_object_request_is_refused() {
     let registry = ToolRegistry::builtin();
     let mut host = EchoHost::new();
     let info = ServerInfo::default();
-    let failure = dispatch(&json!("hello"), &registry, &mut host, &NoResources, &info)
-        .expect_err("a string is not a request");
+    let failure = dispatch(
+        &json!("hello"),
+        &registry,
+        &mut host,
+        &NoResources,
+        &GRANTS_NOTHING,
+        &info,
+    )
+    .expect_err("a string is not a request");
     assert_eq!(failure.code, -32600);
 }
 
@@ -248,7 +268,14 @@ fn serve_with(request: Value, resources: &dyn Resources) -> Option<Value> {
     let mut host = EchoHost::new();
     let info = ServerInfo::default();
     let id = request.get("id").cloned();
-    let dispatched = dispatch(&request, &registry, &mut host, resources, &info);
+    let dispatched = dispatch(
+        &request,
+        &registry,
+        &mut host,
+        resources,
+        &GRANTS_NOTHING,
+        &info,
+    );
     response(id.as_ref(), dispatched)
 }
 
@@ -358,4 +385,124 @@ fn mcp_exposes_no_chat_lua_or_app_lifecycle_tools() {
             );
         }
     }
+}
+
+// --- approvals over MCP --------------------------------------------------------
+
+/// A host that needs approval for a write and remembers what it queued.
+struct ApprovalHost {
+    ids: Vec<String>,
+    calls: Vec<String>,
+}
+
+impl rbc_ai::agent::ToolHost for ApprovalHost {
+    fn call(&mut self, call: &rbc_ai::protocol::ToolCall) -> rbc_ai::protocol::ToolResult {
+        self.calls.push(call.name.clone());
+        rbc_ai::result::ok(call, "ran", json!(null))
+    }
+
+    fn request_approval(
+        &mut self,
+        _call: &rbc_ai::protocol::ToolCall,
+        _summary: String,
+    ) -> Option<String> {
+        let id = format!("approval-{}", self.ids.len() + 1);
+        self.ids.push(id.clone());
+        Some(id)
+    }
+}
+
+fn serve_with_profile(
+    request: Value,
+    profile: &rbc_ai::policy::PermissionProfile,
+) -> (Option<Value>, ApprovalHost) {
+    let registry = ToolRegistry::builtin();
+    let mut host = ApprovalHost {
+        ids: Vec::new(),
+        calls: Vec::new(),
+    };
+    let info = ServerInfo::default();
+    let id = request.get("id").cloned();
+    let dispatched = dispatch(&request, &registry, &mut host, &NoResources, profile, &info);
+    (response(id.as_ref(), dispatched), host)
+}
+
+#[test]
+fn mcp_a_write_without_a_grant_asks_for_approval_and_runs_nothing() {
+    // The default profile grants MCP nothing, which is the design's rule.
+    let profile = rbc_ai::policy::PermissionProfile::default();
+    let (reply, host) = serve_with_profile(
+        json!({
+            "jsonrpc": "2.0", "id": 20, "method": "tools/call",
+            "params": {"name": "play_move", "arguments": {"board_id": "b1", "move": "e4", "expected_revision": 1}}
+        }),
+        &profile,
+    );
+    let reply = reply.expect("a response");
+    let structured = &reply["result"]["structuredContent"];
+    assert_eq!(structured["code"], json!("approval_required"));
+    assert_eq!(structured["data"]["status"], json!("approval_required"));
+    assert!(
+        structured["data"]["approval_id"].is_string(),
+        "an id to poll"
+    );
+    assert!(structured["data"]["changeset_summary"].is_string());
+    assert_eq!(structured["data"]["poll"], json!("approval_status"));
+    assert!(host.calls.is_empty(), "the write did not run");
+    assert_eq!(host.ids.len(), 1, "it was queued instead");
+}
+
+#[test]
+fn mcp_a_granted_board_write_runs() {
+    let mut profile = rbc_ai::policy::PermissionProfile::default();
+    profile.grant(
+        rbc_ai::policy::Origin::Mcp,
+        rbc_ai::policy::PermissionScope::BoardWrite,
+    );
+    let (reply, host) = serve_with_profile(
+        json!({
+            "jsonrpc": "2.0", "id": 21, "method": "tools/call",
+            "params": {"name": "play_move", "arguments": {"board_id": "b1", "move": "e4", "expected_revision": 1}}
+        }),
+        &profile,
+    );
+    let reply = reply.expect("a response");
+    assert_eq!(reply["result"]["isError"], json!(false));
+    assert_eq!(host.calls, vec!["play_move".to_string()], "it ran");
+    assert!(host.ids.is_empty(), "and nothing was queued");
+}
+
+#[test]
+fn mcp_a_denied_tool_never_reaches_the_host() {
+    // `create_study` is a structural write; MCP has no mode, but the effect is
+    // study content, which always needs a grant.
+    let profile = rbc_ai::policy::PermissionProfile::default();
+    let (reply, host) = serve_with_profile(
+        json!({
+            "jsonrpc": "2.0", "id": 22, "method": "tools/call",
+            "params": {"name": "create_study", "arguments": {"title": "x"}}
+        }),
+        &profile,
+    );
+    let reply = reply.expect("a response");
+    let structured = &reply["result"]["structuredContent"];
+    assert!(
+        structured["code"] == json!("approval_required") || structured["code"] == json!("denied"),
+        "a structural write is never silently allowed: {structured}"
+    );
+    assert!(host.calls.is_empty(), "nothing ran");
+}
+
+#[test]
+fn mcp_approval_status_is_a_pollable_tool() {
+    let registry = ToolRegistry::builtin();
+    let spec = registry
+        .get("approval_status")
+        .expect("approval_status is registered");
+    assert_eq!(
+        spec.effects,
+        rbc_ai::tools::ToolEffect::Read,
+        "polling is a read"
+    );
+    assert!(spec.requires_argument("approval_id"));
 }

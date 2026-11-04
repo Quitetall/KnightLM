@@ -17,7 +17,8 @@
 use serde_json::{Value, json};
 
 use crate::agent::ToolHost;
-use crate::protocol::ToolCall;
+use crate::policy::{Origin, PermissionProfile, PolicyDecision, decide};
+use crate::protocol::{SessionMode, ToolCall, result_code};
 use crate::tools::ToolRegistry;
 
 /// The protocol version this server speaks.
@@ -138,6 +139,7 @@ pub fn dispatch(
     registry: &ToolRegistry,
     host: &mut dyn ToolHost,
     resources: &dyn Resources,
+    profile: &PermissionProfile,
     info: &ServerInfo,
 ) -> Dispatched {
     let Some(object) = request.as_object() else {
@@ -163,7 +165,7 @@ pub fn dispatch(
         "notifications/initialized" | "notifications/cancelled" => Ok(None),
         "ping" => Ok(Some(json!({}))),
         "tools/list" => Ok(Some(tools_list(registry))),
-        "tools/call" => tools_call(&params, registry, host),
+        "tools/call" => tools_call(&params, registry, host, profile),
         "resources/list" => Ok(Some(resources_list(resources))),
         "resources/read" => resources_read(&params, resources),
         "prompts/list" => Ok(Some(json!({"prompts": prompts()}))),
@@ -205,7 +207,12 @@ fn tools_list(registry: &ToolRegistry) -> Value {
     json!({ "tools": tools })
 }
 
-fn tools_call(params: &Value, registry: &ToolRegistry, host: &mut dyn ToolHost) -> Dispatched {
+fn tools_call(
+    params: &Value,
+    registry: &ToolRegistry,
+    host: &mut dyn ToolHost,
+    profile: &PermissionProfile,
+) -> Dispatched {
     let Some(name) = params.get("name").and_then(|n| n.as_str()) else {
         return Err(RpcError::invalid_params("tools/call needs a name"));
     };
@@ -220,7 +227,47 @@ fn tools_call(params: &Value, registry: &ToolRegistry, host: &mut dyn ToolHost) 
         .map_err(|error| RpcError::invalid_params(format!("{error}")))?;
 
     let call = ToolCall::new(format!("mcp-{}", uuid_like()), name, arguments);
-    let result = host.call(&call);
+
+    // The policy is applied here, not by the caller and not by the host: an MCP
+    // call is not a privileged path. MCP has no session mode, which the policy
+    // already knows, so the mode passed here only ever matters to in-app calls.
+    // `decide` takes the one scope a write needs, so ask the profile for each
+    // scope the tool's effect maps to and pass along whether any is granted.
+    let granted = [
+        crate::policy::PermissionScope::BoardWrite,
+        crate::policy::PermissionScope::StudyContent,
+        crate::policy::PermissionScope::Destructive,
+    ]
+    .into_iter()
+    .find(|scope| profile.grants(Origin::Mcp, *scope));
+    let result = match decide(spec, SessionMode::Chat, Origin::Mcp, granted) {
+        PolicyDecision::Deny => crate::result::refused(
+            &call,
+            result_code::DENIED,
+            format!("{name} is not available over MCP"),
+        ),
+        PolicyDecision::RequiresApproval => {
+            let summary =
+                format!("{name} changes stored content and needs approval before it runs");
+            let mut refused =
+                crate::result::refused(&call, result_code::APPROVAL_REQUIRED, summary.clone());
+            let approval_id = host.request_approval(&call, summary.clone());
+            refused.data = Some(match &approval_id {
+                Some(id) => serde_json::json!({
+                    "status": "approval_required",
+                    "approval_id": id,
+                    "changeset_summary": summary,
+                    "poll": "approval_status",
+                }),
+                None => serde_json::json!({
+                    "status": "approval_required",
+                    "changeset_summary": summary,
+                }),
+            });
+            refused
+        }
+        PolicyDecision::Allow => host.call(&call),
+    };
     // MCP wants content blocks; the tool result is one text block plus its
     // structured form, so a client can read either.
     let text = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
