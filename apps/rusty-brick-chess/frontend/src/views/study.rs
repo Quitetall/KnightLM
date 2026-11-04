@@ -36,6 +36,10 @@ pub fn StudyView(
     // the selection, because reloading a chapter can bring a new revision of a
     // board whose id has not changed.
     let board_tick = RwSignal::new(0u32);
+    // Progress is per chapter and per user, so it is loaded with the chapters and
+    // never mixed into the study's content.
+    let progress = RwSignal::new(Vec::<(String, bool)>::new());
+    let progress_user = RwSignal::new("you".to_string());
 
     let reload_studies = move || {
         spawn_local(async move {
@@ -46,6 +50,17 @@ pub fn StudyView(
     };
 
     let load_chapters = move |study_id: String| {
+        let user = progress_user.get_untracked();
+        let study_for_progress = study_id.clone();
+        spawn_local(async move {
+            if let Ok(rows) = api::study_progress(&study_for_progress, &user).await {
+                progress.set(
+                    rows.into_iter()
+                        .map(|row| (row.chapter_id, row.completed))
+                        .collect(),
+                );
+            }
+        });
         spawn_local(async move {
             match api::list_chapters(&study_id).await {
                 Ok(list) => {
@@ -53,7 +68,11 @@ pub fn StudyView(
                     let still_there = active_chapter
                         .get_untracked()
                         .filter(|id| list.iter().any(|c| &c.id == id));
-                    let chosen = still_there.or_else(|| list.first().map(|c| c.id.clone()));
+                    let remembered = api::last_chapter(&study_id)
+                        .filter(|id| list.iter().any(|c| &c.id == id));
+                    let chosen = still_there
+                        .or(remembered)
+                        .or_else(|| list.first().map(|c| c.id.clone()));
                     if let Some(chapter) = list.iter().find(|c| Some(c.id.clone()) == chosen) {
                         notes.set(chapter.notes_md.clone());
                         let chosen_board = board_ids_of(chapter)
@@ -212,6 +231,21 @@ pub fn StudyView(
                                 <span class="study-lifecycle">
                                     {if published { "published" } else { "draft" }}
                                 </span>
+                                <span class="study-progress" title=move || t("study.progress")>
+                                    {move || {
+                                        let total = chapters.get().len();
+                                        let done = progress
+                                            .get()
+                                            .into_iter()
+                                            .filter(|(_, complete)| *complete)
+                                            .count();
+                                        if total == 0 {
+                                            String::new()
+                                        } else {
+                                            format!("{done}/{total}")
+                                        }
+                                    }}
+                                </span>
                             </div>
                             <div class="chapter-actions">
                                 <input
@@ -286,11 +320,69 @@ pub fn StudyView(
                                                             active_board.set(Some(first));
                                                         }
                                                         board_tick.update(|tick| *tick = tick.wrapping_add(1));
+                                                        if let Some(study) = open_study.get_untracked() {
+                                                            api::remember_chapter(&study.id, &id);
+                                                        }
                                                     }
                                                 }
                                             >
                                                 <span class="chapter-ordinal">{index + 1}</span>
                                                 <span class="chapter-name">{title}</span>
+                                                <label class="chapter-done" title=move || t("study.done")>
+                                                    <input
+                                                        type="checkbox"
+                                                        prop:checked={
+                                                            let id = chapter.id.clone();
+                                                            move || progress.get().iter().any(|(c, done)| *c == id && *done)
+                                                        }
+                                                        on:click=move |event| event.stop_propagation()
+                                                        on:change={
+                                                            let study_id = study_for_actions.clone();
+                                                            let chapter_id = chapter.id.clone();
+                                                            let board = chapter.primary_board_id.clone();
+                                                            move |event| {
+                                                                // A checkbox's value is "on", not a bool: read the
+                                                                // element's checked state instead.
+                                                                let completed = event
+                                                                    .target()
+                                                                    .and_then(|target| {
+                                                                        wasm_bindgen::JsCast::dyn_into::<
+                                                                            web_sys::HtmlInputElement,
+                                                                        >(target)
+                                                                        .ok()
+                                                                    })
+                                                                    .map(|input| input.checked())
+                                                                    .unwrap_or(false);
+                                                                let study_id = study_id.clone();
+                                                                let chapter_id = chapter_id.clone();
+                                                                let board = board.clone();
+                                                                let user = progress_user.get_untracked();
+                                                                spawn_local(async move {
+                                                                    match api::set_study_progress(
+                                                                        &study_id,
+                                                                        &chapter_id,
+                                                                        &board,
+                                                                        &user,
+                                                                        completed,
+                                                                    )
+                                                                    .await
+                                                                    {
+                                                                        Ok(()) => {
+                                                                            progress.update(|rows| {
+                                                                                if let Some(row) = rows.iter_mut().find(|(c, _)| c == &chapter_id) {
+                                                                                    row.1 = completed;
+                                                                                } else {
+                                                                                    rows.push((chapter_id.clone(), completed));
+                                                                                }
+                                                                            });
+                                                                        }
+                                                                        Err(error) => message.set(error),
+                                                                    }
+                                                                });
+                                                            }
+                                                        }
+                                                    />
+                                                </label>
                                                 <span class="chapter-buttons">
                                                     <button
                                                         class="chapter-up"

@@ -1926,6 +1926,28 @@ pub async fn copy_study(study_id: &str) -> Result<StudyInfo, String> {
     json_or_error(resp).await
 }
 
+/// Remember the chapter last opened in a study.
+///
+/// Kept in the browser rather than the database: it is a personal cursor, not
+/// something another reader of the same study should see.
+pub fn remember_chapter(study_id: &str, chapter_id: &str) {
+    if let Some(storage) = web_sys::window().and_then(|window| window.local_storage().ok().flatten())
+    {
+        let _ = storage.set_item(&format!("rbc.study.{study_id}.chapter"), chapter_id);
+    }
+}
+
+pub fn last_chapter(study_id: &str) -> Option<String> {
+    web_sys::window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| {
+            storage
+                .get_item(&format!("rbc.study.{study_id}.chapter"))
+                .ok()
+                .flatten()
+        })
+}
+
 pub async fn study_progress(study_id: &str, user: &str) -> Result<Vec<StudyProgressInfo>, String> {
     json_or_error(
         Request::get(&format!("/api/studies/{study_id}/progress?user={user}"))

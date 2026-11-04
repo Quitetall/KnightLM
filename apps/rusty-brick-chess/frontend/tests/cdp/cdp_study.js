@@ -114,12 +114,22 @@ function getJson(port, path) {
   const notesRows = await ev(`document.querySelectorAll(".annotation-row").length`);
   const boardHtml = await ev(`document.querySelector(".study-board-slot")?.innerHTML?.slice(0,120) || ""`);
 
+  // Progress: tick the first chapter, and the header count follows.
+  const ticked = await ev(`(()=>{const box=document.querySelector(".chapter-done input");if(!box)return false;box.click();return true;})()`);
+  await sleep(1400);
+  const progressText = await ev(`document.querySelector(".study-progress")?.textContent.trim()`);
+  const boxChecked = await ev(`document.querySelector(".chapter-done input")?.checked`);
+  // It survives a reload of the study, because it is stored per user.
+  await ev(`document.querySelector(".study-row")?.click()`);
+  await sleep(1500);
+  const checkedAfterReload = await ev(`(()=>{const b=document.querySelector(".chapter-done input");return b?b.checked:null;})()`);
+
   const published = await click(".study-publish");
   await sleep(1600);
   const lifecycle = await ev(`document.querySelector(".study-lifecycle")?.textContent.trim()`);
   const disabledAfter = await ev(`document.querySelector(".chapter-add")?.disabled`);
 
-  console.log(JSON.stringify({ hasView, created, studies, chapters, duplicated, afterDuplicate, moved, afterMove, boardAdded, boards, primary, primaryMarked, saved, headings, items, bold, tags, seededOk, moves, notesRows, boardHtml, published, lifecycle, disabledAfter }));
+  console.log(JSON.stringify({ hasView, created, studies, chapters, duplicated, afterDuplicate, moved, afterMove, boardAdded, boards, primary, primaryMarked, saved, headings, items, bold, tags, seededOk, moves, notesRows, ticked, progressText, boxChecked, checkedAfterReload, boardHtml, published, lifecycle, disabledAfter }));
   const ok = hasView && created && studies >= 1
     && chapters.length === 2 && chapters[0] === "Openings"
     && duplicated && afterDuplicate.length === 3 && afterDuplicate.some((t) => t.includes("copy"))
@@ -128,6 +138,8 @@ function getJson(port, path) {
     && saved && headings === 1 && items === 2 && bold === 1
     && tags === "opening, tactics"
     && seededOk === true && moves.join(" ") === "e4 e5" && notesRows === 1
+    && ticked === true && /^1\/\d+$/.test(progressText || "")
+    && boxChecked === true && checkedAfterReload === true
     && published && lifecycle === "published"
     && disabledAfter === true;
   console.log(ok ? "AI_STUDY_PASS" : "AI_STUDY_FAIL");

@@ -58,6 +58,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("study.publish", "Publish", "Publicar"),
     ("study.description", "Description", "Descripción"),
     ("study.tags", "Tags", "Etiquetas"),
+    ("study.done", "Mark this chapter done", "Marcar este capítulo como hecho"),
+    ("study.progress", "Chapters done", "Capítulos hechos"),
     ("study.no_board", "This chapter has no board yet.", "Este capítulo aún no tiene tablero."),
     ("play.turns", "Turns", "Turnos"),
     ("play.tokens", "Tokens", "Tokens"),
