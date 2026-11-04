@@ -3,10 +3,10 @@
 pub mod ai_api;
 pub mod api;
 pub mod board;
-pub mod markdown;
 pub mod i18n;
-mod views;
+pub mod markdown;
 pub mod sound;
+mod views;
 
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
@@ -211,9 +211,8 @@ pub fn App() -> impl IntoView {
     let report = RwSignal::new(None::<api::GameReport>);
     let reporting = RwSignal::new(false);
     let opening = RwSignal::new(None::<api::Explorer>);
-    let opening_fen = RwSignal::new(
-        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string(),
-    );
+    let opening_fen =
+        RwSignal::new("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string());
     let puzzle = RwSignal::new(None::<api::Puzzle>);
     let show_solution = RwSignal::new(false);
     let puzzle_rating = RwSignal::new(1500i32);
@@ -306,7 +305,11 @@ pub fn App() -> impl IntoView {
             match api::create_collection(name.trim()).await {
                 Ok(c) => {
                     new_collection.set(String::new());
-                    status.set(i18n::tf(&language.get(), "status.d01", &[("name", c.name.clone())]));
+                    status.set(i18n::tf(
+                        &language.get(),
+                        "status.d01",
+                        &[("name", c.name.clone())],
+                    ));
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -328,7 +331,11 @@ pub fn App() -> impl IntoView {
                     selected_game_id.set(None);
                     selected_pgn.set(String::new());
                     game_detail.set(None);
-                    status.set(i18n::tf(&language.get(), "status.d02", &[("name", name.clone())]));
+                    status.set(i18n::tf(
+                        &language.get(),
+                        "status.d02",
+                        &[("name", name.clone())],
+                    ));
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -350,7 +357,11 @@ pub fn App() -> impl IntoView {
                     selected_game_id.set(None);
                     selected_pgn.set(String::new());
                     game_detail.set(None);
-                    status.set(i18n::tf(&language.get(), "status.d03", &[("name", name.trim().to_string())]));
+                    status.set(i18n::tf(
+                        &language.get(),
+                        "status.d03",
+                        &[("name", name.trim().to_string())],
+                    ));
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -382,7 +393,10 @@ pub fn App() -> impl IntoView {
             return;
         }
         let confirmed = web_sys::window()
-            .and_then(|w| w.confirm_with_message(i18n::t(&language.get(), "db.delete_collection")).ok())
+            .and_then(|w| {
+                w.confirm_with_message(i18n::t(&language.get(), "db.delete_collection"))
+                    .ok()
+            })
             .unwrap_or(false);
         if !confirmed {
             return;
@@ -422,7 +436,9 @@ pub fn App() -> impl IntoView {
     };
 
     let add_game_to_collection = move |_: leptos::ev::MouseEvent| {
-        let Some(gid) = selected_game_id.get() else { return };
+        let Some(gid) = selected_game_id.get() else {
+            return;
+        };
         let cid = add_collection.get();
         if cid <= 0 {
             return;
@@ -480,11 +496,7 @@ pub fn App() -> impl IntoView {
     });
 
     Effect::new(move |_| {
-        sound::configure(
-            sound_enabled.get(),
-            &sound_theme.get(),
-            sound_volume.get(),
-        );
+        sound::configure(sound_enabled.get(), &sound_theme.get(), sound_volume.get());
     });
 
     Effect::new(move |_| {
@@ -1049,7 +1061,9 @@ pub fn App() -> impl IntoView {
         save_workspace();
         let existing = workspaces.with_untracked(|list| {
             list.iter()
-                .find(|w| w.kind == "assistant" && w.session_id.as_deref() == Some(session_id.as_str()))
+                .find(|w| {
+                    w.kind == "assistant" && w.session_id.as_deref() == Some(session_id.as_str())
+                })
                 .map(|w| w.key)
         });
         let key = match existing {
@@ -1083,9 +1097,8 @@ pub fn App() -> impl IntoView {
 
     let open_page_tab = move |kind: String| {
         save_workspace();
-        let existing = workspaces.with_untracked(|list| {
-            list.iter().find(|w| w.kind == kind).map(|w| w.key)
-        });
+        let existing =
+            workspaces.with_untracked(|list| list.iter().find(|w| w.kind == kind).map(|w| w.key));
         let key = match existing {
             Some(key) => key,
             None => {
@@ -1151,7 +1164,9 @@ pub fn App() -> impl IntoView {
             });
             if active_ws.get_untracked() == key
                 && workspaces
-                    .with_untracked(|list| list.iter().find(|w| w.key == key).map(|w| w.kind.clone()))
+                    .with_untracked(|list| {
+                        list.iter().find(|w| w.key == key).map(|w| w.kind.clone())
+                    })
                     .as_deref()
                     == Some("analysis")
             {
@@ -1173,9 +1188,9 @@ pub fn App() -> impl IntoView {
             _ => "",
         };
         if !kind.is_empty() {
-            if let Some(key) = workspaces.with_untracked(|list| {
-                list.iter().find(|w| w.kind == kind).map(|w| w.key)
-            }) {
+            if let Some(key) = workspaces
+                .with_untracked(|list| list.iter().find(|w| w.kind == kind).map(|w| w.key))
+            {
                 active_ws.set(key);
             }
             tab.set(next);
@@ -1189,14 +1204,20 @@ pub fn App() -> impl IntoView {
             });
             if active_kind.as_deref() != Some("analysis") {
                 if let Some(key) = workspaces.with_untracked(|list| {
-                    list.iter().rev().find(|w| w.kind == "analysis").map(|w| w.key)
+                    list.iter()
+                        .rev()
+                        .find(|w| w.kind == "analysis")
+                        .map(|w| w.key)
                 }) {
                     activate_workspace(key);
                     return;
                 }
             }
             if tree_ply.get_untracked() > 0 {
-                goto_sig.set(Some((goto_seq.get_untracked() + 1, tree_ply.get_untracked())));
+                goto_sig.set(Some((
+                    goto_seq.get_untracked() + 1,
+                    tree_ply.get_untracked(),
+                )));
             }
         }
         tab.set(next);
@@ -1397,11 +1418,13 @@ pub fn App() -> impl IntoView {
         }
         selected_game_id.set(Some(g.id));
         selected_moves.set(sans.clone());
-        selected_title.set(if let Some(v) = g.variant.as_deref().filter(|v| *v != "standard") {
-            format!("{} vs {} · {} · {}", g.white, g.black, g.result, v)
-        } else {
-            format!("{} vs {} · {}", g.white, g.black, g.result)
-        });
+        selected_title.set(
+            if let Some(v) = g.variant.as_deref().filter(|v| *v != "standard") {
+                format!("{} vs {} · {} · {}", g.white, g.black, g.result, v)
+            } else {
+                format!("{} vs {} · {}", g.white, g.black, g.result)
+            },
+        );
         remember_workspace(
             Some(g.id),
             selected_title.get_untracked(),
@@ -1446,7 +1469,11 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             match api::import_pgn(&text).await {
                 Ok(n) => {
-                    status.set(i18n::tf(&language.get(), "status.d05", &[("n", n.to_string())]));
+                    status.set(i18n::tf(
+                        &language.get(),
+                        "status.d05",
+                        &[("n", n.to_string())],
+                    ));
                     import_text.set(String::new());
                     reload();
                 }
@@ -1457,13 +1484,21 @@ pub fn App() -> impl IntoView {
 
     let import_file = move |name: String, text: String| {
         if text.trim().is_empty() {
-            status.set(i18n::tf(&language.get(), "status.d06", &[("name", name.clone())]));
+            status.set(i18n::tf(
+                &language.get(),
+                "status.d06",
+                &[("name", name.clone())],
+            ));
             return;
         }
         spawn_local(async move {
             match api::import_pgn(&text).await {
                 Ok(n) => {
-                    status.set(i18n::tf(&language.get(), "status.d07", &[("n", n.to_string()), ("name", name.clone())]));
+                    status.set(i18n::tf(
+                        &language.get(),
+                        "status.d07",
+                        &[("n", n.to_string()), ("name", name.clone())],
+                    ));
                     recent_files.update(|list| {
                         list.retain(|(existing, _)| existing != &name);
                         list.insert(0, (name.clone(), n));
@@ -1472,7 +1507,11 @@ pub fn App() -> impl IntoView {
                     write_recent_files(&recent_files.get_untracked());
                     reload();
                 }
-                Err(error) => status.set(i18n::tf(&language.get(), "status.d08", &[("name", name.clone()), ("error", error.to_string())])),
+                Err(error) => status.set(i18n::tf(
+                    &language.get(),
+                    "status.d08",
+                    &[("name", name.clone()), ("error", error.to_string())],
+                )),
             }
         });
     };
@@ -1515,11 +1554,12 @@ pub fn App() -> impl IntoView {
 
     // Drop a PGN anywhere on the window to import it.
     {
-        let prevent = Closure::<dyn FnMut(web_sys::DragEvent)>::new(
-            move |event: web_sys::DragEvent| event.prevent_default(),
-        );
-        let on_drop = Closure::<dyn FnMut(web_sys::DragEvent)>::new(
-            move |event: web_sys::DragEvent| {
+        let prevent =
+            Closure::<dyn FnMut(web_sys::DragEvent)>::new(move |event: web_sys::DragEvent| {
+                event.prevent_default()
+            });
+        let on_drop =
+            Closure::<dyn FnMut(web_sys::DragEvent)>::new(move |event: web_sys::DragEvent| {
                 event.prevent_default();
                 let Some(data) = event.data_transfer() else {
                     return;
@@ -1532,15 +1572,12 @@ pub fn App() -> impl IntoView {
                         read_file(file);
                     }
                 }
-            },
-        );
+            });
         if let Some(window) = web_sys::window() {
-            let _ = window.add_event_listener_with_callback(
-                "dragover",
-                prevent.as_ref().unchecked_ref(),
-            );
             let _ = window
-                .add_event_listener_with_callback("drop", on_drop.as_ref().unchecked_ref());
+                .add_event_listener_with_callback("dragover", prevent.as_ref().unchecked_ref());
+            let _ =
+                window.add_event_listener_with_callback("drop", on_drop.as_ref().unchecked_ref());
         }
         prevent.forget();
         on_drop.forget();
@@ -1602,13 +1639,11 @@ pub fn App() -> impl IntoView {
                         cp: a.score_cp,
                         mate: a.mate,
                     };
-                    evals.update(|v| {
-                        match v.iter_mut().find(|r| r.ply == ply) {
-                            Some(slot) => *slot = row,
-                            None => {
-                                v.push(row);
-                                v.sort_by_key(|r| r.ply);
-                            }
+                    evals.update(|v| match v.iter_mut().find(|r| r.ply == ply) {
+                        Some(slot) => *slot = row,
+                        None => {
+                            v.push(row);
+                            v.sort_by_key(|r| r.ply);
                         }
                     });
                     analysis.set(Some(a));
@@ -1651,10 +1686,19 @@ pub fn App() -> impl IntoView {
         };
         let text = |value: String| {
             let value = value.trim().to_owned();
-            if value.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(value) }
+            if value.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::Value::String(value)
+            }
         };
         let number = |value: String| {
-            value.trim().parse::<i32>().ok().map(|v| serde_json::Value::from(v)).unwrap_or(serde_json::Value::Null)
+            value
+                .trim()
+                .parse::<i32>()
+                .ok()
+                .map(|v| serde_json::Value::from(v))
+                .unwrap_or(serde_json::Value::Null)
         };
         let payload = serde_json::json!({
             "event": text(tag_event.get_untracked()),
@@ -1709,11 +1753,19 @@ pub fn App() -> impl IntoView {
             status.set(i18n::t(&language.get(), "status.m25").into());
             return;
         }
-        let pgn = line_pgn(&detail.fen, &line, detail.variant.as_deref().unwrap_or("standard"));
+        let pgn = line_pgn(
+            &detail.fen,
+            &line,
+            detail.variant.as_deref().unwrap_or("standard"),
+        );
         spawn_local(async move {
             match api::import_repertoire_pgn(repertoire, &pgn).await {
                 Ok(n) => {
-                    status.set(i18n::tf(&language.get(), "status.d11", &[("n", n.to_string())]));
+                    status.set(i18n::tf(
+                        &language.get(),
+                        "status.d11",
+                        &[("n", n.to_string())],
+                    ));
                     if let Ok(list) = api::repertoires().await {
                         reps.set(list);
                     }
@@ -1725,7 +1777,11 @@ pub fn App() -> impl IntoView {
 
     let adopt_detail = move |d: api::GameDetail| {
         let sans: Vec<String> = d.moves.split_whitespace().map(str::to_owned).collect();
-        selected_pgn.set(line_pgn(&d.fen, &sans, d.variant.as_deref().unwrap_or("standard")));
+        selected_pgn.set(line_pgn(
+            &d.fen,
+            &sans,
+            d.variant.as_deref().unwrap_or("standard"),
+        ));
         selected_moves.set(sans);
         selected_title.set(format!("{} vs {} · {}", d.white, d.black, d.result));
         game_detail.set(Some(d));
@@ -1810,7 +1866,11 @@ pub fn App() -> impl IntoView {
             match api::truncate_moves(id, ply).await {
                 Ok(d) => {
                     adopt_detail(d);
-                    status.set(i18n::tf(&language.get(), "status.d12", &[("ply", ply.to_string())]));
+                    status.set(i18n::tf(
+                        &language.get(),
+                        "status.d12",
+                        &[("ply", ply.to_string())],
+                    ));
                     reload();
                 }
                 Err(e) => status.set(e),
@@ -1829,7 +1889,11 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             match api::import_repertoire_game(repertoire, game).await {
                 Ok(n) => {
-                    status.set(i18n::tf(&language.get(), "status.d13", &[("n", n.to_string())]));
+                    status.set(i18n::tf(
+                        &language.get(),
+                        "status.d13",
+                        &[("n", n.to_string())],
+                    ));
                     if let Ok(list) = api::repertoires().await {
                         reps.set(list);
                     }
@@ -1844,7 +1908,10 @@ pub fn App() -> impl IntoView {
             return;
         };
         let confirmed = web_sys::window()
-            .and_then(|w| w.confirm_with_message(i18n::t(&language.get(), "db.delete_game")).ok())
+            .and_then(|w| {
+                w.confirm_with_message(i18n::t(&language.get(), "db.delete_game"))
+                    .ok()
+            })
             .unwrap_or(false);
         if !confirmed {
             return;
@@ -1967,7 +2034,12 @@ pub fn App() -> impl IntoView {
         let ply = ann_ply.get();
         let anns = annotations.get();
         let found = find_annotation(&anns, &path, ply).cloned();
-        ann_text.set(found.as_ref().and_then(|a| a.comment.clone()).unwrap_or_default());
+        ann_text.set(
+            found
+                .as_ref()
+                .and_then(|a| a.comment.clone())
+                .unwrap_or_default(),
+        );
         ann_nag.set(found.as_ref().and_then(|a| a.nag).unwrap_or(0));
         shapes.set(annotation_shapes(found.as_ref()));
     });
@@ -1985,8 +2057,7 @@ pub fn App() -> impl IntoView {
             let full = game_detail
                 .get()
                 .map(|d| {
-                    let sans: Vec<String> =
-                        d.moves.split_whitespace().map(str::to_owned).collect();
+                    let sans: Vec<String> = d.moves.split_whitespace().map(str::to_owned).collect();
                     line_pgn(&d.fen, &sans, d.variant.as_deref().unwrap_or("standard"))
                 })
                 .unwrap_or_default();
@@ -1997,11 +2068,18 @@ pub fn App() -> impl IntoView {
             goto_seq.set(seq);
             goto_sig.set(Some((seq, item.ply + 1)));
         } else {
-            let fen = game_detail
-                .get()
-                .map(|d| d.fen)
-                .unwrap_or_else(|| "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into());
-            selected_pgn.set(line_pgn(&fen, &item.line, game_detail.get().and_then(|d| d.variant).as_deref().unwrap_or("standard")));
+            let fen = game_detail.get().map(|d| d.fen).unwrap_or_else(|| {
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into()
+            });
+            selected_pgn.set(line_pgn(
+                &fen,
+                &item.line,
+                game_detail
+                    .get()
+                    .and_then(|d| d.variant)
+                    .as_deref()
+                    .unwrap_or("standard"),
+            ));
             let seq = goto_seq.get_untracked() + 1;
             goto_seq.set(seq);
             goto_sig.set(Some((seq, item.line.len())));
@@ -2168,17 +2246,25 @@ pub fn App() -> impl IntoView {
         });
     };
 
-    let apply_ai_action = move |action: serde_json::Value| {
-        match action.get("kind").and_then(|v| v.as_str()) {
-            Some("arrow") => {
-                let from = action.get("from").and_then(|v| v.as_str()).unwrap_or_default();
-                let to = action.get("to").and_then(|v| v.as_str()).unwrap_or_default();
-                let color = action
-                    .get("color")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("green");
-                if !from.is_empty() && !to.is_empty() {
-                    ai_shapes.update(|list| {
+    let apply_ai_action = move |action: serde_json::Value| match action
+        .get("kind")
+        .and_then(|v| v.as_str())
+    {
+        Some("arrow") => {
+            let from = action
+                .get("from")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let to = action
+                .get("to")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let color = action
+                .get("color")
+                .and_then(|v| v.as_str())
+                .unwrap_or("green");
+            if !from.is_empty() && !to.is_empty() {
+                ai_shapes.update(|list| {
                         list.retain(|shape| {
                             !matches!(shape, brick_chess::Shape::Arrow { from: f, to: t, .. } if f == from && t == to)
                         });
@@ -2188,19 +2274,19 @@ pub fn App() -> impl IntoView {
                             color: color.to_owned(),
                         });
                     });
-                }
             }
-            Some("circle") => {
-                let square = action
-                    .get("square")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default();
-                let color = action
-                    .get("color")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("green");
-                if !square.is_empty() {
-                    ai_shapes.update(|list| {
+        }
+        Some("circle") => {
+            let square = action
+                .get("square")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let color = action
+                .get("color")
+                .and_then(|v| v.as_str())
+                .unwrap_or("green");
+            if !square.is_empty() {
+                ai_shapes.update(|list| {
                         list.retain(|shape| {
                             !matches!(shape, brick_chess::Shape::Circle { square: s, .. } if s == square)
                         });
@@ -2209,18 +2295,17 @@ pub fn App() -> impl IntoView {
                             color: color.to_owned(),
                         });
                     });
-                }
             }
-            Some("clear") => ai_shapes.set(Vec::new()),
-            Some("move") => {
-                if let Some(uci) = action.get("uci").and_then(|v| v.as_str()) {
-                    let seq = play_seq.get_untracked() + 1;
-                    play_seq.set(seq);
-                    play_uci.set(Some((seq, uci.to_owned())));
-                }
-            }
-            _ => {}
         }
+        Some("clear") => ai_shapes.set(Vec::new()),
+        Some("move") => {
+            if let Some(uci) = action.get("uci").and_then(|v| v.as_str()) {
+                let seq = play_seq.get_untracked() + 1;
+                play_seq.set(seq);
+                play_uci.set(Some((seq, uci.to_owned())));
+            }
+        }
+        _ => {}
     };
 
     let send_chat = move || {
@@ -2262,7 +2347,12 @@ pub fn App() -> impl IntoView {
             }
         };
         console_busy.set(true);
-        console_log.update(|log| log.push(format!("> starting {}", if path.is_empty() { "engine" } else { &path })));
+        console_log.update(|log| {
+            log.push(format!(
+                "> starting {}",
+                if path.is_empty() { "engine" } else { &path }
+            ))
+        });
         spawn_local(async move {
             match api::console_start((!path.is_empty()).then_some(path.as_str())).await {
                 Ok(status) => {
@@ -2295,7 +2385,11 @@ pub fn App() -> impl IntoView {
         console_cmd.set(String::new());
         console_log.update(|log| log.push(format!("> {}", command.trim())));
         console_busy.set(true);
-        let wait = if command.trim().starts_with("go") { 8000 } else { 800 };
+        let wait = if command.trim().starts_with("go") {
+            8000
+        } else {
+            800
+        };
         spawn_local(async move {
             match api::console_command(command.trim(), wait).await {
                 Ok(lines) => {
@@ -2330,12 +2424,17 @@ pub fn App() -> impl IntoView {
         if total == 0 {
             return;
         }
-        let collected = std::rc::Rc::new(std::cell::RefCell::new(
-            std::collections::BTreeMap::<String, String>::new(),
-        ));
+        let collected = std::rc::Rc::new(std::cell::RefCell::new(std::collections::BTreeMap::<
+            String,
+            String,
+        >::new()));
         let pending = std::rc::Rc::new(std::cell::RefCell::new(total));
         piece_upload_busy.set(true);
-        piece_set_msg.set(i18n::tf(&language.get(), "status.d37", &[("total", total.to_string())]));
+        piece_set_msg.set(i18n::tf(
+            &language.get(),
+            "status.d37",
+            &[("total", total.to_string())],
+        ));
         for index in 0..total {
             let Some(file) = files.get(index) else {
                 continue;
@@ -2385,12 +2484,17 @@ pub fn App() -> impl IntoView {
                     return;
                 }
                 let files = collected.borrow().clone();
-                let missing: Vec<&str> = ["K", "Q", "R", "B", "N", "P", "k", "q", "r", "b", "n", "p"]
-                    .into_iter()
-                    .filter(|code| !files.contains_key(*code))
-                    .collect();
+                let missing: Vec<&str> =
+                    ["K", "Q", "R", "B", "N", "P", "k", "q", "r", "b", "n", "p"]
+                        .into_iter()
+                        .filter(|code| !files.contains_key(*code))
+                        .collect();
                 if !missing.is_empty() {
-                    piece_set_msg.set(i18n::tf(&language.get(), "status.d38", &[("list", missing.join(", "))]));
+                    piece_set_msg.set(i18n::tf(
+                        &language.get(),
+                        "status.d38",
+                        &[("list", missing.join(", "))],
+                    ));
                     piece_upload_busy.set(false);
                     return;
                 }
@@ -2401,7 +2505,11 @@ pub fn App() -> impl IntoView {
                             custom_sets.set(list);
                             settings_pieces.set(format!("custom:{upload_name}"));
                             persist_settings();
-                            piece_set_msg.set(i18n::tf(&language.get(), "status.d31", &[("name", upload_name.clone())]));
+                            piece_set_msg.set(i18n::tf(
+                                &language.get(),
+                                "status.d31",
+                                &[("name", upload_name.clone())],
+                            ));
                         }
                         Err(error) => piece_set_msg.set(error),
                     }
@@ -2574,7 +2682,11 @@ pub fn App() -> impl IntoView {
             spawn_local(async move {
                 match api::upload_sound(&stem, &url).await {
                     Ok(()) => {
-                        sound_msg.set(i18n::tf(&language.get(), "status.d31", &[("name", stem.clone())]));
+                        sound_msg.set(i18n::tf(
+                            &language.get(),
+                            "status.d31",
+                            &[("name", stem.clone())],
+                        ));
                         sound_theme.set("custom".into());
                     }
                     Err(e) => sound_msg.set(e),
@@ -2585,7 +2697,6 @@ pub fn App() -> impl IntoView {
         let _ = reader.read_as_data_url(&file);
         onload.forget();
     };
-
 
     let ask_engine = move |position: String| {
         thinking.set(true);
@@ -2808,12 +2919,20 @@ pub fn App() -> impl IntoView {
             return;
         }
         account_busy.set(true);
-        account_msg.set(i18n::tf(&language.get(), "status.d19", &[("provider", provider.to_string())]));
+        account_msg.set(i18n::tf(
+            &language.get(),
+            "status.d19",
+            &[("provider", provider.to_string())],
+        ));
         spawn_local(async move {
             match api::link_account(provider, username.trim(), token.as_deref()).await {
                 Ok(list) => {
                     accounts.set(list);
-                    account_msg.set(i18n::tf(&language.get(), "status.d20", &[("provider", provider.to_string())]));
+                    account_msg.set(i18n::tf(
+                        &language.get(),
+                        "status.d20",
+                        &[("provider", provider.to_string())],
+                    ));
                     lichess_user_input.set(String::new());
                     lichess_token_input.set(String::new());
                     chesscom_user_input.set(String::new());
@@ -2830,7 +2949,11 @@ pub fn App() -> impl IntoView {
             match api::unlink_account(provider).await {
                 Ok(list) => {
                     accounts.set(list);
-                    account_msg.set(i18n::tf(&language.get(), "status.d21", &[("provider", provider.to_string())]));
+                    account_msg.set(i18n::tf(
+                        &language.get(),
+                        "status.d21",
+                        &[("provider", provider.to_string())],
+                    ));
                 }
                 Err(error) => account_msg.set(error),
             }
@@ -2841,11 +2964,22 @@ pub fn App() -> impl IntoView {
     let import_account = move |provider: &'static str| {
         let max = account_import_max.get_untracked().clamp(1, 500);
         account_busy.set(true);
-        account_msg.set(i18n::tf(&language.get(), "status.d22", &[("provider", provider.to_string())]));
+        account_msg.set(i18n::tf(
+            &language.get(),
+            "status.d22",
+            &[("provider", provider.to_string())],
+        ));
         spawn_local(async move {
             match api::import_account(provider, max).await {
                 Ok(count) => {
-                    account_msg.set(i18n::tf(&language.get(), "status.d23", &[("count", count.to_string()), ("provider", provider.to_string())]));
+                    account_msg.set(i18n::tf(
+                        &language.get(),
+                        "status.d23",
+                        &[
+                            ("count", count.to_string()),
+                            ("provider", provider.to_string()),
+                        ],
+                    ));
                     reload();
                 }
                 Err(error) => account_msg.set(error),
@@ -2886,9 +3020,11 @@ pub fn App() -> impl IntoView {
             return;
         };
         let title = selected_title.get_untracked();
-        let mut text = format!("# {title}
+        let mut text = format!(
+            "# {title}
 
-");
+"
+        );
         if let (Some(white), Some(black)) = (report.white_accuracy, report.black_accuracy) {
             text.push_str(&format!(
                 "Accuracy: White {:.1}% · Black {:.1}%
@@ -2959,12 +3095,14 @@ pub fn App() -> impl IntoView {
             if let Ok(list) = api::annotations(game_id).await {
                 annotations.set(list);
             }
-            status.set(i18n::tf(&language.get(), "status.d15", &[("written", written.to_string())]));
+            status.set(i18n::tf(
+                &language.get(),
+                "status.d15",
+                &[("written", written.to_string())],
+            ));
             annotating.set(false);
         });
     };
-
-
 
     let normalize_san = |san: &str| -> String {
         san.chars()
@@ -2987,10 +3125,7 @@ pub fn App() -> impl IntoView {
                     }
                     let sans: Vec<String> =
                         detail.moves.split_whitespace().map(str::to_owned).collect();
-                    let variant = detail
-                        .variant
-                        .clone()
-                        .unwrap_or_else(|| "standard".into());
+                    let variant = detail.variant.clone().unwrap_or_else(|| "standard".into());
                     practice_sans.set(sans.clone());
                     practice_step.set(0);
                     practice_hits.set(0);
@@ -3025,7 +3160,10 @@ pub fn App() -> impl IntoView {
                 practice_feedback.set(i18n::tf(
                     &language.get(),
                     "status.d27",
-                    &[("hits", hits.to_string()), ("total", sans.len().to_string())],
+                    &[
+                        ("hits", hits.to_string()),
+                        ("total", sans.len().to_string()),
+                    ],
                 ));
             } else {
                 practice_feedback.set(i18n::tf(
@@ -3092,7 +3230,6 @@ pub fn App() -> impl IntoView {
     };
 
     let request_match_move = move || {
-
         if !match_running.get_untracked() {
             return;
         }
@@ -3111,7 +3248,11 @@ pub fn App() -> impl IntoView {
         };
         let depth = match_depth.get_untracked().clamp(1, 30);
 
-        match_status.set(i18n::tf(&language.get(), "status.d24", &[("name", entry.name.clone())]));
+        match_status.set(i18n::tf(
+            &language.get(),
+            "status.d24",
+            &[("name", entry.name.clone())],
+        ));
         spawn_local(async move {
             match api::analyze_engine(&board_fen, depth, &entry.path).await {
                 Ok(mv) => {
@@ -3123,7 +3264,11 @@ pub fn App() -> impl IntoView {
                             "1/2-1/2"
                         };
                         match_result.set(result.to_owned());
-                        match_status.set(i18n::tf(&language.get(), "status.d25", &[("result", result.to_string()), ("over", over.clone())]));
+                        match_status.set(i18n::tf(
+                            &language.get(),
+                            "status.d25",
+                            &[("result", result.to_string()), ("over", over.clone())],
+                        ));
                         match_running.set(false);
                         return;
                     }
@@ -3146,7 +3291,6 @@ pub fn App() -> impl IntoView {
     };
 
     let on_match_play = move |(_uci, san, fen_after): (String, String, String)| {
-
         match_moves.update(|list| list.push(san));
         if !match_running.get_untracked() {
             return;
@@ -3216,9 +3360,6 @@ pub fn App() -> impl IntoView {
         };
         match_pgn.set(line_pgn(&start, &[], "standard"));
     };
-
-
-
 
     // Which board the assistant is working on, shared with the board strip so a
     // target that is not on screen is still visible.
@@ -3448,7 +3589,9 @@ pub fn App() -> impl IntoView {
         move_active_board: views::app_ctx::view_callback(move |_: ()| move_active_board()),
         close_workspace: views::app_ctx::view_callback(close_workspace),
         commit_rename: views::app_ctx::view_callback(move |_: ()| commit_rename()),
-        move_workspace: views::app_ctx::view_callback(move |(a, b): (u32, i32)| move_workspace(a, b)),
+        move_workspace: views::app_ctx::view_callback(move |(a, b): (u32, i32)| {
+            move_workspace(a, b)
+        }),
         open_page_tab: views::app_ctx::view_callback(open_page_tab),
         add_collection_clicked: views::app_ctx::view_callback(add_collection_clicked),
         add_engine: views::app_ctx::view_callback(add_engine),
@@ -3477,12 +3620,22 @@ pub fn App() -> impl IntoView {
         import_online: views::app_ctx::view_callback(import_online),
         link_account: views::app_ctx::view_callback(link_account),
         new_workspace: views::app_ctx::view_callback(move |_: ()| new_workspace()),
-        on_board_move: views::app_ctx::view_callback(move |args: (String, String, String)| on_board_move(args)),
-        on_engine_play: views::app_ctx::view_callback(move |args: (String, String, String)| on_engine_play(args)),
+        on_board_move: views::app_ctx::view_callback(move |args: (String, String, String)| {
+            on_board_move(args)
+        }),
+        on_engine_play: views::app_ctx::view_callback(move |args: (String, String, String)| {
+            on_engine_play(args)
+        }),
         on_file_pick: views::app_ctx::view_callback(on_file_pick),
-        on_match_play: views::app_ctx::view_callback(move |args: (String, String, String)| on_match_play(args)),
-        on_practice_move: views::app_ctx::view_callback(move |args: (String, String, String)| on_practice_move(args)),
-        on_spar_move: views::app_ctx::view_callback(move |args: (String, String, String)| on_spar_move(args)),
+        on_match_play: views::app_ctx::view_callback(move |args: (String, String, String)| {
+            on_match_play(args)
+        }),
+        on_practice_move: views::app_ctx::view_callback(move |args: (String, String, String)| {
+            on_practice_move(args)
+        }),
+        on_spar_move: views::app_ctx::view_callback(move |args: (String, String, String)| {
+            on_spar_move(args)
+        }),
         open_editor: views::app_ctx::view_callback(open_editor),
         open_game: views::app_ctx::view_callback(open_game),
         pause_match: views::app_ctx::view_callback(pause_match),
@@ -3500,7 +3653,9 @@ pub fn App() -> impl IntoView {
         search_position: views::app_ctx::view_callback(search_position),
         select_node: views::app_ctx::view_callback(select_node),
         send_chat: views::app_ctx::view_callback(move |_: ()| send_chat()),
-        set_engine_option: views::app_ctx::view_callback(move |(a, b, c): (usize, &'static str, String)| set_engine_option(a, b, c)),
+        set_engine_option: views::app_ctx::view_callback(
+            move |(a, b, c): (usize, &'static str, String)| set_engine_option(a, b, c),
+        ),
         start_guess: views::app_ctx::view_callback(start_guess),
         start_match: views::app_ctx::view_callback(start_match),
         start_spar: views::app_ctx::view_callback(start_spar),

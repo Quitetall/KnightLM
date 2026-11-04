@@ -1,9 +1,9 @@
-use leptos::prelude::*;
-use leptos::task::spawn_local;
-use crate::board::{Keybinds};
 use crate::api;
+use crate::board::Keybinds;
 use crate::i18n;
 use crate::views::AppCtx;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
 
 pub fn settings(ctx: AppCtx) -> impl IntoView {
     let AppCtx {

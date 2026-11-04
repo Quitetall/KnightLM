@@ -210,3 +210,88 @@ fn comparing_writes_nothing() {
     let _ = right_boards;
     assert!(after_left_boards.iter().all(|board| board.revision == 1));
 }
+
+// --- export -------------------------------------------------------------------
+
+use rbc_ai::diff::{DiffReport, to_markdown};
+
+fn diff_of(db: &Db) -> DiffReport {
+    let (left, right, _, _) = pair(db);
+    diff_studies(db, &left, &right, Some("you")).expect("diff")
+}
+
+#[test]
+fn the_json_export_round_trips_through_the_report() {
+    let db = Db::open_memory().expect("db");
+    let report = diff_of(&db);
+    let json = serde_json::to_value(&report).expect("json");
+    // The reserved Lua block is present and null, so a consumer can rely on the
+    // shape before R2 fills it.
+    assert_eq!(json["lua"], serde_json::Value::Null);
+    assert!(json["chapters"].is_array());
+    assert!(json["left"]["title"].is_string());
+
+    let read: DiffReport = serde_json::from_value(json.clone()).expect("back");
+    assert_eq!(read, report, "a report survives a JSON round trip");
+    assert_eq!(
+        serde_json::to_value(&read).expect("json again"),
+        json,
+        "and writes the same bytes"
+    );
+}
+
+#[test]
+fn the_markdown_export_names_what_changed() {
+    let db = Db::open_memory().expect("db");
+    let report = diff_of(&db);
+    let markdown = to_markdown(&report);
+    assert!(markdown.starts_with("# Left ↔ Right"), "{markdown}");
+    assert!(markdown.contains("## Chapters"), "{markdown}");
+    assert!(markdown.contains("### Openings (changed)"), "{markdown}");
+    assert!(markdown.contains("first divergence at ply 2"), "{markdown}");
+    assert!(markdown.contains("added move: `Nf3`"), "{markdown}");
+    assert!(
+        markdown.contains("shape only on the right: arrow g1-f3"),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains("annotation only on the right: 2: develops"),
+        "{markdown}"
+    );
+}
+
+#[test]
+fn an_identical_comparison_exports_as_one_line() {
+    let db = Db::open_memory().expect("db");
+    let source = db.create_study("Same", "same").expect("study");
+    db.add_chapter(&source.id, "One", START, "")
+        .expect("chapter");
+    let report = diff_studies(&db, &source.id, &source.id, None);
+    // Comparing a study with itself is what an empty diff looks like; the app
+    // refuses it over HTTP, but the engine has no reason to.
+    let report = report.expect("diff");
+    assert!(report.identical);
+    let markdown = to_markdown(&report);
+    assert!(markdown.contains("No differences."), "{markdown}");
+}
+
+#[test]
+fn exporting_does_not_mutate_either_side() {
+    let db = Db::open_memory().expect("db");
+    let (left, right, _, _) = pair(&db);
+    let before = (
+        db.study(&left).expect("study").expect("left"),
+        db.study(&right).expect("study").expect("right"),
+    );
+    let report = diff_studies(&db, &left, &right, Some("you")).expect("diff");
+    let _ = serde_json::to_value(&report).expect("json");
+    let _ = to_markdown(&report);
+    let after = (
+        db.study(&left).expect("study").expect("left"),
+        db.study(&right).expect("study").expect("right"),
+    );
+    assert_eq!(before.0.updated, after.0.updated);
+    assert_eq!(before.1.updated, after.1.updated);
+    assert_eq!(before.0.current_version, after.0.current_version);
+    assert_eq!(before.1.current_version, after.1.current_version);
+}

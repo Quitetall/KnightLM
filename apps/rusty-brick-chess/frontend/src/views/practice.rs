@@ -1,8 +1,8 @@
-use leptos::prelude::*;
-use crate::board::{Board};
+use crate::board::Board;
 use crate::i18n;
 use crate::model::*;
 use crate::views::AppCtx;
+use leptos::prelude::*;
 
 pub fn practice(ctx: AppCtx) -> impl IntoView {
     let AppCtx {

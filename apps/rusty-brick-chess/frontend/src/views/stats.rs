@@ -13,7 +13,6 @@ pub struct StatsCtx {
 }
 
 pub fn stats_view(ctx: StatsCtx) -> impl IntoView {
-
     let card = |label: &'static str, value: i64| {
         view! {
             <div class="stat-card">

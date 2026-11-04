@@ -9,7 +9,31 @@ use crate::views::AppCtx;
 
 pub fn opening(ctx: AppCtx) -> impl IntoView {
     let AppCtx {
-        analysis: _, fen, games: _, language, opening, opening_fen, opening_mode, opening_source, rep_board, rep_card, rep_color, rep_correct, rep_feedback, rep_id, rep_name, rep_pgn_input, rep_selected, reps, settings_coords, settings_dark, settings_light, settings_pieces, settings_theme, status, ..
+        analysis: _,
+        fen,
+        games: _,
+        language,
+        opening,
+        opening_fen,
+        opening_mode,
+        opening_source,
+        rep_board,
+        rep_card,
+        rep_color,
+        rep_correct,
+        rep_feedback,
+        rep_id,
+        rep_name,
+        rep_pgn_input,
+        rep_selected,
+        reps,
+        settings_coords,
+        settings_dark,
+        settings_light,
+        settings_pieces,
+        settings_theme,
+        status,
+        ..
     } = ctx;
     let explore = move |_| {
         let f = opening_fen.get();
@@ -126,7 +150,11 @@ pub fn opening(ctx: AppCtx) -> impl IntoView {
             match api::create_repertoire(name.trim(), &color).await {
                 Ok(r) => {
                     rep_name.set(String::new());
-                    status.set(i18n::tf(&language.get(), "status.d16", &[("name", r.name.clone())]));
+                    status.set(i18n::tf(
+                        &language.get(),
+                        "status.d16",
+                        &[("name", r.name.clone())],
+                    ));
                     rep_selected.set(r.id);
                     if let Ok(list) = api::repertoires().await {
                         reps.set(list);
@@ -162,7 +190,11 @@ pub fn opening(ctx: AppCtx) -> impl IntoView {
             match api::import_repertoire_pgn(id, &pgn).await {
                 Ok(n) => {
                     rep_pgn_input.set(String::new());
-                    status.set(i18n::tf(&language.get(), "status.d17", &[("n", n.to_string())]));
+                    status.set(i18n::tf(
+                        &language.get(),
+                        "status.d17",
+                        &[("n", n.to_string())],
+                    ));
                     if let Ok(list) = api::repertoires().await {
                         reps.set(list);
                     }

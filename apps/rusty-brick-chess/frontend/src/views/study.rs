@@ -68,8 +68,8 @@ pub fn StudyView(
                     let still_there = active_chapter
                         .get_untracked()
                         .filter(|id| list.iter().any(|c| &c.id == id));
-                    let remembered = api::last_chapter(&study_id)
-                        .filter(|id| list.iter().any(|c| &c.id == id));
+                    let remembered =
+                        api::last_chapter(&study_id).filter(|id| list.iter().any(|c| &c.id == id));
                     let chosen = still_there
                         .or(remembered)
                         .or_else(|| list.first().map(|c| c.id.clone()));
@@ -107,8 +107,8 @@ pub fn StudyView(
         spawn_local(async move {
             match api::get_board(&id).await {
                 Ok(loaded) => {
-                    let content: serde_json::Value =
-                        serde_json::from_str(&loaded.content_json).unwrap_or(serde_json::Value::Null);
+                    let content: serde_json::Value = serde_json::from_str(&loaded.content_json)
+                        .unwrap_or(serde_json::Value::Null);
                     let moves: Vec<String> = content
                         .get("moves")
                         .and_then(|m| m.as_array())

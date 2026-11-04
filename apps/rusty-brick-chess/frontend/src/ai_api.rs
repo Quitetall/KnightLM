@@ -158,9 +158,7 @@ pub struct AiCompiledContext {
     pub sha256: String,
 }
 
-async fn decode<T: for<'de> Deserialize<'de>>(
-    resp: gloo_net::http::Response,
-) -> Result<T, String> {
+async fn decode<T: for<'de> Deserialize<'de>>(resp: gloo_net::http::Response) -> Result<T, String> {
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -287,8 +285,13 @@ pub async fn cancel_ai_turn(id: &str) -> Result<bool, String> {
         .await
         .map_err(|e| e.to_string())?;
     let body = resp.text().await.map_err(|e| e.to_string())?;
-    let value: serde_json::Value =
-        serde_json::from_str(&body).map_err(|_| if body.is_empty() { "cancel failed".to_string() } else { body.clone() })?;
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|_| {
+        if body.is_empty() {
+            "cancel failed".to_string()
+        } else {
+            body.clone()
+        }
+    })?;
     Ok(value
         .get("cancelled")
         .and_then(|cancelled| cancelled.as_bool())
@@ -342,8 +345,13 @@ pub async fn list_approvals() -> Result<Vec<ApprovalInfo>, String> {
         .map_err(|e| e.to_string())?;
     let body = resp.text().await.map_err(|e| e.to_string())?;
     let value: serde_json::Value = serde_json::from_str(&body).map_err(|_| body.clone())?;
-    serde_json::from_value(value.get("pending").cloned().unwrap_or(serde_json::json!([])))
-        .map_err(|e| e.to_string())
+    serde_json::from_value(
+        value
+            .get("pending")
+            .cloned()
+            .unwrap_or(serde_json::json!([])),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Answer a pending approval. The answer carries what the approved write did.
@@ -365,11 +373,7 @@ pub async fn resolve_approval(id: &str, approve: bool) -> Result<serde_json::Val
 }
 
 /// Replace the scopes this session may take without asking.
-pub async fn set_ai_permissions(
-    id: &str,
-    in_app: &[String],
-    mcp: &[String],
-) -> Result<(), String> {
+pub async fn set_ai_permissions(id: &str, in_app: &[String], mcp: &[String]) -> Result<(), String> {
     let resp = Request::put(&format!("/api/ai/sessions/{id}/permissions"))
         .json(&serde_json::json!({"in_app": in_app, "mcp": mcp}))
         .map_err(|e| e.to_string())?
@@ -392,14 +396,20 @@ pub async fn set_ai_permissions(
 
 /// Recent matches, newest first.
 pub async fn list_ai_matches() -> Result<Vec<serde_json::Value>, String> {
-    let resp = Request::get("/api/ai/matches").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/ai/matches")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let body = resp.text().await.map_err(|e| e.to_string())?;
     serde_json::from_str(&body).map_err(|_| body)
 }
 
 /// One match's live state.
 pub async fn get_ai_match(id: &str) -> Result<serde_json::Value, String> {
-    let resp = Request::get(&format!("/api/ai/matches/{id}")).send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get(&format!("/api/ai/matches/{id}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let body = resp.text().await.map_err(|e| e.to_string())?;
     serde_json::from_str(&body).map_err(|_| body)
 }
@@ -415,7 +425,11 @@ pub async fn create_ai_match(config: serde_json::Value) -> Result<serde_json::Va
     let body = resp.text().await.map_err(|e| e.to_string())?;
     match serde_json::from_str::<serde_json::Value>(&body) {
         Ok(value) if value.get("error").is_none() => Ok(value),
-        Ok(value) => Err(value.get("error").and_then(|e| e.as_str()).unwrap_or("could not create the match").to_string()),
+        Ok(value) => Err(value
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("could not create the match")
+            .to_string()),
         Err(_) => Err(body),
     }
 }
@@ -436,7 +450,11 @@ pub async fn match_action(
     let text = resp.text().await.map_err(|e| e.to_string())?;
     match serde_json::from_str::<serde_json::Value>(&text) {
         Ok(value) if value.get("error").is_none() => Ok(value),
-        Ok(value) => Err(value.get("error").and_then(|e| e.as_str()).unwrap_or("the match refused").to_string()),
+        Ok(value) => Err(value
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("the match refused")
+            .to_string()),
         Err(_) => Err(text),
     }
 }
@@ -467,19 +485,28 @@ pub struct ModelMetrics {
 }
 
 pub async fn leaderboard() -> Result<Vec<LeaderboardRow>, String> {
-    let resp = Request::get("/api/ai/ratings").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/ai/ratings")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let body = resp.text().await.map_err(|e| e.to_string())?;
     serde_json::from_str(&body).map_err(|_| body)
 }
 
 pub async fn metrics() -> Result<Vec<ModelMetrics>, String> {
-    let resp = Request::get("/api/ai/metrics").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/ai/metrics")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let body = resp.text().await.map_err(|e| e.to_string())?;
     serde_json::from_str(&body).map_err(|_| body)
 }
 
 pub async fn list_tournaments() -> Result<Vec<serde_json::Value>, String> {
-    let resp = Request::get("/api/ai/tournaments").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/ai/tournaments")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let body = resp.text().await.map_err(|e| e.to_string())?;
     serde_json::from_str(&body).map_err(|_| body)
 }
@@ -502,7 +529,11 @@ pub async fn create_tournament(
     let text = resp.text().await.map_err(|e| e.to_string())?;
     match serde_json::from_str::<serde_json::Value>(&text) {
         Ok(value) if value.get("error").is_none() => Ok(value),
-        Ok(value) => Err(value.get("error").and_then(|e| e.as_str()).unwrap_or("could not create").to_string()),
+        Ok(value) => Err(value
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("could not create")
+            .to_string()),
         Err(_) => Err(text),
     }
 }
@@ -531,7 +562,10 @@ pub async fn tournament_action(id: &str, action: &str) -> Result<serde_json::Val
 }
 
 pub async fn tournament_detail(id: &str) -> Result<serde_json::Value, String> {
-    let resp = Request::get(&format!("/api/ai/tournaments/{id}")).send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get(&format!("/api/ai/tournaments/{id}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let body = resp.text().await.map_err(|e| e.to_string())?;
     serde_json::from_str(&body).map_err(|_| body)
 }

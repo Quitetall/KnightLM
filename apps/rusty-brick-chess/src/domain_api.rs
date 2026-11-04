@@ -2232,8 +2232,20 @@ pub async fn compare_studies(
     let right = query
         .get("right")
         .ok_or_else(|| ApiError::BadRequest("right is required".into()))?;
-    let report = rbc_ai::diff::diff_studies(&state.db, left, right, query.get("user").map(String::as_str))
-        .map_err(ApiError::Internal)?;
+    let report = rbc_ai::diff::diff_studies(
+        &state.db,
+        left,
+        right,
+        query.get("user").map(String::as_str),
+    )
+    .map_err(ApiError::Internal)?;
+    // `format=markdown` is what a person pastes into a review; the default is the
+    // structured document a UI reads.
+    if query.get("format").map(String::as_str) == Some("markdown") {
+        return Ok(Json(serde_json::json!({
+            "markdown": rbc_ai::diff::to_markdown(&report),
+        })));
+    }
     serde_json::to_value(&report)
         .map(Json)
         .map_err(|error| ApiError::Internal(anyhow::Error::new(error)))

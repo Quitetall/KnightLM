@@ -1,6 +1,6 @@
-use leptos::prelude::*;
 use crate::i18n;
 use crate::views::AppCtx;
+use leptos::prelude::*;
 
 pub fn database(ctx: AppCtx) -> impl IntoView {
     let AppCtx {

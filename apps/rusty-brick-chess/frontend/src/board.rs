@@ -1,5 +1,5 @@
-use brick_chess::pieces::{piece_markup, PieceSet};
-use brick_chess::scene::{index_to_name, name_to_index, Color, Kind};
+use brick_chess::pieces::{PieceSet, piece_markup};
+use brick_chess::scene::{Color, Kind, index_to_name, name_to_index};
 use brick_chess::{Command, Orientation, Shape, Widget};
 
 use crate::sound::{self, SoundEvent};
@@ -55,15 +55,17 @@ fn place_ghost(ghost: &web_sys::HtmlElement, size: f64) {
 fn move_ghost(ghost: &web_sys::HtmlElement, size: f64, x: f64, y: f64) {
     let _ = web_sys::HtmlElement::style(ghost).set_property(
         "transform",
-        &format!(
-            "translate3d({}px,{}px,0)",
-            x - size / 2.0,
-            y - size / 2.0
-        ),
+        &format!("translate3d({}px,{}px,0)", x - size / 2.0, y - size / 2.0),
     );
 }
 
-fn set_ghost_style(ghost: &web_sys::HtmlElement, size: f64, x: f64, y: f64, transition: Option<u32>) {
+fn set_ghost_style(
+    ghost: &web_sys::HtmlElement,
+    size: f64,
+    x: f64,
+    y: f64,
+    transition: Option<u32>,
+) {
     place_ghost(ghost, size);
     let style = web_sys::HtmlElement::style(ghost);
     let _ = style.set_property(
@@ -196,8 +198,12 @@ fn describe(events: &[brick_chess::Event]) -> String {
     for e in events {
         match e {
             brick_chess::Event::Move { san, .. } => return format!("played {san}"),
-            brick_chess::Event::GameOver { result, reason } => return format!("{result} — {reason}"),
-            brick_chess::Event::Error { code, detail } => return format!("refused: {code} ({detail})"),
+            brick_chess::Event::GameOver { result, reason } => {
+                return format!("{result} — {reason}");
+            }
+            brick_chess::Event::Error { code, detail } => {
+                return format!("refused: {code} ({detail})");
+            }
             _ => {}
         }
     }
@@ -261,7 +267,11 @@ fn value(k: Kind) -> i32 {
 fn count_fen(fen: &str) -> [[u32; 6]; 2] {
     let mut counts = [[0u32; 6]; 2];
     for c in fen.split_whitespace().next().unwrap_or("").chars() {
-        let (side, lower) = if c.is_ascii_uppercase() { (0, c.to_ascii_lowercase()) } else { (1, c) };
+        let (side, lower) = if c.is_ascii_uppercase() {
+            (0, c.to_ascii_lowercase())
+        } else {
+            (1, c)
+        };
         let kind = match lower {
             'k' => Some(Kind::King),
             'q' => Some(Kind::Queen),
@@ -337,19 +347,23 @@ pub fn Board(
     #[prop(optional)] animation_ms: Option<Signal<u32>>,
     #[prop(optional)] keybinds: Option<Signal<Keybinds>>,
     /// Ignore pointer input (engine-vs-engine boards).
-    #[prop(optional)] read_only: bool,
+    #[prop(optional)]
+    read_only: bool,
     #[prop(optional)] shapes: Option<Signal<Vec<Shape>>>,
     #[prop(optional)] on_shape: Option<Callback<Shape>>,
     #[prop(optional, into)] theme: Option<Signal<String>>,
     #[prop(optional, into)] pieces: Option<Signal<String>>,
     #[prop(optional, into)] orientation: Option<Signal<String>>,
     /// Custom square colours (CSS colours) used when the theme is `custom`.
-    #[prop(optional)] light_color: Option<Signal<String>>,
+    #[prop(optional)]
+    light_color: Option<Signal<String>>,
     #[prop(optional)] dark_color: Option<Signal<String>>,
     /// Show rank/file coordinates in the corners.
-    #[prop(optional)] coords: Option<Signal<bool>>,
+    #[prop(optional)]
+    coords: Option<Signal<bool>>,
     /// UI language for the board's own labels.
-    #[prop(optional)] lang: Option<Signal<String>>,
+    #[prop(optional)]
+    lang: Option<Signal<String>>,
     #[prop(optional)] on_theme: Option<Callback<String>>,
     #[prop(optional)] on_pieces: Option<Callback<String>>,
 ) -> impl IntoView {
@@ -819,41 +833,41 @@ pub fn Board(
                 None
             };
             if anim_ms() > 0 {
-            if let Some((from, to)) = squares {
-                if let (Some((fx, fy, size)), Some((tx, ty, _)), Some(piece)) = (
-                    square_center(from),
-                    square_center(to),
-                    widget.with_untracked(|w| w.scene().board[from]),
-                ) {
-                    let html = piece_html(piece.kind, piece.color);
-                    show_ghost(&ghost_ref, &html, size, fx, fy);
-                    drag_from.set(Some(from));
-                    let ms = anim_ms();
-                    Timeout::new(10, move || slide_ghost(&ghost_ref, size, tx, ty)).forget();
-                    Timeout::new(ms + 15, move || {
-                        let mut next = widget.get_untracked();
-                        let events = next.apply(Command::Play {
-                            san: None,
-                            uci: Some(uci),
-                        });
-                        widget.set(next);
-                        if let Some(sound) = sound_for(&events) {
-                            sound::play(sound);
-                        }
-                        hide_ghost(&ghost_ref);
-                        drag_from.set(None);
-                        if let Some(cb) = on_play {
-                            for event in &events {
-                                if let brick_chess::Event::Move { uci, san, fen, .. } = event {
-                                    cb.run((uci.clone(), san.clone(), fen.clone()));
+                if let Some((from, to)) = squares {
+                    if let (Some((fx, fy, size)), Some((tx, ty, _)), Some(piece)) = (
+                        square_center(from),
+                        square_center(to),
+                        widget.with_untracked(|w| w.scene().board[from]),
+                    ) {
+                        let html = piece_html(piece.kind, piece.color);
+                        show_ghost(&ghost_ref, &html, size, fx, fy);
+                        drag_from.set(Some(from));
+                        let ms = anim_ms();
+                        Timeout::new(10, move || slide_ghost(&ghost_ref, size, tx, ty)).forget();
+                        Timeout::new(ms + 15, move || {
+                            let mut next = widget.get_untracked();
+                            let events = next.apply(Command::Play {
+                                san: None,
+                                uci: Some(uci),
+                            });
+                            widget.set(next);
+                            if let Some(sound) = sound_for(&events) {
+                                sound::play(sound);
+                            }
+                            hide_ghost(&ghost_ref);
+                            drag_from.set(None);
+                            if let Some(cb) = on_play {
+                                for event in &events {
+                                    if let brick_chess::Event::Move { uci, san, fen, .. } = event {
+                                        cb.run((uci.clone(), san.clone(), fen.clone()));
+                                    }
                                 }
                             }
-                        }
-                    })
-                    .forget();
-                    return;
+                        })
+                        .forget();
+                        return;
+                    }
                 }
-            }
             }
             let mut next = widget.get_untracked();
             let events = next.apply(Command::Play {
@@ -1000,15 +1014,10 @@ pub fn Board(
                 if ms > 0 && index == current + 1 {
                     if let Some(uci) = widget.with_untracked(|w| w.move_uci_at(index)) {
                         if uci.len() >= 4 && !uci.contains('@') {
-                            if let (Some(from), Some(to)) = (
-                                name_to_index(&uci[0..2]),
-                                name_to_index(&uci[2..4]),
-                            ) {
-                                if let (
-                                    Some((fx, fy, size)),
-                                    Some((tx, ty, _)),
-                                    Some(piece),
-                                ) = (
+                            if let (Some(from), Some(to)) =
+                                (name_to_index(&uci[0..2]), name_to_index(&uci[2..4]))
+                            {
+                                if let (Some((fx, fy, size)), Some((tx, ty, _)), Some(piece)) = (
                                     square_center(from),
                                     square_center(to),
                                     widget.with_untracked(|w| w.scene().board[from]),
@@ -1016,10 +1025,8 @@ pub fn Board(
                                     let html = piece_html(piece.kind, piece.color);
                                     show_ghost(&ghost_ref, &html, size, fx, fy);
                                     drag_from.set(Some(from));
-                                    Timeout::new(10, move || {
-                                        slide_ghost(&ghost_ref, size, tx, ty)
-                                    })
-                                    .forget();
+                                    Timeout::new(10, move || slide_ghost(&ghost_ref, size, tx, ty))
+                                        .forget();
                                     Timeout::new(ms + 15, move || {
                                         widget.update(|w| {
                                             w.apply(Command::Goto { index });
@@ -1059,7 +1066,11 @@ pub fn Board(
                     class.push_str(" selected");
                 }
                 if target {
-                    class.push_str(if piece.is_some() { " capture" } else { " target" });
+                    class.push_str(if piece.is_some() {
+                        " capture"
+                    } else {
+                        " target"
+                    });
                 }
                 if last {
                     class.push_str(" last");
@@ -1089,7 +1100,9 @@ pub fn Board(
                 };
                 let inner = format!(
                     "{}{}{}",
-                    piece.map(|p| piece_html(p.kind, p.color)).unwrap_or_default(),
+                    piece
+                        .map(|p| piece_html(p.kind, p.color))
+                        .unwrap_or_default(),
                     rank_label,
                     file_label
                 );
@@ -1169,11 +1182,21 @@ pub fn Board(
         let diff = material(&w);
         let white_html: String = white_lost
             .iter()
-            .map(|k| format!("<span class=\"cap\">{}</span>", piece_svg(set, *k, Color::White)))
+            .map(|k| {
+                format!(
+                    "<span class=\"cap\">{}</span>",
+                    piece_svg(set, *k, Color::White)
+                )
+            })
             .collect();
         let black_html: String = black_lost
             .iter()
-            .map(|k| format!("<span class=\"cap\">{}</span>", piece_svg(set, *k, Color::Black)))
+            .map(|k| {
+                format!(
+                    "<span class=\"cap\">{}</span>",
+                    piece_svg(set, *k, Color::Black)
+                )
+            })
             .collect();
         let adv = if diff == 0 {
             String::new()
@@ -1201,10 +1224,18 @@ pub fn Board(
             let white = sans[i].clone();
             let black = sans.get(i + 1).cloned();
             let w_idx = i + 1;
-            let w_cls = if current == w_idx { "move current" } else { "move" };
+            let w_cls = if current == w_idx {
+                "move current"
+            } else {
+                "move"
+            };
             let black_view = black.map(|b| {
                 let b_idx = i + 2;
-                let b_cls = if current == b_idx { "move current" } else { "move" };
+                let b_cls = if current == b_idx {
+                    "move current"
+                } else {
+                    "move"
+                };
                 view! {
                     <button class=b_cls on:click=move |_| go(b_idx)>{b}</button>
                 }
@@ -1518,7 +1549,10 @@ pub fn pgn_for(board: &crate::api::BoardInfo, moves: &[String]) -> String {
     const STANDARD: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     let mut pgn = String::new();
     if board.start_fen.trim() != STANDARD {
-        pgn.push_str(&format!("[SetUp \"1\"]\n[FEN \"{}\"]\n\n", board.start_fen.trim()));
+        pgn.push_str(&format!(
+            "[SetUp \"1\"]\n[FEN \"{}\"]\n\n",
+            board.start_fen.trim()
+        ));
     }
     let mut line = String::new();
     for (index, mv) in moves.iter().enumerate() {

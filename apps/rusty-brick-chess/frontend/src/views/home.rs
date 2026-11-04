@@ -1,7 +1,7 @@
-use leptos::prelude::*;
 use crate::i18n;
 use crate::model::*;
 use crate::views::AppCtx;
+use leptos::prelude::*;
 
 pub fn home(ctx: AppCtx) -> impl IntoView {
     let AppCtx {

@@ -238,10 +238,7 @@ pub async fn explore(fen: &str, source: Option<&str>) -> Result<Explorer, String
     if let Some(source) = source {
         url.push_str(&format!("&source={}", encode(source)));
     }
-    let resp = Request::get(&url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let resp = Request::get(&url).send().await.map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -259,7 +256,10 @@ pub struct Puzzle {
     pub game_url: Option<String>,
 }
 
-pub async fn next_puzzle(rating: Option<i32>, theme: Option<&str>) -> Result<Option<Puzzle>, String> {
+pub async fn next_puzzle(
+    rating: Option<i32>,
+    theme: Option<&str>,
+) -> Result<Option<Puzzle>, String> {
     let mut url = "/api/puzzles/next".to_owned();
     let mut sep = '?';
     if let Some(r) = rating {
@@ -317,7 +317,6 @@ pub async fn puzzle_attempt(
         v["rating_after"].as_i64().unwrap_or(0) as i32,
     ))
 }
-
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct LabelCounts {
@@ -436,7 +435,10 @@ impl Default for Settings {
 }
 
 pub async fn get_settings() -> Result<Settings, String> {
-    let resp = Request::get("/api/settings").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/settings")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -690,7 +692,10 @@ pub struct Collection {
 }
 
 pub async fn collections() -> Result<Vec<Collection>, String> {
-    let resp = Request::get("/api/collections").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/collections")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -736,7 +741,10 @@ pub struct EventRow {
 }
 
 pub async fn players() -> Result<Vec<PlayerRow>, String> {
-    let resp = Request::get("/api/players").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/players")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -744,7 +752,10 @@ pub async fn players() -> Result<Vec<PlayerRow>, String> {
 }
 
 pub async fn events() -> Result<Vec<EventRow>, String> {
-    let resp = Request::get("/api/events").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/events")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -761,9 +772,9 @@ pub async fn search_position(
         encode(fen),
         encode(variant)
     ))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    .send()
+    .await
+    .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -797,9 +808,9 @@ pub async fn tablebase(fen: &str, variant: &str) -> Result<Tablebase, String> {
         encode(fen),
         encode(variant)
     ))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    .send()
+    .await
+    .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -814,7 +825,10 @@ pub struct DatabaseInfo {
 }
 
 pub async fn databases() -> Result<Vec<DatabaseInfo>, String> {
-    let resp = Request::get("/api/databases").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/databases")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -865,7 +879,10 @@ pub struct Stats {
 }
 
 pub async fn stats() -> Result<Stats, String> {
-    let resp = Request::get("/api/stats").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/stats")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -980,7 +997,10 @@ pub struct RepertoireCard {
 }
 
 pub async fn repertoires() -> Result<Vec<Repertoire>, String> {
-    let resp = Request::get("/api/repertoires").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/repertoires")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -1182,8 +1202,7 @@ pub async fn add_tree_move(
         return Err(resp.text().await.unwrap_or_default());
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    let game: GameDetail =
-        serde_json::from_value(v["game"].clone()).map_err(|e| e.to_string())?;
+    let game: GameDetail = serde_json::from_value(v["game"].clone()).map_err(|e| e.to_string())?;
     Ok((game, v["path"].as_str().unwrap_or_default().to_owned()))
 }
 
@@ -1200,7 +1219,10 @@ pub struct VisionStatus {
 }
 
 pub async fn vision_status() -> Result<VisionStatus, String> {
-    let resp = Request::get("/api/vision").send().await.map_err(|e| e.to_string())?;
+    let resp = Request::get("/api/vision")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -1270,9 +1292,9 @@ pub struct Profile {
 
 pub async fn profile(player: &str) -> Result<Profile, String> {
     let resp = Request::get(&format!("/api/profile?player={}", url_component(player)))
-    .send()
-    .await
-    .map_err(|e| e.to_string())?;
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -1449,13 +1471,10 @@ pub struct CloudEval {
 }
 
 pub async fn cloud_eval(fen: &str) -> Result<CloudEval, String> {
-    let resp = Request::get(&format!(
-        "/api/cloud-eval?fen={}",
-        encode(fen.trim())
-    ))
-    .send()
-    .await
-    .map_err(|e| e.to_string())?;
+    let resp = Request::get(&format!("/api/cloud-eval?fen={}", encode(fen.trim())))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -1471,7 +1490,10 @@ pub async fn cloud_eval(fen: &str) -> Result<CloudEval, String> {
         .unwrap_or(serde_json::Value::Null);
     Ok(CloudEval {
         available: true,
-        depth: value.get("depth").and_then(|v| v.as_u64()).map(|v| v as u32),
+        depth: value
+            .get("depth")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32),
         knodes: value.get("knodes").and_then(|v| v.as_u64()),
         cp: pv.get("cp").and_then(|v| v.as_i64()).map(|v| v as i32),
         mate: pv.get("mate").and_then(|v| v.as_i64()).map(|v| v as i32),
@@ -1482,7 +1504,6 @@ pub async fn cloud_eval(fen: &str) -> Result<CloudEval, String> {
             .unwrap_or_default(),
     })
 }
-
 
 /// Whether this database was reset, and how many old sessions were set aside.
 pub async fn session_notice() -> Result<(bool, i64), String> {
@@ -1614,7 +1635,9 @@ pub struct StudyProgressInfo {
     pub last_seen: i64,
 }
 
-async fn json_or_error<T: for<'de> Deserialize<'de>>(resp: gloo_net::http::Response) -> Result<T, String> {
+async fn json_or_error<T: for<'de> Deserialize<'de>>(
+    resp: gloo_net::http::Response,
+) -> Result<T, String> {
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
@@ -1622,7 +1645,13 @@ async fn json_or_error<T: for<'de> Deserialize<'de>>(resp: gloo_net::http::Respo
 }
 
 pub async fn list_workspaces() -> Result<Vec<WorkspaceInfo>, String> {
-    json_or_error(Request::get("/api/workspaces").send().await.map_err(|e| e.to_string())?).await
+    json_or_error(
+        Request::get("/api/workspaces")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await
 }
 
 pub async fn create_workspace(title: &str, kind: &str) -> Result<WorkspaceInfo, String> {
@@ -1737,7 +1766,13 @@ pub async fn lock_board(id: &str, locked: bool) -> Result<BoardInfo, String> {
 }
 
 pub async fn list_studies() -> Result<Vec<StudyInfo>, String> {
-    json_or_error(Request::get("/api/studies").send().await.map_err(|e| e.to_string())?).await
+    json_or_error(
+        Request::get("/api/studies")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await
 }
 
 pub async fn create_study(title: &str, description_md: &str) -> Result<StudyInfo, String> {
@@ -1775,12 +1810,17 @@ pub async fn create_chapter(
 }
 
 /// Duplicate a chapter; the boards are shared, so an edit shows in both.
-pub async fn duplicate_chapter(study_id: &str, chapter_id: &str) -> Result<serde_json::Value, String> {
+pub async fn duplicate_chapter(
+    study_id: &str,
+    chapter_id: &str,
+) -> Result<serde_json::Value, String> {
     json_or_error(
-        Request::post(&format!("/api/studies/{study_id}/chapters/{chapter_id}/duplicate"))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?,
+        Request::post(&format!(
+            "/api/studies/{study_id}/chapters/{chapter_id}/duplicate"
+        ))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?,
     )
     .await
 }
@@ -1820,7 +1860,10 @@ pub async fn update_chapter(
 }
 
 /// The full chapter order, as ids.
-pub async fn reorder_chapters(study_id: &str, chapter_ids: &[String]) -> Result<serde_json::Value, String> {
+pub async fn reorder_chapters(
+    study_id: &str,
+    chapter_ids: &[String],
+) -> Result<serde_json::Value, String> {
     let resp = Request::post(&format!("/api/studies/{study_id}/chapters/reorder"))
         .json(&serde_json::json!({"chapter_ids": chapter_ids}))
         .map_err(|e| e.to_string())?
@@ -1841,12 +1884,14 @@ pub async fn add_chapter_board(
     if let Some(fen) = fen {
         body["fen"] = serde_json::json!(fen);
     }
-    let resp = Request::post(&format!("/api/studies/{study_id}/chapters/{chapter_id}/boards"))
-        .json(&body)
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let resp = Request::post(&format!(
+        "/api/studies/{study_id}/chapters/{chapter_id}/boards"
+    ))
+    .json(&body)
+    .map_err(|e| e.to_string())?
+    .send()
+    .await
+    .map_err(|e| e.to_string())?;
     json_or_error(resp).await
 }
 
@@ -1856,12 +1901,14 @@ pub async fn set_chapter_primary(
     chapter_id: &str,
     board_id: &str,
 ) -> Result<serde_json::Value, String> {
-    let resp = Request::post(&format!("/api/studies/{study_id}/chapters/{chapter_id}/primary"))
-        .json(&serde_json::json!({"board_id": board_id}))
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let resp = Request::post(&format!(
+        "/api/studies/{study_id}/chapters/{chapter_id}/primary"
+    ))
+    .json(&serde_json::json!({"board_id": board_id}))
+    .map_err(|e| e.to_string())?
+    .send()
+    .await
+    .map_err(|e| e.to_string())?;
     json_or_error(resp).await
 }
 
@@ -1908,7 +1955,10 @@ pub async fn delete_study(study_id: &str) -> Result<serde_json::Value, String> {
     .await
 }
 
-pub async fn publish_study(study_id: &str, expected_version: i64) -> Result<StudyVersionInfo, String> {
+pub async fn publish_study(
+    study_id: &str,
+    expected_version: i64,
+) -> Result<StudyVersionInfo, String> {
     let resp = Request::post(&format!("/api/studies/{study_id}/publish"))
         .json(&serde_json::json!({"expected_version": expected_version}))
         .map_err(|e| e.to_string())?
@@ -1931,7 +1981,8 @@ pub async fn copy_study(study_id: &str) -> Result<StudyInfo, String> {
 /// Kept in the browser rather than the database: it is a personal cursor, not
 /// something another reader of the same study should see.
 pub fn remember_chapter(study_id: &str, chapter_id: &str) {
-    if let Some(storage) = web_sys::window().and_then(|window| window.local_storage().ok().flatten())
+    if let Some(storage) =
+        web_sys::window().and_then(|window| window.local_storage().ok().flatten())
     {
         let _ = storage.set_item(&format!("rbc.study.{study_id}.chapter"), chapter_id);
     }
@@ -1985,7 +2036,13 @@ pub async fn set_study_progress(
 
 /// The studies currently being compared, if any.
 pub async fn compare_scope() -> Result<serde_json::Value, String> {
-    json_or_error(Request::get("/api/compare/scope").send().await.map_err(|e| e.to_string())?).await
+    json_or_error(
+        Request::get("/api/compare/scope")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await
 }
 
 /// Compare these two studies from now on: the assistant sees the scope too.
@@ -2020,4 +2077,22 @@ pub async fn compare(left: &str, right: &str, user: &str) -> Result<serde_json::
         .map_err(|e| e.to_string())?,
     )
     .await
+}
+
+/// The same comparison as Markdown, for pasting into a review.
+pub async fn compare_markdown(left: &str, right: &str, user: &str) -> Result<String, String> {
+    let value: serde_json::Value = json_or_error(
+        Request::get(&format!(
+            "/api/compare?left={left}&right={right}&user={user}&format=markdown"
+        ))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?,
+    )
+    .await?;
+    Ok(value
+        .get("markdown")
+        .and_then(|m| m.as_str())
+        .unwrap_or_default()
+        .to_string())
 }

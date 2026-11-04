@@ -1,12 +1,12 @@
-use leptos::prelude::*;
-use leptos::task::spawn_local;
-use wasm_bindgen::JsCast;
-use brick_chess::scene::index_to_name;
-use crate::board::{Board};
 use crate::api;
+use crate::board::Board;
 use crate::i18n;
 use crate::model::*;
 use crate::views::AppCtx;
+use brick_chess::scene::index_to_name;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use wasm_bindgen::JsCast;
 
 pub fn analysis(ctx: AppCtx) -> impl IntoView {
     let AppCtx {

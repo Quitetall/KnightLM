@@ -98,7 +98,6 @@ fn default_draft() -> String {
     "draft".into()
 }
 
-
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Workspace {
     pub key: u32,
@@ -261,9 +260,7 @@ pub fn write_recent_files(files: &[(String, usize)]) {
 }
 
 pub fn write_session(session: &Session) {
-    let Some(storage) = web_sys::window()
-        .and_then(|w| w.local_storage().ok().flatten())
-    else {
+    let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else {
         return;
     };
     if let Ok(raw) = serde_json::to_string(session) {
@@ -487,8 +484,18 @@ pub fn fen_from_editor(
 
 pub fn piece_glyph(ch: char) -> &'static str {
     match ch {
-        'K' => "♔", 'Q' => "♕", 'R' => "♖", 'B' => "♗", 'N' => "♘", 'P' => "♙",
-        'k' => "♚", 'q' => "♛", 'r' => "♜", 'b' => "♝", 'n' => "♞", 'p' => "♟",
+        'K' => "♔",
+        'Q' => "♕",
+        'R' => "♖",
+        'B' => "♗",
+        'N' => "♘",
+        'P' => "♙",
+        'k' => "♚",
+        'q' => "♛",
+        'r' => "♜",
+        'b' => "♝",
+        'n' => "♞",
+        'p' => "♟",
         _ => "·",
     }
 }

@@ -14,13 +14,13 @@
 //!   belongs to, so a caller can focus the right board and ply without guessing.
 
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use rbc_db::Db;
 
 /// Which of the two sides an entry belongs to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Side {
     Left,
@@ -28,7 +28,7 @@ pub enum Side {
 }
 
 /// What happened to a thing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Change {
     Added,
@@ -45,7 +45,7 @@ impl Change {
 }
 
 /// One field that differs.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FieldChange {
     pub field: String,
     pub left: String,
@@ -53,7 +53,7 @@ pub struct FieldChange {
 }
 
 /// A chapter and what became of it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChapterDiff {
     pub change: Change,
     pub left_id: Option<String>,
@@ -70,7 +70,7 @@ pub struct ChapterDiff {
 }
 
 /// A board inside a chapter.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BoardDiff {
     pub change: Change,
     pub title: String,
@@ -92,7 +92,7 @@ pub struct BoardDiff {
 }
 
 /// A markdown or text difference, as lines.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextDiff {
     pub removed: Vec<String>,
     pub added: Vec<String>,
@@ -105,7 +105,7 @@ impl TextDiff {
 }
 
 /// One chapter's completion, on each side.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProgressDiff {
     pub user: String,
     pub left_completed: bool,
@@ -115,17 +115,28 @@ pub struct ProgressDiff {
 }
 
 /// The whole report.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiffReport {
     pub left: StudySummary,
     pub right: StudySummary,
     pub chapters: Vec<ChapterDiff>,
     pub fields: Vec<FieldChange>,
+    /// Reserved for R2: the Lua lesson engine. Present and null so a consumer can
+    /// read the field today and a later version can fill it without changing the
+    /// document's shape.
+    pub lua: Option<LuaDiff>,
     /// True when the two sides have nothing worth reporting.
     pub identical: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// Reserved: source, hooks and actions, compared when the Lua runtime lands.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LuaDiff {
+    pub left: Option<Value>,
+    pub right: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StudySummary {
     pub id: String,
     pub title: String,
@@ -209,6 +220,7 @@ pub fn diff_studies(
         right: summary(&right_study, right_chapters.len()),
         chapters,
         fields,
+        lua: None,
         identical,
     })
 }
@@ -365,14 +377,13 @@ fn diff_chapter(
     left_progress: &[rbc_db::StudyProgress],
     right_progress: &[rbc_db::StudyProgress],
 ) -> ChapterDiff {
-    let change = match (pair.left, pair.right) {
+    let mut change = match (pair.left, pair.right) {
         (Some(_), None) => Change::Removed,
         (None, Some(_)) => Change::Added,
         (Some(left), Some(right)) => {
             if left.title != right.title
                 || left.notes_md != right.notes_md
                 || left.ordinal != right.ordinal
-                || left.primary_board_id != right.primary_board_id
             {
                 Change::Changed
             } else {
@@ -398,11 +409,24 @@ fn diff_chapter(
                 right: right.ordinal.to_string(),
             });
         }
-        if left.primary_board_id != right.primary_board_id {
+        // Compare which board is primary by its title, not its id: two studies
+        // never share a board id, so comparing ids would report every chapter as
+        // changed and drown the real differences.
+        let left_primary = left_boards
+            .iter()
+            .find(|board| board.id == left.primary_board_id)
+            .map(|board| board.title.clone())
+            .unwrap_or_default();
+        let right_primary = right_boards
+            .iter()
+            .find(|board| board.id == right.primary_board_id)
+            .map(|board| board.title.clone())
+            .unwrap_or_default();
+        if left_primary != right_primary {
             fields.push(FieldChange {
                 field: "primary board".into(),
-                left: left.primary_board_id.clone(),
-                right: right.primary_board_id.clone(),
+                left: left_primary,
+                right: right_primary,
             });
         }
     }
@@ -418,6 +442,17 @@ fn diff_chapter(
             Change::Added => boards_added.push(diff.title.clone()),
             _ => boards_changed.push(diff),
         }
+    }
+
+    // A chapter is changed when anything inside it is: the fields above only say
+    // whether the chapter *itself* was edited.
+    let boards_differ = !boards_added.is_empty()
+        || !boards_removed.is_empty()
+        || boards_changed
+            .iter()
+            .any(|board| board.change.is_a_change());
+    if boards_differ && matches!(change, Change::Unchanged) {
+        change = Change::Changed;
     }
 
     let notes = match (pair.left, pair.right) {
@@ -452,6 +487,14 @@ fn diff_chapter(
             right_score: right_row.and_then(|row| row.score),
         }
     });
+
+    let notes_differ = notes
+        .as_ref()
+        .map(|notes| !notes.is_empty())
+        .unwrap_or(false);
+    if notes_differ && matches!(change, Change::Unchanged) {
+        change = Change::Changed;
+    }
 
     ChapterDiff {
         change,
@@ -764,4 +807,146 @@ pub fn line_diff(left: &str, right: &str) -> TextDiff {
             .map(|line| line.to_string())
             .collect(),
     }
+}
+
+/// The report as Markdown: what changed, in the order a person reads it.
+///
+/// Markdown rather than a bespoke format because a diff is something people paste
+/// into a review, and a review is where Markdown already lives.
+pub fn to_markdown(report: &DiffReport) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "# {} ↔ {}\n\n",
+        report.left.title, report.right.title
+    ));
+    out.push_str(&format!(
+        "- left: {} ({} chapters, version {})\n- right: {} ({} chapters, version {})\n\n",
+        report.left.title,
+        report.left.chapters,
+        report.left.version,
+        report.right.title,
+        report.right.chapters,
+        report.right.version
+    ));
+    if report.identical {
+        out.push_str("No differences.\n");
+        return out;
+    }
+
+    if !report.fields.is_empty() {
+        out.push_str("## Study\n\n");
+        for field in &report.fields {
+            out.push_str(&format!(
+                "- **{}**: `{}` → `{}`\n",
+                field.field, field.left, field.right
+            ));
+        }
+        out.push('\n');
+    }
+
+    let changed: Vec<&ChapterDiff> = report
+        .chapters
+        .iter()
+        .filter(|chapter| {
+            chapter.change.is_a_change()
+                || !chapter.boards_added.is_empty()
+                || !chapter.boards_removed.is_empty()
+                || chapter
+                    .boards_changed
+                    .iter()
+                    .any(|board| board.change.is_a_change())
+                || chapter
+                    .notes
+                    .as_ref()
+                    .map(|n| !n.is_empty())
+                    .unwrap_or(false)
+        })
+        .collect();
+    if changed.is_empty() {
+        return out;
+    }
+    out.push_str("## Chapters\n\n");
+    for chapter in changed {
+        out.push_str(&format!(
+            "### {} ({})\n\n",
+            chapter.title,
+            match chapter.change {
+                Change::Added => "added",
+                Change::Removed => "removed",
+                Change::Changed => "changed",
+                Change::Unchanged => "unchanged",
+            }
+        ));
+        for field in &chapter.fields {
+            out.push_str(&format!(
+                "- {}: `{}` → `{}`\n",
+                field.field, field.left, field.right
+            ));
+        }
+        if !chapter.boards_added.is_empty() {
+            out.push_str(&format!(
+                "- boards added: {}\n",
+                chapter.boards_added.join(", ")
+            ));
+        }
+        if !chapter.boards_removed.is_empty() {
+            out.push_str(&format!(
+                "- boards removed: {}\n",
+                chapter.boards_removed.join(", ")
+            ));
+        }
+        for board in chapter
+            .boards_changed
+            .iter()
+            .filter(|board| board.change.is_a_change())
+        {
+            out.push_str(&format!("\n**{}**\n\n", board.title));
+            if let Some(ply) = board.first_divergence {
+                out.push_str(&format!("- first divergence at ply {ply}\n"));
+            }
+            for mv in &board.moves_removed {
+                out.push_str(&format!("- removed move: `{mv}`\n"));
+            }
+            for mv in &board.moves_added {
+                out.push_str(&format!("- added move: `{mv}`\n"));
+            }
+            for shape in &board.shapes_left_only {
+                out.push_str(&format!("- shape only on the left: {shape}\n"));
+            }
+            for shape in &board.shapes_right_only {
+                out.push_str(&format!("- shape only on the right: {shape}\n"));
+            }
+            for note in &board.annotations_left_only {
+                out.push_str(&format!("- annotation only on the left: {note}\n"));
+            }
+            for note in &board.annotations_right_only {
+                out.push_str(&format!("- annotation only on the right: {note}\n"));
+            }
+            for field in &board.fields {
+                out.push_str(&format!(
+                    "- {}: `{}` → `{}`\n",
+                    field.field, field.left, field.right
+                ));
+            }
+            if let Some(notes) = &board.notes {
+                for line in &notes.removed {
+                    out.push_str(&format!("- notes removed: {line}\n"));
+                }
+                for line in &notes.added {
+                    out.push_str(&format!("- notes added: {line}\n"));
+                }
+            }
+        }
+        if let Some(notes) = &chapter.notes {
+            out.push_str("\nNotes:\n");
+            for line in &notes.removed {
+                out.push_str(&format!("- removed: {line}\n"));
+            }
+            for line in &notes.added {
+                out.push_str(&format!("- added: {line}\n"));
+            }
+        }
+        out.push('\n');
+    }
+    out
 }

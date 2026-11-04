@@ -21,7 +21,9 @@ fn seat_label(seat: &serde_json::Value) -> String {
     match seat.get("kind").and_then(|kind| kind.as_str()) {
         Some("model") => format!(
             "{} · {}",
-            seat.get("provider").and_then(|p| p.as_str()).unwrap_or("model"),
+            seat.get("provider")
+                .and_then(|p| p.as_str())
+                .unwrap_or("model"),
             seat.get("model").and_then(|m| m.as_str()).unwrap_or("")
         ),
         Some("human") => seat
@@ -62,7 +64,10 @@ fn result_text(payload: &serde_json::Value) -> Option<String> {
     if result.is_null() {
         return None;
     }
-    let winner = result.get("winner").and_then(|w| w.as_str()).unwrap_or("draw");
+    let winner = result
+        .get("winner")
+        .and_then(|w| w.as_str())
+        .unwrap_or("draw");
     let termination = result
         .get("termination")
         .and_then(|t| t.as_str())
@@ -211,7 +216,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
 
     // An action that changes the match, then refreshes the list and the detail.
     let act = move |action: &'static str, body: serde_json::Value| {
-        let Some(id) = selected.get_untracked() else { return };
+        let Some(id) = selected.get_untracked() else {
+            return;
+        };
         busy.set(true);
         spawn_local(async move {
             match ai_api::match_action(&id, action, body).await {
@@ -233,7 +240,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
 
     // Rematch: the same seats in a new game. The old one keeps its result.
     let rematch = move || {
-        let Some(id) = selected.get_untracked() else { return };
+        let Some(id) = selected.get_untracked() else {
+            return;
+        };
         let Some(row) = matches
             .get_untracked()
             .into_iter()
@@ -267,7 +276,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     };
 
     let save_to_db = move |open: bool| {
-        let Some(payload) = detail.get_untracked() else { return };
+        let Some(payload) = detail.get_untracked() else {
+            return;
+        };
         let pgn = payload
             .get("pgn")
             .and_then(|pgn| pgn.as_str())

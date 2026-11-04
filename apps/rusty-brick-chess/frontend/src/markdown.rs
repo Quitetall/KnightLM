@@ -78,7 +78,10 @@ pub fn render(source: &str) -> String {
         }
 
         // Lists: a run of them becomes one list.
-        if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+        if let Some(rest) = trimmed
+            .strip_prefix("- ")
+            .or_else(|| trimmed.strip_prefix("* "))
+        {
             flush_paragraph(&mut out, &mut paragraph);
             if !in_list {
                 out.push_str("<ul>\n");

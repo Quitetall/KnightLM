@@ -309,10 +309,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                     };
                     match value.get("type").and_then(|kind| kind.as_str()) {
                         Some("turn_started") => {
-                            let seq = value
-                                .get("seq")
-                                .and_then(|seq| seq.as_u64())
-                                .unwrap_or(0);
+                            let seq = value.get("seq").and_then(|seq| seq.as_u64()).unwrap_or(0);
                             live = seq > known_seq;
                             if live {
                                 live_text.set(String::new());
@@ -352,10 +349,8 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
             );
             // The server names its events (`event: ai`), and a named event does
             // not reach `onmessage` — only a listener for that name does.
-            let _ = stream.add_event_listener_with_callback(
-                "ai",
-                on_message.as_ref().unchecked_ref(),
-            );
+            let _ =
+                stream.add_event_listener_with_callback("ai", on_message.as_ref().unchecked_ref());
             // The listener lives as long as the page; the stream is closed when
             // the turn finishes or the session changes.
             on_message.forget();

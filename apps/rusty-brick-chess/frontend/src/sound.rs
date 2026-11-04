@@ -84,9 +84,15 @@ pub fn play(event: SoundEvent) {
     } else {
         format!("/sounds/{theme}/{}.ogg", event.file())
     };
-    let Some(window) = web_sys::window() else { return };
-    let Some(document) = window.document() else { return };
-    let Ok(element) = document.create_element("audio") else { return };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Some(document) = window.document() else {
+        return;
+    };
+    let Ok(element) = document.create_element("audio") else {
+        return;
+    };
     let Ok(audio) = element.dyn_into::<HtmlAudioElement>() else {
         return;
     };

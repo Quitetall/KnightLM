@@ -1,10 +1,10 @@
-use leptos::prelude::*;
-use leptos::task::spawn_local;
-use crate::board::{Board};
 use crate::api;
+use crate::board::Board;
 use crate::i18n;
 use crate::model::*;
 use crate::views::AppCtx;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
 
 pub fn puzzle(ctx: AppCtx) -> impl IntoView {
     let AppCtx {
@@ -40,16 +40,18 @@ pub fn puzzle(ctx: AppCtx) -> impl IntoView {
         spawn_local(async move {
             match api::next_puzzle(Some(rating), theme.as_deref()).await {
                 Ok(Some(p)) => {
-                    let ucis: Vec<String> =
-                        p.moves.split_whitespace().map(str::to_owned).collect();
+                    let ucis: Vec<String> = p.moves.split_whitespace().map(str::to_owned).collect();
                     let sans: Vec<String> =
                         p.moves_san.split_whitespace().map(str::to_owned).collect();
                     let has_setup = ucis.len() > 1;
                     let start_ply = usize::from(has_setup);
                     let turn_black = p.fen.split_whitespace().nth(1) == Some("b");
                     let solver_black = if has_setup { !turn_black } else { turn_black };
-                    puzzle_orientation
-                        .set(if solver_black { "black".into() } else { "white".into() });
+                    puzzle_orientation.set(if solver_black {
+                        "black".into()
+                    } else {
+                        "white".into()
+                    });
                     puzzle_solution.set(ucis);
                     puzzle_san.set(sans.clone());
                     puzzle_step.set(start_ply);
@@ -68,7 +70,9 @@ pub fn puzzle(ctx: AppCtx) -> impl IntoView {
     };
 
     let retry = move |_| {
-        let Some(p) = puzzle.get_untracked() else { return };
+        let Some(p) = puzzle.get_untracked() else {
+            return;
+        };
         let sans = puzzle_san.get_untracked();
         let ucis = puzzle_solution.get_untracked();
         let has_setup = ucis.len() > 1;
@@ -81,7 +85,9 @@ pub fn puzzle(ctx: AppCtx) -> impl IntoView {
     };
 
     let on_puzzle_move = move |(uci, _san, _fen): (String, String, String)| {
-        let Some(p) = puzzle.get_untracked() else { return };
+        let Some(p) = puzzle.get_untracked() else {
+            return;
+        };
         let solution = puzzle_solution.get_untracked();
         let step = puzzle_step.get_untracked();
         if step >= solution.len() {
@@ -104,8 +110,7 @@ pub fn puzzle(ctx: AppCtx) -> impl IntoView {
                 if !puzzle_recorded.get_untracked() {
                     puzzle_recorded.set(true);
                     spawn_local(async move {
-                        if let Ok((before, after)) = api::puzzle_attempt(&id, rating, true).await
-                        {
+                        if let Ok((before, after)) = api::puzzle_attempt(&id, rating, true).await {
                             puzzle_delta.set(Some((before, after)));
                             puzzle_rating.set(after);
                             if let Ok(list) = api::puzzle_attempts(8).await {
