@@ -70,6 +70,47 @@ that is a judgement for the person signing.
   Warrant's delivered file is pinned by digest: `war check` reports drift, and
   correcting one is `war sign correct <alias> <D-id>`, which a person signs.
 
+
+## Current state of the delivery Warrants
+
+Every delivery Warrant's own next step is `war sign <alias>` — authorization.
+Until that is signed the tool offers no agent work, so authorization is the gate
+in front of everything, not a formality at the end.
+
+Four Warrants now have obligations written against work that exists, so the
+authorization is worth signing and the evidence step has something to run:
+
+| Warrant | obligations | contract digest (first 12) |
+|---|---|---|
+| `KLM-WAR-0012` foundation: schema v4, workspaces, boards, studies, reset | 7 | `70d5673a03b9` |
+| `KLM-WAR-0013` deterministic context compiler | 4 | `2d962884e55f` |
+| `KLM-WAR-0014` AI runtime: providers, tools, approvals | 6 | `fad8003fe927` |
+| `KLM-WAR-0015` Assistant window | 5 | `21ca9976a756` |
+
+Each obligation names a bounded scope and a check that exists — a test by name,
+a CDP script by its PASS marker — and where something is *not* demonstrated the
+obligation says so rather than borrowing a neighbouring result. `KLM-WAR-0012`'s
+`OBL-007` is deliberately left unestablished: the size guard exists, but no test
+drives the refusal yet.
+
+The other seventeen have no obligations because their work is not implemented
+(`KLM-WAR-0017` tournaments, `0018` studies editor, `0019` compare, `0020` MCP,
+`0021` release hardening, and the research line `0002`–`0011`). Writing
+obligations for them now would describe checks that cannot run.
+
+After authorization, the agent's half is:
+
+```bash
+war admin deliver KLM-WAR-0012        # records the delivered files at their bytes
+war evidence record KLM-WAR-0012      # runs the cited checks, mints receipts
+war evidence verify KLM-WAR-0012 --performer claude   # ask an independent verifier
+war sign resolve --dry-run KLM-WAR-0012
+```
+
+`war sign resolve --dry-run` currently reports 10 of 13 §56.1 requirements unmet
+for `KLM-WAR-0012` — correct for a Warrant that has not been authorized,
+delivered or verified. Those numbers move only after the signature.
+
 ## Honest state of this backlog
 
 `war status` reads every Warrant below `would_satisfy` because no resolution has
