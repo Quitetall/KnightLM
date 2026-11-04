@@ -2146,7 +2146,7 @@ fn moves_to_san(fen: &str, moves: &str) -> String {
 /// Additive migrations for databases created by older builds.
 /// Current schema version. Bump this and add a `migrate_vN` step for changes
 /// that `CREATE ... IF NOT EXISTS` cannot express.
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -2180,6 +2180,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if version < 5 {
         migrate_v5(conn)?;
         version = 5;
+    }
+    if version < 6 {
+        migrate_v6(conn)?;
+        version = 6;
     }
     conn.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
@@ -2500,6 +2504,29 @@ fn migrate_v5(conn: &Connection) -> Result<()> {
          );
          CREATE INDEX IF NOT EXISTS idx_ai_events_stream
              ON ai_events(stream_kind, stream_id, event_id);",
+    )?;
+    Ok(())
+}
+
+
+/// v6: the approval queue's own fields.
+///
+/// The v4 table knew an approval's origin, target, action and changeset. The
+/// service also needs the tool that asked, the one-line summary a queue shows,
+/// and when an untouched request stops being actionable.
+fn migrate_v6(conn: &Connection) -> Result<()> {
+    for column in [
+        "tool TEXT NOT NULL DEFAULT ''",
+        "summary TEXT NOT NULL DEFAULT ''",
+        "expires INTEGER",
+    ] {
+        // `ALTER TABLE ... ADD COLUMN` has no IF NOT EXISTS; adding a column
+        // that is already there is the only failure tolerated here.
+        let _ = conn.execute(&format!("ALTER TABLE ai_approvals ADD COLUMN {column}"), []);
+    }
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_ai_approvals_session
+             ON ai_approvals(session_id, status, created);",
     )?;
     Ok(())
 }

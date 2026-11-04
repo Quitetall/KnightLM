@@ -142,6 +142,16 @@ pub trait ToolHost {
     /// [`ToolResult`] with `ok: false` and a code from
     /// [`crate::protocol::result_code`], because the model needs to read it.
     fn call(&mut self, call: &ToolCall) -> ToolResult;
+
+    /// Queue a person's approval for a call the policy will not auto-approve.
+    ///
+    /// Returns the approval id when a request was recorded, so the transcript
+    /// can point at it. A host without a queue returns `None` and the call is
+    /// simply refused — never executed.
+    fn request_approval(&mut self, call: &ToolCall, summary: String) -> Option<String> {
+        let _ = (call, summary);
+        None
+    }
 }
 
 /// One assistant turn produced by the loop.
@@ -378,8 +388,15 @@ impl<'a> AgentLoop<'a> {
                     summary: result.summary.clone(),
                 });
                 if !result.ok && result.code == result_code::APPROVAL_REQUIRED {
+                    let approval_id = result
+                        .data
+                        .as_ref()
+                        .and_then(|data| data.get("approval_id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .unwrap_or_else(|| call.id.clone());
                     events(AiEventPayload::ApprovalRequired {
-                        approval_id: call.id.clone(),
+                        approval_id,
                         changeset_summary: result.summary.clone(),
                     });
                 }
@@ -521,14 +538,15 @@ impl<'a> AgentLoop<'a> {
             PolicyDecision::RequiresApproval => {
                 // Not a failure: the model asked for something a person has to
                 // approve, and the turn continues around it.
-                refused(
-                    call,
-                    result_code::APPROVAL_REQUIRED,
-                    format!(
-                        "{} changes stored content and needs approval before it runs",
-                        call.name
-                    ),
-                )
+                let summary = format!(
+                    "{} changes stored content and needs approval before it runs",
+                    call.name
+                );
+                let mut result = refused(call, result_code::APPROVAL_REQUIRED, summary.clone());
+                if let Some(approval_id) = self.host.request_approval(call, summary) {
+                    result.data = Some(serde_json::json!({"approval_id": approval_id}));
+                }
+                result
             }
             PolicyDecision::Allow => {
                 let result = self.host.call(call);

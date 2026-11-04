@@ -1007,6 +1007,59 @@ fn ai_event_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AiEventRow> {
     })
 }
 
+/// One approval request, as stored.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiApproval {
+    pub id: String,
+    pub origin: String,
+    pub session_id: Option<String>,
+    pub target_kind: String,
+    pub target_id: String,
+    pub action: String,
+    pub changeset_json: String,
+    pub status: String,
+    pub tool: String,
+    pub summary: String,
+    pub created: i64,
+    pub resolved: Option<i64>,
+    pub expires: Option<i64>,
+}
+
+/// The fields a caller supplies when it queues an approval.
+#[derive(Debug, Clone, Default)]
+pub struct AiApprovalInput {
+    pub origin: String,
+    pub session_id: Option<String>,
+    pub target_kind: String,
+    pub target_id: String,
+    pub action: String,
+    pub tool: String,
+    pub summary: String,
+    pub changeset_json: String,
+    pub created: i64,
+    pub expires: Option<i64>,
+}
+
+fn ai_approval_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AiApproval> {
+    Ok(AiApproval {
+        id: row.get(0)?,
+        origin: row.get(1)?,
+        session_id: row.get(2)?,
+        target_kind: row.get(3)?,
+        target_id: row.get(4)?,
+        action: row.get(5)?,
+        changeset_json: row.get(6)?,
+        status: row.get(7)?,
+        created: row.get(8)?,
+        resolved: row.get(9)?,
+        tool: row.get(10)?,
+        summary: row.get(11)?,
+        expires: row.get(12)?,
+    })
+}
+
+const AI_APPROVAL_COLUMNS: &str = "id, origin, session_id, target_kind, target_id, action,     changeset_json, status, created, resolved, tool, summary, expires";
+
 const AI_EVENT_COLUMNS: &str = "stream_kind, stream_id, event_id, payload_json, created";
 
 const AI_SESSION_COLUMNS: &str = "id, title, mode, home_board_id, target_board_id, model_json,     context_spec_json, permissions_json, created, updated, archived";
@@ -1172,6 +1225,98 @@ impl Db {
             .collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    // --- approval queue ----------------------------------------------------
+
+    /// Record a pending approval request.
+    pub fn create_ai_approval(&self, input: &AiApprovalInput) -> Result<AiApproval> {
+        let id = Uuid::new_v4().to_string();
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                &format!(
+                    "INSERT INTO ai_approvals
+                     (id, origin, session_id, target_kind, target_id, action,
+                      changeset_json, status, created, resolved, tool, summary, expires)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, NULL, ?9, ?10, ?11)"
+                ),
+                params![
+                    id,
+                    input.origin,
+                    input.session_id,
+                    input.target_kind,
+                    input.target_id,
+                    input.action,
+                    input.changeset_json,
+                    input.created,
+                    input.tool,
+                    input.summary,
+                    input.expires
+                ],
+            )?;
+        }
+        self.ai_approval(&id)?
+            .context("approval just inserted")
+    }
+
+    pub fn ai_approval(&self, id: &str) -> Result<Option<AiApproval>> {
+        let conn = self.conn.lock().expect("db lock");
+        Ok(conn
+            .query_row(
+                &format!("SELECT {AI_APPROVAL_COLUMNS} FROM ai_approvals WHERE id = ?1"),
+                params![id],
+                ai_approval_row,
+            )
+            .optional()?)
+    }
+
+    /// Approvals in one status, oldest first.
+    pub fn ai_approvals(&self, status: &str) -> Result<Vec<AiApproval>> {
+        let conn = self.conn.lock().expect("db lock");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {AI_APPROVAL_COLUMNS} FROM ai_approvals
+             WHERE status = ?1 ORDER BY created, rowid"
+        ))?;
+        Ok(stmt
+            .query_map(params![status], ai_approval_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Move a pending approval to a resolved status.
+    ///
+    /// Returns the row it actually moved, so a caller cannot believe it
+    /// resolved something another writer had already settled.
+    pub fn resolve_ai_approval(
+        &self,
+        id: &str,
+        status: &str,
+        resolved: i64,
+    ) -> Result<Option<AiApproval>> {
+        {
+            let conn = self.conn.lock().expect("db lock");
+            let changed = conn.execute(
+                "UPDATE ai_approvals SET status = ?1, resolved = ?2
+                 WHERE id = ?3 AND status = 'pending'",
+                params![status, resolved, id],
+            )?;
+            if changed == 0 {
+                return Ok(None);
+            }
+        }
+        self.ai_approval(id)
+    }
+
+    /// Expire every pending approval whose deadline has passed.
+    ///
+    /// Returns how many were expired, so a scheduler can report it.
+    pub fn expire_ai_approvals(&self, now: i64) -> Result<usize> {
+        let conn = self.conn.lock().expect("db lock");
+        let expired = conn.execute(
+            "UPDATE ai_approvals SET status = 'expired', resolved = ?1
+             WHERE status = 'pending' AND expires IS NOT NULL AND expires <= ?1",
+            params![now],
+        )?;
+        Ok(expired)
+    }
     /// Append one event to a stream's replay log.
     ///
     /// The event id is assigned here, so two writers on the same stream cannot

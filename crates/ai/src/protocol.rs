@@ -369,6 +369,9 @@ pub struct ApprovalRequest {
     pub created_at: i64,
     #[serde(default)]
     pub resolved_at: Option<i64>,
+    /// When an untouched request stops being actionable, in Unix milliseconds.
+    #[serde(default)]
+    pub expires_at: Option<i64>,
 }
 
 /// Why a turn stopped.
@@ -617,6 +620,7 @@ mod tests {
             status: ApprovalStatus::Pending,
             created_at: 1,
             resolved_at: None,
+            expires_at: Some(900_001),
         };
         let value = serde_json::to_value(&approval).unwrap();
         assert_eq!(value["origin"], "in_app");

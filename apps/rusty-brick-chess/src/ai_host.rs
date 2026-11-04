@@ -6,7 +6,9 @@
 //! loop only ever sees one [`ToolHost`].
 
 use rbc_ai::agent::ToolHost;
-use rbc_ai::board::BoardWriteHost;
+use rbc_ai::approval::{ApprovalStore, Changeset};
+use rbc_ai::board::{BoardContent, BoardWriteHost};
+use rbc_ai::policy::Origin;
 use rbc_ai::protocol::{ToolCall, ToolResult};
 use rbc_ai::reads::{Engine, EngineLine, ReadHost};
 use rbc_db::Db;
@@ -35,20 +37,34 @@ const BOARD_TOOLS: &[&str] = &[
 
 /// A host over the repository, with an engine when one is configured.
 pub(crate) struct SessionHost<'a> {
+    db: &'a Db,
     board: BoardWriteHost<'a>,
     reads: ReadHost<'a>,
+    approvals: ApprovalStore<'a>,
+    session_id: String,
+    origin: Origin,
 }
 
 impl<'a> SessionHost<'a> {
     /// Build the host; `engine` is optional because a session may run without one.
-    pub fn new(db: &'a Db, actor: &'a str, engine: Option<&'a dyn Engine>) -> Self {
+    pub fn new(
+        db: &'a Db,
+        actor: &'a str,
+        engine: Option<&'a dyn Engine>,
+        session_id: impl Into<String>,
+        origin: Origin,
+    ) -> Self {
         let reads = match engine {
             Some(engine) => ReadHost::new(db).with_engine(engine),
             None => ReadHost::new(db),
         };
         Self {
+            db,
             board: BoardWriteHost::new(db, actor),
             reads,
+            approvals: ApprovalStore::new(db),
+            session_id: session_id.into(),
+            origin,
         }
     }
 }
@@ -61,6 +77,61 @@ impl ToolHost for SessionHost<'_> {
             self.reads.call(call)
         }
     }
+
+    /// Queue the write for a person instead of performing it.
+    ///
+    /// The changeset shows the board as it stands and the call that wants to
+    /// change it. It does not yet show the *result* of the write: computing
+    /// that needs a dry run of each tool, which lands with the approval UI.
+    fn request_approval(&mut self, call: &ToolCall, summary: String) -> Option<String> {
+        let board_id = call
+            .arguments
+            .get("board_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let (title, revision, before) = match self.db.board(&board_id) {
+            Ok(Some(board)) => (
+                board.title.clone(),
+                board.revision,
+                BoardContent::parse(&board.content_json).unwrap_or_default(),
+            ),
+            _ => (String::new(), 0, BoardContent::default()),
+        };
+        let mut changeset = Changeset::for_board(
+            &board_id,
+            title,
+            revision,
+            call.name.clone(),
+            before.clone(),
+            before,
+        )
+        .with_arguments(call.arguments.clone());
+        changeset.summary = summary;
+        changeset.notes = vec![format!(
+            "requested {} {}",
+            call.name,
+            serde_json::to_string(&call.arguments).unwrap_or_default()
+        )];
+        self.approvals
+            .request(
+                self.origin,
+                Some(&self.session_id),
+                call,
+                &changeset,
+                now_ms(),
+            )
+            .ok()
+            .map(|request| request.id)
+    }
+}
+
+/// The wall clock, in Unix milliseconds.
+pub(crate) fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// A local UCI engine, kept alive for the length of one turn.

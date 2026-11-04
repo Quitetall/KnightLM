@@ -629,7 +629,13 @@ pub async fn send_ai_turn(
                 .and_then(|path| crate::ai_host::LocalEngine::spawn(&path, Default::default()).ok());
             let engine_ref: Option<&dyn rbc_ai::reads::Engine> =
                 engine.as_ref().map(|engine| engine as &dyn rbc_ai::reads::Engine);
-            let mut host = crate::ai_host::SessionHost::new(&db_for_turn, "assistant", engine_ref);
+            let mut host = crate::ai_host::SessionHost::new(
+                &db_for_turn,
+                "assistant",
+                engine_ref,
+                plan_for_turn.session_id.clone(),
+                rbc_ai::policy::Origin::InApp,
+            );
             let registry = rbc_ai::tools::ToolRegistry::builtin();
             let cancel = rbc_ai::provider::Cancellation::new();
             // Each event is stored as it happens, so a client watching the
@@ -1066,4 +1072,71 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis() as i64)
         .unwrap_or(0)
+}
+
+// --- approval queue --------------------------------------------------------
+
+/// `GET /api/ai/approvals` — everything still actionable, oldest first.
+pub async fn list_approvals(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let store = rbc_ai::approval::ApprovalStore::new(&state.db);
+    let pending = store
+        .pending(crate::ai_host::now_ms())
+        .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?;
+    Ok(Json(serde_json::json!({"pending": pending})))
+}
+
+/// `GET /api/ai/approvals/{id}` — the status an MCP client polls.
+pub async fn get_approval(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let store = rbc_ai::approval::ApprovalStore::new(&state.db);
+    match store
+        .get(&id)
+        .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?
+    {
+        Some(request) => Ok(Json(serde_json::json!(request))),
+        None => Err(ApiError::NotFound),
+    }
+}
+
+/// `POST /api/ai/approvals/{id}/approve`
+pub async fn approve_approval(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    resolve_approval(&state, &id, true)
+}
+
+/// `POST /api/ai/approvals/{id}/deny`
+pub async fn deny_approval(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    resolve_approval(&state, &id, false)
+}
+
+/// Answer a pending request, reporting a lost race by name.
+fn resolve_approval(
+    state: &AppState,
+    id: &str,
+    approve: bool,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    use rbc_ai::approval::{ApprovalError, ApprovalStore};
+    let store = ApprovalStore::new(&state.db);
+    let now = crate::ai_host::now_ms();
+    let resolved = if approve {
+        store.approve(id, now)
+    } else {
+        store.deny(id, now)
+    };
+    match resolved {
+        Ok(request) => Ok(Json(serde_json::json!(request))),
+        Err(ApprovalError::NotFound(_)) => Err(ApiError::NotFound),
+        Err(error @ ApprovalError::AlreadyResolved(_)) | Err(error @ ApprovalError::Expired) => {
+            Err(ApiError::BadRequest(error.to_string()))
+        }
+    }
 }

@@ -30,6 +30,9 @@ pub mod provider;
 pub mod agent;
 
 #[cfg(feature = "host")]
+pub mod approval;
+
+#[cfg(feature = "host")]
 pub mod board;
 
 #[cfg(feature = "host")]
