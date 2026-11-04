@@ -75,6 +75,26 @@ function getJson(port, path) {
   await sleep(400);
   const focused = await ev(`Boolean(document.querySelector(".diff-row.focused"))`);
 
+  // Side-by-side boards: clicking a change fills both boards and one ply moves
+  // them together.
+  // Click the row that actually has moves: the seeded board is the one-sided
+  // chapter, and a row with two empty boards would prove nothing about ply.
+  const clickedWithMoves = await ev(`(()=>{
+    const rows=[...document.querySelectorAll(".diff-row")];
+    const added=rows.find(r=>r.querySelector(".diff-change").textContent.trim()==="added");
+    const target=added||rows[0];
+    if(!target) return false;
+    target.click();
+    return true;
+  })()`);
+  await sleep(700);
+  const boards = await ev(`document.querySelectorAll(".compare-boards .compare-side").length`);
+  const plyLabel = await ev(`document.querySelector(".ply-label")?.textContent.trim()`);
+  const advanced = await ev(`(()=>{const b=document.querySelector(".ply-forward");if(!b)return false;b.click();return true;})()`);
+  await sleep(500);
+  const plyAfter = await ev(`document.querySelector(".ply-label")?.textContent.trim()`);
+  const plyTotal = await ev(`document.querySelector(".ply-label")?.textContent.match(/of (\\d+)/)?.[1]`);
+
   // Export offers a file.
   const exportClicked = await ev(`(()=>{
     window.__downloaded = null;
@@ -93,11 +113,13 @@ function getJson(port, path) {
   const afterClear = await ev(`(async () => (await (await fetch("/api/compare/scope")).json()))()`);
   const chipGone = await ev(`!document.querySelector(".scope-chip")`);
 
-  console.log(JSON.stringify({ seeded, picked, hasView, rows, chip, diffRows, summary, changedCount, allCount, focused, exportClicked, exported, stored, afterClear, chipGone }));
+  console.log(JSON.stringify({ seeded, picked, hasView, rows, chip, diffRows, summary, changedCount, allCount, focused, clickedWithMoves, boards, plyLabel, advanced, plyAfter, plyTotal, exportClicked, exported, stored, afterClear, chipGone }));
   const ok = seeded && picked && hasView && rows >= 2
     && Boolean(chip) && chip.includes("Left study") && chip.includes("Right study")
     && diffRows >= 1
     && changedCount >= 1 && allCount >= changedCount && focused === true
+    && clickedWithMoves === true && boards === 2
+    && Boolean(plyLabel) && plyAfter !== plyLabel
     && exported === "diff.md"
     && stored.active === true
     && afterClear.active === false && chipGone === true;

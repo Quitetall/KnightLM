@@ -59,9 +59,10 @@ pub struct ChapterDiff {
     pub left_id: Option<String>,
     pub right_id: Option<String>,
     pub title: String,
-    /// Boards that only the left has, presented as titles.
-    pub boards_removed: Vec<String>,
-    pub boards_added: Vec<String>,
+    /// Boards that only one side has. Full diffs, not just titles, so a UI can
+    /// show an added board's position instead of a name.
+    pub boards_removed: Vec<BoardDiff>,
+    pub boards_added: Vec<BoardDiff>,
     pub boards_changed: Vec<BoardDiff>,
     pub fields: Vec<FieldChange>,
     pub notes: Option<TextDiff>,
@@ -89,6 +90,10 @@ pub struct BoardDiff {
     pub annotations_right_only: Vec<String>,
     pub fields: Vec<FieldChange>,
     pub notes: Option<TextDiff>,
+    /// The two sides as PGN, so a UI can show the positions without a second
+    /// round trip. Empty when that side has no board.
+    pub left_pgn: String,
+    pub right_pgn: String,
 }
 
 /// A markdown or text difference, as lines.
@@ -438,8 +443,8 @@ fn diff_chapter(
     for board_pair in board_pairs {
         let diff = diff_board(board_pair);
         match diff.change {
-            Change::Removed => boards_removed.push(diff.title.clone()),
-            Change::Added => boards_added.push(diff.title.clone()),
+            Change::Removed => boards_removed.push(diff),
+            Change::Added => boards_added.push(diff),
             _ => boards_changed.push(diff),
         }
     }
@@ -618,6 +623,8 @@ fn diff_board(pair: BoardPair<'_>) -> BoardDiff {
         annotations_right_only: Vec::new(),
         fields: Vec::new(),
         notes: None,
+        left_pgn: pair.left.map(board_pgn_of).unwrap_or_default(),
+        right_pgn: pair.right.map(board_pgn_of).unwrap_or_default(),
     };
 
     let left_content = pair.left.map(|board| content_of(&board.content_json));
@@ -723,6 +730,31 @@ fn diff_board(pair: BoardPair<'_>) -> BoardDiff {
     }
 
     diff
+}
+
+/// A board as PGN text: the start position when it is not the standard one, then
+/// the movetext, which is what the board component parses.
+fn board_pgn_of(board: &rbc_db::Board) -> String {
+    let content = content_of(&board.content_json);
+    let moves = string_list(&content, "moves");
+    let mut pgn = String::new();
+    const STANDARD: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    if board.start_fen.trim() != STANDARD {
+        pgn.push_str(&format!(
+            "[SetUp \"1\"]\n[FEN \"{}\"]\n\n",
+            board.start_fen.trim()
+        ));
+    }
+    let mut line = String::new();
+    for (index, mv) in moves.iter().enumerate() {
+        if index % 2 == 0 {
+            line.push_str(&format!("{}. ", index / 2 + 1));
+        }
+        line.push_str(mv);
+        line.push(' ');
+    }
+    pgn.push_str(line.trim_end());
+    pgn
 }
 
 fn content_of(json: &str) -> Value {
@@ -884,16 +916,20 @@ pub fn to_markdown(report: &DiffReport) -> String {
             ));
         }
         if !chapter.boards_added.is_empty() {
-            out.push_str(&format!(
-                "- boards added: {}\n",
-                chapter.boards_added.join(", ")
-            ));
+            let titles: Vec<&str> = chapter
+                .boards_added
+                .iter()
+                .map(|board| board.title.as_str())
+                .collect();
+            out.push_str(&format!("- boards added: {}\n", titles.join(", ")));
         }
         if !chapter.boards_removed.is_empty() {
-            out.push_str(&format!(
-                "- boards removed: {}\n",
-                chapter.boards_removed.join(", ")
-            ));
+            let titles: Vec<&str> = chapter
+                .boards_removed
+                .iter()
+                .map(|board| board.title.as_str())
+                .collect();
+            out.push_str(&format!("- boards removed: {}\n", titles.join(", ")));
         }
         for board in chapter
             .boards_changed

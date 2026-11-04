@@ -27,6 +27,7 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("compare.export", "Export Markdown", "Exportar Markdown"),
     ("compare.filter_changed", "Only changes", "Solo cambios"),
     ("compare.filter_all", "Everything", "Todo"),
+    ("compare.done", "done", "hecho"),
     ("nav.practice", "Practice", "Práctica"),
     ("nav.openings", "Openings", "Aperturas"),
     ("nav.puzzles", "Puzzles", "Puzzles"),

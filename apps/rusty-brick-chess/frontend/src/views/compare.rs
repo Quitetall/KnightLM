@@ -21,6 +21,10 @@ pub fn CompareView(language: RwSignal<String>, message: RwSignal<String>) -> imp
     // change you are interested in.
     let filter = RwSignal::new("changed".to_string());
     let focused = RwSignal::new(None::<String>);
+    // Both boards follow one ply: the point of a side-by-side comparison is that
+    // the same move number means the same thing on both sides.
+    let ply = RwSignal::new(0usize);
+    let focused_pair = RwSignal::new(None::<(String, String, usize)>);
 
     let load_scope = move || {
         spawn_local(async move {
@@ -239,21 +243,122 @@ pub fn CompareView(language: RwSignal<String>, message: RwSignal<String>) -> imp
                                         let id = id_for_click.clone();
                                         move || focused.get().as_deref() == Some(id.as_str())
                                     };
+                                    // The pair this row points at, so clicking it
+                                    // fills the two boards.
+                                    // Find the first board with a position on either
+                                    // side. A changed chapter keeps them in
+                                    // boards_changed; an added or removed chapter
+                                    // keeps them in boards_added/boards_removed.
+                                    let board_entries: Vec<serde_json::Value> = ["boards_changed", "boards_added", "boards_removed"]
+                                        .into_iter()
+                                        .filter_map(|key| chapter.get(key).and_then(|b| b.as_array()).cloned())
+                                        .flatten()
+                                        .collect();
+                                    let pick = |field: &str| -> String {
+                                        board_entries
+                                            .iter()
+                                            .filter_map(|board| board.get(field).and_then(|p| p.as_str()))
+                                            .find(|pgn| !pgn.trim().is_empty())
+                                            .unwrap_or_default()
+                                            .to_string()
+                                    };
+                                    let pair_left = pick("left_pgn");
+                                    let pair_right = pick("right_pgn");
+                                    let divergence = board_entries
+                                        .iter()
+                                        .filter_map(|board| board.get("first_divergence").and_then(|d| d.as_u64()))
+                                        .map(|d| d as usize)
+                                        .fold(0usize, |acc, d| acc.max(d));
                                     view! {
                                         <li
                                             class=format!("diff-row {change}")
                                             class:focused=is_focused
-                                            on:click=move |_| focused.set(Some(id_for_click.clone()))
+                                            on:click={
+                                                let id = id_for_click.clone();
+                                                move |_| {
+                                                    focused.set(Some(id.clone()));
+                                                    ply.set(divergence);
+                                                    focused_pair.set(Some((
+                                                        pair_left.clone(),
+                                                        pair_right.clone(),
+                                                        divergence,
+                                                    )));
+                                                }
+                                            }
                                         >
                                             <span class="diff-change">{change.clone()}</span>
                                             <span class="diff-title">{title_for_click}</span>
                                             <span class="diff-detail">
                                                 {format!("{boards_changed} board change(s)")}
                                             </span>
+                                            // A badge, not a bar: the reader wants
+                                            // to know whether this chapter is done,
+                                            // not how done.
+                                            {move || {
+                                                let done = chapter
+                                                    .get("progress")
+                                                    .and_then(|p| p.get("right_completed"))
+                                                    .and_then(|c| c.as_bool())
+                                                    .unwrap_or(false);
+                                                done.then(|| view! {
+                                                    <span class="progress-badge">{t("compare.done")}</span>
+                                                })
+                                            }}
                                         </li>
                                     }
                                 }).collect_view()}
                             </ul>
+                            {move || focused_pair.get().map(|(left_pgn, right_pgn, at)| {
+                                let max = left_pgn
+                                    .split_whitespace()
+                                    .filter(|token| !token.chars().all(|c| c.is_ascii_digit() || c == '.'))
+                                    .count()
+                                    .max(
+                                        right_pgn
+                                            .split_whitespace()
+                                            .filter(|token| {
+                                                !token.chars().all(|c| c.is_ascii_digit() || c == '.')
+                                            })
+                                            .count(),
+                                    );
+                                let goto = Signal::derive(move || Some((0u32, ply.get())));
+                                view! {
+                                    <div class="compare-boards">
+                                        <div class="compare-side">
+                                            <crate::board::Board
+                                                pgn=Signal::derive(move || left_pgn.clone())
+                                                goto=goto
+                                                animate_last=Signal::derive(|| true)
+                                                animation_ms=Signal::derive(|| 100)
+                                            />
+                                        </div>
+                                        <div class="compare-side">
+                                            <crate::board::Board
+                                                pgn=Signal::derive(move || right_pgn.clone())
+                                                goto=goto
+                                                animate_last=Signal::derive(|| true)
+                                                animation_ms=Signal::derive(|| 100)
+                                            />
+                                        </div>
+                                        <div class="ply-nav">
+                                            <button
+                                                class="ply-back"
+                                                prop:disabled=move || ply.get() == 0
+                                                on:click=move |_| ply.update(|p| *p = p.saturating_sub(1))
+                                            >"◀"</button>
+                                            <span class="ply-label">
+                                                {move || format!("ply {} of {max}", ply.get().min(max))}
+                                                {format!(" (first divergence at {at})")}
+                                            </span>
+                                            <button
+                                                class="ply-forward"
+                                                prop:disabled=move || ply.get() >= max
+                                                on:click=move |_| ply.update(|p| *p = (*p + 1).min(max))
+                                            >"▶"</button>
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            })}
                         }.into_any()
                     }
                     }
