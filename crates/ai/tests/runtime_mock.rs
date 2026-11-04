@@ -1,3 +1,4 @@
+#![cfg(feature = "provider")]
 //! The provider adapter against a real HTTP endpoint, and the agent loop over a
 //! mock tool host: no live network, no live model.
 mod common;
