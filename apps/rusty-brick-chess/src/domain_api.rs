@@ -847,6 +847,7 @@ fn match_payload(id: &str, game: &Match) -> serde_json::Value {
         "moves": game.moves(),
         "legal_moves": game.legal_moves(),
         "result": game.result(),
+        "clock": game.clock(),
         "pgn": game.pgn(),
     })
 }
@@ -855,7 +856,12 @@ pub async fn create_match(
     State(state): State<AppState>,
     Json(body): Json<CreateMatch>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let game = Match::new(body.config.clone())?;
+    let mut game = Match::new(body.config.clone())?;
+    // A timed match starts its clock when it is created, not on the first move:
+    // otherwise the side to move would think for free.
+    if game.clock().is_some() {
+        game.tick(now_ms());
+    }
     let config_json = serde_json::to_string(&body.config)?;
     let white_json = serde_json::to_string(&body.config.white)?;
     let black_json = serde_json::to_string(&body.config.black)?;
@@ -900,7 +906,15 @@ pub async fn play_match_move(
     let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
-    game.apply(&body.mv)?;
+    // A timed match is charged against the wall clock; an untimed one ignores
+    // the timestamp entirely.
+    if game.clock().is_some() {
+        game.apply_at(&body.mv, now_ms())
+            .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    } else {
+        game.apply(&body.mv)
+            .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    }
     let finished = game.result().is_some();
     let snapshot = game.snapshot();
     let result_json = game
@@ -937,6 +951,10 @@ pub async fn resign_match(
         "black" => shakmaty::Color::Black,
         other => return Err(ApiError::BadRequest(format!("unknown colour {other}"))),
     };
+    // Charging the clock before resigning keeps the recorded time honest.
+    if game.clock().is_some() {
+        game.tick(now_ms());
+    }
     game.resign(color);
     let snapshot = game.snapshot();
     let result_json = game
@@ -1039,4 +1057,13 @@ pub async fn stream_ai_session(
 
     Ok(Sse::new(tokio_stream::wrappers::ReceiverStream::new(receiver))
         .keep_alive(KeepAlive::default()))
+}
+
+
+/// The wall clock, in Unix milliseconds.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
 }

@@ -18,6 +18,65 @@ pub enum Player {
     Model { provider: String, model: String },
 }
 
+/// A chess clock in milliseconds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimeControl {
+    /// Time each side starts with.
+    pub initial_ms: u64,
+    /// Time added to a side after it moves.
+    #[serde(default)]
+    pub increment_ms: u64,
+}
+
+/// Time left for each side.
+///
+/// The state machine has no clock of its own: a caller that wants time to pass
+/// passes the timestamp (`tick`, `apply_at`). That keeps a match replayable —
+/// the same moves at the same timestamps always produce the same result — and
+/// keeps tests deterministic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClockState {
+    pub white_ms: u64,
+    pub black_ms: u64,
+    /// When the running side's clock was last charged, in Unix milliseconds.
+    #[serde(default)]
+    pub last_at: Option<i64>,
+}
+
+impl ClockState {
+    /// Both sides start with `control.initial_ms`.
+    pub fn start(control: &TimeControl) -> Self {
+        Self {
+            white_ms: control.initial_ms,
+            black_ms: control.initial_ms,
+            last_at: None,
+        }
+    }
+
+    /// Time left for `color`.
+    pub fn remaining(&self, color: Color) -> u64 {
+        match color {
+            Color::White => self.white_ms,
+            _ => self.black_ms,
+        }
+    }
+
+    fn charge(&mut self, color: Color, elapsed_ms: u64) {
+        let remaining = self.remaining(color).saturating_sub(elapsed_ms);
+        match color {
+            Color::White => self.white_ms = remaining,
+            _ => self.black_ms = remaining,
+        }
+    }
+
+    fn add(&mut self, color: Color, increment_ms: u64) {
+        match color {
+            Color::White => self.white_ms = self.white_ms.saturating_add(increment_ms),
+            _ => self.black_ms = self.black_ms.saturating_add(increment_ms),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MatchConfig {
     pub start_fen: String,
@@ -30,6 +89,9 @@ pub struct MatchConfig {
     pub rated: bool,
     #[serde(default = "default_ruleset")]
     pub ruleset: String,
+    /// Absent means an untimed match.
+    #[serde(default)]
+    pub time_control: Option<TimeControl>,
 }
 
 fn default_retries() -> u8 {
@@ -55,6 +117,7 @@ impl Default for MatchConfig {
             max_retries: 3,
             rated: false,
             ruleset: "standard-v1".into(),
+            time_control: None,
         }
     }
 }
@@ -77,6 +140,9 @@ pub struct MatchMove {
     pub san: String,
     pub uci: String,
     pub fen: String,
+    /// PGN comment written after the move, as `{...}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,6 +158,8 @@ pub struct MatchSnapshot {
     pub state: MatchState,
     pub moves: Vec<MatchMove>,
     pub result: Option<MatchResult>,
+    #[serde(default)]
+    pub clock: Option<ClockState>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +168,7 @@ pub struct Match {
     state: MatchState,
     moves: Vec<MatchMove>,
     result: Option<MatchResult>,
+    clock: Option<ClockState>,
     position: Chess,
     mode: CastlingMode,
 }
@@ -111,11 +180,13 @@ impl Match {
             Color::White => MatchState::AwaitingWhite,
             Color::Black => MatchState::AwaitingBlack,
         };
+        let clock = config.time_control.map(|control| ClockState::start(&control));
         Ok(Self {
             config,
             state,
             moves: Vec::new(),
             result: None,
+            clock,
             position,
             mode,
         })
@@ -137,6 +208,47 @@ impl Match {
         self.result.as_ref()
     }
 
+    pub fn clock(&self) -> Option<&ClockState> {
+        self.clock.as_ref()
+    }
+
+    /// Charge the running clock up to `at_ms`.
+    ///
+    /// Returns the match result when the side to move has run out of time; the
+    /// match is then finished and no further move may be played. A caller with
+    /// a clock calls this on a timer, and the state machine stays pure: nothing
+    /// here reads the system clock.
+    ///
+    /// The **first** tick starts the clock and charges nothing; call it when
+    /// the match begins (or when a resumed match resumes) so the first move is
+    /// charged from the right instant.
+    pub fn tick(&mut self, at_ms: i64) -> Option<MatchResult> {
+        if matches!(self.state, MatchState::Finished | MatchState::Aborted) {
+            return None;
+        }
+        let color = self.position.turn();
+        let Some(clock) = self.clock.as_mut() else {
+            return None;
+        };
+        if let Some(last_at) = clock.last_at {
+            let elapsed = (at_ms - last_at).max(0) as u64;
+            clock.charge(color, elapsed);
+        }
+        clock.last_at = Some(at_ms);
+        if clock.remaining(color) > 0 {
+            return None;
+        }
+        // Running out of time loses, whatever the position says.
+        let score = if color == Color::White { "0-1" } else { "1-0" };
+        let result = MatchResult {
+            score: score.into(),
+            termination: "timeout".into(),
+        };
+        self.result = Some(result.clone());
+        self.state = MatchState::Finished;
+        Some(result)
+    }
+
     pub fn turn(&self) -> Color {
         self.position.turn()
     }
@@ -153,8 +265,35 @@ impl Match {
             .collect()
     }
 
-    /// Apply one SAN or UCI move. Returns the recorded move or a typed error.
+    /// Apply one move in an untimed match, or in a timed one whose clock this
+    /// caller does not run.
     pub fn apply(&mut self, input: &str) -> Result<MatchMove> {
+        self.play(input, None)
+    }
+
+    /// Apply one move at `at_ms`, charging the mover's clock first and adding
+    /// its increment after the move.
+    pub fn apply_at(&mut self, input: &str, at_ms: i64) -> Result<MatchMove> {
+        if self.tick(at_ms).is_some() {
+            bail!("the clock ran out");
+        }
+        let played = self.play(input, None)?;
+        let control = self.config.time_control;
+        let color = if played.color == "white" {
+            Color::White
+        } else {
+            Color::Black
+        };
+        if let (Some(clock), Some(control)) = (self.clock.as_mut(), control) {
+            if control.increment_ms > 0 {
+                clock.add(color, control.increment_ms);
+            }
+            clock.last_at = Some(at_ms);
+        }
+        Ok(played)
+    }
+
+    fn play(&mut self, input: &str, _at_ms: Option<i64>) -> Result<MatchMove> {
         if matches!(self.state, MatchState::Finished | MatchState::Aborted) {
             bail!("match is finished");
         }
@@ -184,6 +323,7 @@ impl Match {
             san,
             uci,
             fen: self.fen(),
+            comment: None,
         };
         self.moves.push(record.clone());
         self.update_state();
@@ -234,6 +374,22 @@ impl Match {
         }
     }
 
+    /// Attach a comment to an already-played ply, shown in the PGN export.
+    ///
+    /// Returns whether the ply exists; a comment on a ply that was never played
+    /// is refused rather than stored somewhere nothing reads.
+    pub fn annotate_ply(&mut self, ply: u32, comment: impl Into<String>) -> bool {
+        let comment = comment.into();
+        match self.moves.iter_mut().find(|mv| mv.ply == ply) {
+            Some(mv) => {
+                let text = comment.trim();
+                mv.comment = (!text.is_empty()).then(|| text.to_string());
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn resign(&mut self, color: Color) {
         let score = if color == Color::White { "0-1" } else { "1-0" };
         self.result = Some(MatchResult {
@@ -249,6 +405,7 @@ impl Match {
             state: self.state.clone(),
             moves: self.moves.clone(),
             result: self.result.clone(),
+            clock: self.clock,
         }
     }
 
@@ -256,6 +413,23 @@ impl Match {
         let mut game = Self::new(snapshot.config)?;
         for mv in &snapshot.moves {
             game.apply(&mv.uci)?;
+        }
+        // A comment is not part of the position, so replaying the moves cannot
+        // restore it; it comes back from the snapshot's move log.
+        for mv in &snapshot.moves {
+            if let Some(comment) = &mv.comment {
+                game.annotate_ply(mv.ply, comment.clone());
+            }
+        }
+        // Positions replay from the moves; clocks cannot, so they are restored.
+        if let Some(clock) = snapshot.clock {
+            game.clock = Some(clock);
+        }
+        if let Some(result) = snapshot.result {
+            if matches!(snapshot.state, MatchState::Finished) {
+                game.result = Some(result);
+                game.state = MatchState::Finished;
+            }
         }
         if matches!(snapshot.state, MatchState::Paused) {
             game.state = MatchState::Paused;
@@ -277,7 +451,14 @@ impl Match {
                 (format!("{p1}/{m1}"), format!("{p2}/{m2}"))
             }
         };
-        out.push_str(&format!("[Event \"Assistant match\"]\n"));
+        out.push_str("[Event \"Assistant match\"]\n");
+        if let Some(control) = self.config.time_control {
+            out.push_str(&format!(
+                "[TimeControl \"{}:{}\"]\n",
+                control.initial_ms / 1000,
+                control.increment_ms / 1000
+            ));
+        }
         out.push_str(&format!("[White \"{white}\"]\n"));
         out.push_str(&format!("[Black \"{black}\"]\n"));
         out.push_str(&format!(
@@ -296,6 +477,10 @@ impl Match {
                 out.push_str(&format!("{}. ", index / 2 + 1));
             }
             out.push_str(&mv.san);
+            if let Some(comment) = &mv.comment {
+                // PGN comments do not nest: {…} is the whole syntax.
+                out.push_str(&format!(" {{{}}}", comment.replace('}', ")")));
+            }
             out.push(' ');
         }
         out.push_str(
