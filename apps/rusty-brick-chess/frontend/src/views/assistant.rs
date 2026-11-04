@@ -163,6 +163,11 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     let show_reasoning = RwSignal::new(false);
     // Bumped when a streamed turn finishes, to reload the stored transcript.
     let refresh = RwSignal::new(0u32);
+    // The context inspector: the request that was compiled, and the result of
+    // rebuilding it against today's position.
+    let inspector_open = RwSignal::new(false);
+    let inspector = RwSignal::new(None::<ai_api::AiCompiledContext>);
+    let replay = RwSignal::new(None::<serde_json::Value>);
     let source = StoredValue::new(None::<web_sys::EventSource>);
     let transcript = NodeRef::<leptos::html::Div>::new();
 
@@ -363,7 +368,19 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                         turns.update(|list| list.push(turn));
                     }
                     if let Some(context) = response.context {
-                        last_ctx.set(Some((context.sha256, context.tokens)));
+                        last_ctx.set(Some((context.sha256.clone(), context.tokens)));
+                        inspector.set(Some(ai_api::AiCompiledContext {
+                            schema: String::new(),
+                            spec_id: context.spec_id,
+                            spec_version: context.spec_version,
+                            tokenizer: String::new(),
+                            sections: context.sections,
+                            prompt: String::new(),
+                            data: serde_json::Value::Null,
+                            tokens: context.tokens,
+                            sha256: context.sha256,
+                        }));
+                        replay.set(None);
                     }
                     if let Some(message) = response.error {
                         error.set(message);
@@ -729,6 +746,100 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                     />
                     {move || i18n::t(&language.get(), "assistant.expand_reasoning")}
                 </label>
+                <div style="display:flex;gap:.4rem;align-items:center;">
+                    <button on:click=move |_| inspector_open.update(|open| *open = !*open)>
+                        {move || i18n::t(&language.get(), "assistant.context")}
+                    </button>
+                    {move || {
+                        // Tracked: the button appears once the transcript has
+                        // loaded a turn with a stored context.
+                        let seq = turns
+                            .get()
+                            .iter()
+                            .rev()
+                            .find(|turn| turn.role == "assistant" && !turn.context_sha256.is_empty())
+                            .map(|turn| turn.seq);
+                        let Some(seq) = seq else { return ().into_any() };
+                        let id = selected.get_untracked();
+                        view! {
+                            <button on:click=move |_| {
+                                let Some(id) = id.clone() else { return };
+                                let replay = replay;
+                                spawn_local(async move {
+                                    match ai_api::replay_ai_turn(&id, seq).await {
+                                        Ok(value) => replay.set(Some(value)),
+                                        Err(error) => replay.set(Some(serde_json::json!({"error": error}))),
+                                    }
+                                });
+                            }>
+                                {move || i18n::t(&language.get(), "assistant.replay")}
+                            </button>
+                        }.into_any()
+                    }}
+                </div>
+                {move || inspector_open.get().then(|| {
+                    let context = inspector.get();
+                    view! {
+                        <div class="context-inspector" style="max-height:220px;overflow-y:auto;font-size:.8rem;">
+                            {context.map(|context| {
+                                let sha = sha8(&context.sha256);
+                                let tokens = context.tokens;
+                                let canonical = context
+                                    .sections
+                                    .iter()
+                                    .map(|section| format!("[{}]\n{}", section.id, section.content))
+                                    .collect::<Vec<_>>()
+                                    .join("\n\n");
+                                view! {
+                                    <div class="muted">{format!("{sha} · {tokens} tokens · {} sections", context.sections.len())}</div>
+                                    <div class="context-sections">
+                                        {context.sections.iter().map(|section| {
+                                            let id = section.id.clone();
+                                            let chars = section.content.chars().count();
+                                            let truncated = section.truncated;
+                                            let required = section.required;
+                                            let included = section.included;
+                                            view! {
+                                                <div class=if included { "context-section" } else { "context-section skipped" }>
+                                                    <span class="tool-chip">{id}</span>
+                                                    <span class="muted">
+                                                        {if truncated {
+                                                            format!("{chars} chars · truncated")
+                                                        } else {
+                                                            format!("{chars} chars")
+                                                        }}
+                                                    </span>
+                                                    {required.then(|| view! { <span class="muted">"required"</span> })}
+                                                </div>
+                                            }
+                                        }).collect_view()}
+                                    </div>
+                                    <details>
+                                        <summary>{move || i18n::t(&language.get(), "assistant.canonical")}</summary>
+                                        <pre style="white-space:pre-wrap;">{canonical}</pre>
+                                    </details>
+                                }.into_any()
+                            }).unwrap_or_else(|| view! {
+                                <div class="muted">{move || i18n::t(&language.get(), "assistant.no_context")}</div>
+                            }.into_any())}
+                            {move || replay.get().map(|value| {
+                                let identical = value.get("diff")
+                                    .and_then(|diff| diff.get("identical"))
+                                    .and_then(|flag| flag.as_bool())
+                                    .unwrap_or(false);
+                                if identical {
+                                    view! { <div class="muted">"replay · identical"</div> }.into_any()
+                                } else {
+                                    let changed = value.get("diff").cloned().unwrap_or(serde_json::Value::Null);
+                                    view! {
+                                        <div class="muted">"replay · differs"</div>
+                                        <pre style="white-space:pre-wrap;">{changed.to_string()}</pre>
+                                    }.into_any()
+                                }
+                            })}
+                        </div>
+                    }
+                })}
                 <div class="chat-input">
                     <textarea
                         placeholder=move || i18n::t(&language.get(), "assistant.placeholder")

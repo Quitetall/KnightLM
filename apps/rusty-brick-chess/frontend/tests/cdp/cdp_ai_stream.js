@@ -1,37 +1,129 @@
-// Streaming and stop: text must appear while the turn runs, and Stop must end it.
+// Streaming, stop and tool cards — self-contained.
+//
+// This script serves its own OpenAI-compatible SSE provider, so the check does
+// not depend on an external mock staying alive. The app's server must be
+// pointed at it: MODEL_URL=http://127.0.0.1:8100/v1/chat.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9534;
-function get(p){return new Promise((res,rej)=>{http.get({host:"127.0.0.1",port:PORT,path:p},r=>{let d="";r.on("data",c=>d+=c);r.on("end",()=>res(JSON.parse(d)));}).on("error",rej);});}
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-(async()=>{
-  const chrome=spawn("google-chrome",["--headless=new","--disable-gpu","--no-sandbox",`--remote-debugging-port=${PORT}`,`--user-data-dir=/tmp/chrome-stream-${Date.now()}`,"--remote-allow-origins=*","--window-size=1500,1000","http://127.0.0.1:8090/"],{stdio:["ignore","ignore","ignore"]});
-  let t;for(let i=0;i<40;i++){await sleep(300);try{t=await get("/json/list");break;}catch{}}
-  const ws=new WebSocket(t.find(x=>x.type==="page").webSocketDebuggerUrl);
-  let id=0;const pend=new Map();const send=(m,pr={})=>new Promise(r=>{const i=++id;pend.set(i,r);ws.send(JSON.stringify({id:i,method:m,params:pr}));});
-  ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&pend.has(m.id)){pend.get(m.id)(m.result);pend.delete(m.id);}};
-  await new Promise(r=>ws.onopen=r); await send("Runtime.enable"); await sleep(2800);
-  const ev=async(x)=>{const r=await send("Runtime.evaluate",{expression:x,returnByValue:true,awaitPromise:true});return r.result?.value;};
-  const clickText=async(sel,txt)=>await ev(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(sel)})].find(x=>x.textContent.trim()===${JSON.stringify(txt)});e&&e.click();return !!e;})()`);
+const PORT = 9536;
+const PROVIDER = 8100;
+const CHUNK_DELAY_MS = 400;
 
-  await clickText(".nav","Assistant"); await sleep(900);
-  await clickText("button","New chat"); await sleep(1500);
-  const typed=await ev(`(()=>{const t=document.querySelector(".chat-input textarea");if(!t)return false;t.value="stream please";t.dispatchEvent(new Event("input",{bubbles:true}));return true;})()`);
+// --- a provider that streams slowly and can call a tool --------------------
+
+function startProvider() {
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      let payload = {};
+      try { payload = JSON.parse(body || "{}"); } catch {}
+      const messages = payload.messages || [];
+      const sawTool = messages.some((message) => message.role === "tool");
+      const user = ([...messages].reverse().find((message) => message.role === "user") || {}).content || "";
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      const send = (obj) => res.write("data: " + JSON.stringify(obj) + "\n\n");
+      const chunk = (delta) => send({ id: "mock", choices: [{ index: 0, delta }] });
+      const finish = (tokensIn, tokensOut) => {
+        send({ id: "mock", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
+        send({ id: "mock", choices: [], usage: { prompt_tokens: tokensIn, completion_tokens: tokensOut } });
+        res.write("data: [DONE]\n\n");
+        res.end();
+      };
+
+      if (/board/i.test(user) && !sawTool) {
+        // A tool round: ask for the boards, the server answers, we reply.
+        chunk({ tool_calls: [{ index: 0, id: "call_1", function: { name: "list_boards", arguments: "{}" } }] });
+        send({ id: "mock", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
+        send({ id: "mock", choices: [], usage: { prompt_tokens: 5, completion_tokens: 2 } });
+        res.write("data: [DONE]\n\n");
+        res.end();
+        return;
+      }
+
+      const words = (sawTool ? "there are boards here" : "the position is equal and quiet").split(" ");
+      let index = 0;
+      const tick = () => {
+        if (index < words.length) {
+          chunk({ content: words[index++] + " " });
+          setTimeout(tick, CHUNK_DELAY_MS);
+          return;
+        }
+        finish(sawTool ? 11 : 9, sawTool ? 4 : 6);
+      };
+      tick();
+    });
+  });
+  server.listen(PROVIDER, "127.0.0.1");
+  return server;
+}
+
+function getJson(port, path) {
+  return new Promise((resolve, reject) => {
+    http.get({ host: "127.0.0.1", port, path }, (response) => {
+      let data = "";
+      response.on("data", (chunk) => (data += chunk));
+      response.on("end", () => resolve(JSON.parse(data)));
+    }).on("error", reject);
+  });
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+(async () => {
+  const provider = startProvider();
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-stream2-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  let target;
+  for (let i = 0; i < 40; i++) { await sleep(300); try { target = await getJson(PORT, "/json/list"); break; } catch {} }
+  const ws = new WebSocket(target.find((x) => x.type === "page").webSocketDebuggerUrl);
+  let id = 0; const pend = new Map();
+  const send = (method, params = {}) => new Promise((resolve) => { const i = ++id; pend.set(i, resolve); ws.send(JSON.stringify({ id: i, method, params })); });
+  ws.onmessage = (event) => { const m = JSON.parse(event.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m.result); pend.delete(m.id); } };
+  await new Promise((resolve) => (ws.onopen = resolve));
+  await send("Runtime.enable");
+  await sleep(2800);
+  const ev = async (expression) => (await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true })).result?.value;
+  const clickText = async (selector, text) => await ev(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(x=>x.textContent.trim()===${JSON.stringify(text)});e&&e.click();return !!e;})()`);
+  const type = async (text) => await ev(`(()=>{const t=document.querySelector(".chat-input textarea");if(!t)return false;t.value=${JSON.stringify(text)};t.dispatchEvent(new Event("input",{bubbles:true}));return true;})()`);
+  const streamingText = async () => await ev(`(()=>{const b=document.querySelector(".chat-msg.streaming");return b?b.textContent.trim():"";})()`);
+  const waitFor = async (read, ms = 8000) => { const start = Date.now(); while (Date.now() - start < ms) { const value = await read(); if (value) return value; await sleep(250); } return ""; };
+
+  await clickText(".nav", "Assistant");
+  await sleep(900);
+  await clickText("button", "New chat");
+  await sleep(1500);
+
+  // --- streaming: text shows up before the turn ends ----------------------
+  await type("stream please");
   await sleep(200);
-  const started=await clickText(".chat-input button","Send");
-  // Wait for the first delta to land rather than sampling at a fixed instant:
-  // a slow provider may not have sent anything yet.
-  let partial="";
-  for(let i=0;i<12 && !partial;i++){await sleep(250);partial=await ev(`(()=>{const b=document.querySelector(".chat-msg.streaming");return b?b.textContent.trim():"";})()`);}
-  const buttonLabel=await ev(`document.querySelector(".chat-input button")?.textContent.trim()`);
-  const stopped=await clickText(".chat-input button","Stop");
-  await sleep(2500);
-  const after=await ev(`(()=>{const b=document.querySelector(".chat-msg.streaming");return b?b.textContent.trim():"";})()`);
-  const errorText=await ev(`(()=>{const e=document.querySelector(".chat-msg.error");return e?e.textContent.trim():"";})()`);
-  const labelAfter=await ev(`document.querySelector(".chat-input button")?.textContent.trim()`);
+  const started = await clickText(".chat-input button", "Send");
+  const partial = await waitFor(streamingText, 6000);
+  const labelWhileSending = await ev(`document.querySelector(".chat-input button")?.textContent.trim()`);
 
-  console.log(JSON.stringify({typed,started,partial,buttonLabel,stopped,after,errorText,labelAfter}));
-  const ok = typed && started && partial.length>0 && buttonLabel==="Stop" && stopped && labelAfter==="Send";
-  console.log(ok?"AI_STREAM_PASS":"AI_STREAM_FAIL");
-  ws.close();chrome.kill();process.exit(ok?0:1);
-})().catch(e=>{console.error(e);process.exit(1);});
+  // --- stop: the turn ends by request ------------------------------------
+  const stopped = await clickText(".chat-input button", "Stop");
+  const errorText = await waitFor(async () => await ev(`(()=>{const e=document.querySelector(".chat-msg.error");return e?e.textContent.trim():"";})()`), 8000);
+  const labelAfterStop = await ev(`document.querySelector(".chat-input button")?.textContent.trim()`);
+
+  // --- tool cards and usage: a stored turn with a tool result ------------
+  await sleep(1000);
+  await type("which boards do I have");
+  await sleep(200);
+  await clickText(".chat-input button", "Send");
+  const cards = await waitFor(async () => await ev(`document.querySelectorAll(".tool-card").length`), 15000);
+  const usage = await waitFor(async () => await ev(`[...document.querySelectorAll(".muted")].some(e=>/\\bin\\b/.test(e.textContent)&&/\\bout\\b/.test(e.textContent))`), 8000);
+
+  const out = { started, partial: String(partial).slice(0, 40), labelWhileSending, stopped, errorText, labelAfterStop, cards, usage };
+  console.log(JSON.stringify(out));
+  const ok = started && String(partial).length > 0 && labelWhileSending === "Stop"
+    && stopped && /cancel/i.test(String(errorText)) && labelAfterStop === "Send"
+    && Number(cards) > 0 && usage === true;
+  console.log(ok ? "AI_STREAM_PASS" : "AI_STREAM_FAIL");
+  ws.close();
+  chrome.kill();
+  provider.close();
+  process.exit(ok ? 0 : 1);
+})().catch((error) => { console.error(error); process.exit(1); });
