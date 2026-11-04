@@ -8,6 +8,9 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
+use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
+
 use crate::ai_api;
 use crate::board::Board;
 use crate::i18n;
@@ -44,6 +47,46 @@ impl AssistantCtx {
             pin_session: ctx.pin_session,
         }
     }
+}
+
+/// One tool call as a card: what ran, and what it answered.
+#[derive(Clone, Debug)]
+struct ToolCard {
+    tool: String,
+    ok: bool,
+    code: String,
+    summary: String,
+}
+
+/// Read a turn's tool results for the transcript cards.
+fn tool_cards(json: &str) -> Vec<ToolCard> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+        return Vec::new();
+    };
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    Some(ToolCard {
+                        tool: item.get("tool")?.as_str()?.to_string(),
+                        ok: item.get("ok").and_then(|ok| ok.as_bool()).unwrap_or(false),
+                        code: item
+                            .get("code")
+                            .and_then(|code| code.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        summary: item
+                            .get("summary")
+                            .and_then(|summary| summary.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Extract the human-readable message from a stored `error_json` blob.
@@ -112,6 +155,15 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     let query = RwSignal::new(String::new());
     let renaming = RwSignal::new(None::<String>);
     let rename_text = RwSignal::new(String::new());
+    // The turn being streamed right now: its text, its reasoning and the tools
+    // it has called so far.
+    let live_text = RwSignal::new(String::new());
+    let live_reasoning = RwSignal::new(String::new());
+    let live_tools = RwSignal::new(Vec::<String>::new());
+    let show_reasoning = RwSignal::new(false);
+    // Bumped when a streamed turn finishes, to reload the stored transcript.
+    let refresh = RwSignal::new(0u32);
+    let source = StoredValue::new(None::<web_sys::EventSource>);
     let transcript = NodeRef::<leptos::html::Div>::new();
 
     // Keep the newest message in view as the transcript grows.
@@ -154,8 +206,10 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
         crate::model::write_active_ai_session(selected.get().as_deref());
     });
 
-    // Reload the transcript whenever the selected session changes.
+    // Reload the transcript whenever the selected session changes, or when a
+    // streamed turn tells us it has finished.
     Effect::new(move |_| {
+        let _ = refresh.get();
         let Some(id) = selected.get() else {
             turns.set(Vec::new());
             return;
@@ -207,9 +261,96 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
         draft.set(String::new());
         error.set(String::new());
         sending.set(true);
+        live_text.set(String::new());
+        live_reasoning.set(String::new());
+        live_tools.set(Vec::new());
+
+        // Watch the session's event stream while the turn runs. Events for
+        // turns that are already stored are replayed too; the highest stored
+        // sequence tells us which ones to ignore, so history is not rendered
+        // twice.
+        let known_seq = turns
+            .get_untracked()
+            .iter()
+            .map(|turn| turn.seq as u64)
+            .max()
+            .unwrap_or(0);
+        let mut live = false;
+        if let Ok(stream) = web_sys::EventSource::new(&ai_api::stream_url(&id)) {
+            let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
+                move |event: web_sys::MessageEvent| {
+                    let Some(data) = event.data().as_string() else {
+                        return;
+                    };
+                    let Ok(value) = serde_json::from_str::<serde_json::Value>(&data) else {
+                        return;
+                    };
+                    match value.get("type").and_then(|kind| kind.as_str()) {
+                        Some("turn_started") => {
+                            let seq = value
+                                .get("seq")
+                                .and_then(|seq| seq.as_u64())
+                                .unwrap_or(0);
+                            live = seq > known_seq;
+                            if live {
+                                live_text.set(String::new());
+                                live_reasoning.set(String::new());
+                                live_tools.set(Vec::new());
+                            }
+                        }
+                        Some("content_delta") if live => {
+                            if let Some(text) = value.get("text").and_then(|t| t.as_str()) {
+                                live_text.update(|current| current.push_str(text));
+                            }
+                        }
+                        Some("reasoning_delta") if live => {
+                            if let Some(text) = value.get("text").and_then(|t| t.as_str()) {
+                                live_reasoning.update(|current| current.push_str(text));
+                            }
+                        }
+                        Some("tool_call") if live => {
+                            if let Some(name) = value.get("name").and_then(|n| n.as_str()) {
+                                live_tools.update(|list| list.push(name.to_string()));
+                            }
+                        }
+                        Some("turn_done") => {
+                            if live {
+                                live = false;
+                                source.with_value(|held| {
+                                    if let Some(stream) = held {
+                                        stream.close();
+                                    }
+                                });
+                                refresh.update(|count| *count += 1);
+                            }
+                        }
+                        _ => {}
+                    }
+                },
+            );
+            // The server names its events (`event: ai`), and a named event does
+            // not reach `onmessage` — only a listener for that name does.
+            let _ = stream.add_event_listener_with_callback(
+                "ai",
+                on_message.as_ref().unchecked_ref(),
+            );
+            // The listener lives as long as the page; the stream is closed when
+            // the turn finishes or the session changes.
+            on_message.forget();
+            source.set_value(Some(stream));
+        }
+
         spawn_local(async move {
             let result = ai_api::send_ai_message(&id, &message, fen.as_deref()).await;
             sending.set(false);
+            source.with_value(|held| {
+                if let Some(stream) = held {
+                    stream.close();
+                }
+            });
+            live_text.set(String::new());
+            live_reasoning.set(String::new());
+            live_tools.set(Vec::new());
             if selected.get_untracked().as_deref() != Some(id.as_str()) {
                 return;
             }
@@ -451,6 +592,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                     "chat-msg assistant"
                                 };
                                 let tools = tool_names(&turn.tool_calls_json);
+                                let cards = tool_cards(&turn.tool_results_json);
                                 let failure = turn
                                     .error_json
                                     .as_deref()
@@ -458,9 +600,43 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                 let context = (!turn.context_sha256.is_empty()).then(|| {
                                     format!("ctx {}", sha8(&turn.context_sha256))
                                 });
+                                let reasoning = turn
+                                    .reasoning
+                                    .clone()
+                                    .filter(|text| !text.trim().is_empty());
                                 view! {
                                     <div class=class>
+                                        {reasoning.map(|text| view! {
+                                            <details class="chat-reasoning">
+                                                <summary>
+                                                    {move || i18n::t(&language.get(), "assistant.reasoning")}
+                                                </summary>
+                                                <div class="muted">{text}</div>
+                                            </details>
+                                        })}
                                         <div>{turn.content.clone()}</div>
+                                        {(!cards.is_empty()).then(|| view! {
+                                            <div class="chat-tools">
+                                                {cards
+                                                    .into_iter()
+                                                    .map(|card| {
+                                                        let class = if card.ok {
+                                                            "tool-card"
+                                                        } else {
+                                                            "tool-card failed"
+                                                        };
+                                                        view! {
+                                                            <div class=class>
+                                                                <span class="tool-chip">
+                                                                    {format!("{} · {}", card.tool, card.code)}
+                                                                </span>
+                                                                <span class="muted">{card.summary}</span>
+                                                            </div>
+                                                        }
+                                                    })
+                                                    .collect_view()}
+                                            </div>
+                                        })}
                                         {(!tools.is_empty()).then(|| view! {
                                             <div class="chat-tools">
                                                 {tools
@@ -472,6 +648,11 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                             </div>
                                         })}
                                         {context.map(|label| view! { <div class="muted">{label}</div> })}
+                                        {(turn.tokens_out > 0).then(|| view! {
+                                            <div class="muted">
+                                                {format!("{} in · {} out", turn.tokens_in, turn.tokens_out)}
+                                            </div>
+                                        })}
                                         {failure.map(|message| view! {
                                             <div class="chat-msg error">{message}</div>
                                         })}
@@ -479,6 +660,34 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                 }
                             })
                             .collect_view()
+                    }}
+                    {move || {
+                        let text = live_text.get();
+                        let reasoning = live_reasoning.get();
+                        let tools = live_tools.get();
+                        (!text.is_empty() || !tools.is_empty()).then(|| view! {
+                            <div class="chat-msg assistant streaming">
+                                {(!reasoning.is_empty()).then(|| view! {
+                                    <details class="chat-reasoning" open=show_reasoning.get()>
+                                        <summary>
+                                            {move || i18n::t(&language.get(), "assistant.reasoning")}
+                                        </summary>
+                                        <div class="muted">{reasoning.clone()}</div>
+                                    </details>
+                                })}
+                                <div>{text.clone()}</div>
+                                {(!tools.is_empty()).then(|| view! {
+                                    <div class="chat-tools">
+                                        {tools
+                                            .into_iter()
+                                            .map(|tool| view! {
+                                                <span class="tool-chip">{format!("tool: {tool}")}</span>
+                                            })
+                                            .collect_view()}
+                                    </div>
+                                })}
+                            </div>
+                        })
                     }}
                     {move || {
                         (turns.get().is_empty() && error.get().is_empty() && !sending.get())
@@ -512,6 +721,14 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                             })
                     }}
                 </div>
+                <label class="muted" style="display:flex;gap:.35rem;align-items:center;font-size:.8rem;">
+                    <input
+                        type="checkbox"
+                        prop:checked=move || show_reasoning.get()
+                        on:change=move |ev| show_reasoning.set(event_target_checked(&ev))
+                    />
+                    {move || i18n::t(&language.get(), "assistant.expand_reasoning")}
+                </label>
                 <div class="chat-input">
                     <textarea
                         placeholder=move || i18n::t(&language.get(), "assistant.placeholder")
@@ -525,11 +742,23 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                         }
                     ></textarea>
                     <button
-                        disabled=move || sending.get() || selected.get().is_none()
-                        on:click=move |_| send()
+                        disabled=move || selected.get().is_none()
+                        on:click=move |_| {
+                            if sending.get_untracked() {
+                                if let Some(id) = selected.get_untracked() {
+                                    // Ask the server to stop the turn; the
+                                    // stream closes when the turn reports done.
+                                    spawn_local(async move {
+                                        let _ = ai_api::cancel_ai_turn(&id).await;
+                                    });
+                                }
+                            } else {
+                                send();
+                            }
+                        }
                     >
                         {move || if sending.get() {
-                            i18n::t(&language.get(), "assistant.sending")
+                            i18n::t(&language.get(), "assistant.stop")
                         } else {
                             i18n::t(&language.get(), "assistant.send")
                         }}

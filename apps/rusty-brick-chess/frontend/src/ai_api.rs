@@ -276,3 +276,29 @@ pub async fn compile_context(
         .map_err(|e| e.to_string())?;
     decode(resp).await
 }
+
+/// Stop the turn running in a session.
+///
+/// The server answers `{cancelled: bool}`: cancelling a session with nothing
+/// running is a no-op, not an error.
+pub async fn cancel_ai_turn(id: &str) -> Result<bool, String> {
+    let resp = Request::post(&format!("/api/ai/sessions/{id}/cancel"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_str(&body).map_err(|_| if body.is_empty() { "cancel failed".to_string() } else { body.clone() })?;
+    Ok(value
+        .get("cancelled")
+        .and_then(|cancelled| cancelled.as_bool())
+        .unwrap_or(false))
+}
+
+/// The event stream of a session, from the beginning.
+///
+/// Replayed events for turns that are already stored are ignored by the view,
+/// so it can open this at 0 without rendering history twice.
+pub fn stream_url(id: &str) -> String {
+    format!("/api/ai/sessions/{id}/stream")
+}

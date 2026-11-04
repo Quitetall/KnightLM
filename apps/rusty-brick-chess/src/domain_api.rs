@@ -645,6 +645,15 @@ pub async fn send_ai_turn(
     let db_for_turn = state.db.clone();
     let engine_path = settings.engine_path.clone();
     let plan_for_turn = plan.clone();
+    // One token per running turn; `POST /cancel` finds it here.
+    let cancel = rbc_ai::provider::Cancellation::new();
+    let cancel_for_turn = cancel.clone();
+    let session_key = id.clone();
+    state
+        .turn_cancels
+        .lock()
+        .expect("turn registry")
+        .insert(session_key.clone(), cancel.clone());
     let outcome = tokio::task::spawn_blocking(
         move || -> Result<rbc_ai::agent::AgentOutcome, String> {
             let config = rbc_ai::provider::ProviderConfig::openai_compatible(
@@ -666,7 +675,7 @@ pub async fn send_ai_turn(
                 rbc_ai::policy::Origin::InApp,
             );
             let registry = rbc_ai::tools::ToolRegistry::builtin();
-            let cancel = rbc_ai::provider::Cancellation::new();
+            let cancel = cancel_for_turn;
             // Each event is stored as it happens, so a client watching the
             // stream sees a turn as it runs rather than all at once when it
             // ends. Recording is best effort: a failing write must not lose
@@ -685,6 +694,12 @@ pub async fn send_ai_turn(
     )
     .await
     .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?;
+    // The turn is over, whatever it returned: nothing can cancel it now.
+    state
+        .turn_cancels
+        .lock()
+        .expect("turn registry")
+        .remove(&session_key);
 
     let outcome = match outcome {
         Ok(outcome) => outcome,
@@ -1168,4 +1183,34 @@ fn resolve_approval(
             Err(ApiError::BadRequest(error.to_string()))
         }
     }
+}
+
+
+/// `POST /api/ai/sessions/{id}/cancel`
+///
+/// Stops the turn running for this session. The provider checks the token
+/// before every round and before every tool call, so a cancelled turn stops
+/// before its next write; the answer says whether a turn was actually running,
+/// because cancelling nothing is not an error, it is a no-op.
+pub async fn cancel_ai_turn(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let cancel = state
+        .turn_cancels
+        .lock()
+        .expect("turn registry")
+        .get(&id)
+        .cloned();
+    let cancelled = match cancel {
+        Some(cancel) => {
+            cancel.cancel();
+            true
+        }
+        None => false,
+    };
+    Ok(Json(serde_json::json!({
+        "session_id": id,
+        "cancelled": cancelled,
+    })))
 }

@@ -23,3 +23,11 @@ node cdp_ai_pin.js    # AI_PIN_PASS: pinning opens a tab, re-pinning focuses it
 
 Kill stale browsers first with `pkill -9 -x chrome`; each script starts its own
 Chrome on its own debugging port.
+
+Streaming and stop need a model behind the server:
+
+```bash
+MOCK_SLOW=0.6 python3 <mock-provider> &   # any OpenAI-compatible SSE server
+MODEL_URL=http://127.0.0.1:8100/v1/chat RBC_ADDR=127.0.0.1:8090 <server> &
+node cdp_ai_stream.js  # AI_STREAM_PASS: text appears mid-turn, Stop ends it
+```

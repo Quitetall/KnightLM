@@ -93,6 +93,7 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/ai/sessions/{id}/send", post(domain_api::send_ai_turn))
         .route("/api/ai/sessions/{id}/replay/{seq}", get(domain_api::replay_ai_turn))
         .route("/api/ai/sessions/{id}/stream", get(domain_api::stream_ai_session))
+        .route("/api/ai/sessions/{id}/cancel", post(domain_api::cancel_ai_turn))
         .route("/api/ai/approvals", get(domain_api::list_approvals))
         .route("/api/ai/approvals/{id}", get(domain_api::get_approval))
         .route("/api/ai/approvals/{id}/approve", post(domain_api::approve_approval))
@@ -222,6 +223,7 @@ pub fn state_from_env() -> anyhow::Result<(api::AppState, String)> {
             .and_then(|d| d.parse().ok())
             .unwrap_or(15),
         console: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        turn_cancels: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     };
     Ok((state, db_path))
 }

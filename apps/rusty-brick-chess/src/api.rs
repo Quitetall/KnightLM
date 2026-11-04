@@ -26,6 +26,11 @@ pub struct AppState {
     pub default_depth: u32,
     /// Persistent UCI session used by the engine console.
     pub console: Arc<Mutex<Option<crate::console::Console>>>,
+    /// The cancellation token of every turn currently running, by session id.
+    ///
+    /// A turn is one blocking request; stopping it means reaching into the
+    /// provider's read loop from another request, which is what this holds.
+    pub turn_cancels: Arc<Mutex<std::collections::HashMap<String, rbc_ai::provider::Cancellation>>>,
 }
 
 #[derive(Debug)]
