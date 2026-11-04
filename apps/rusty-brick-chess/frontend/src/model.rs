@@ -127,6 +127,7 @@ pub struct Session {
 const SESSION_KEY: &str = "rbc.session.v1";
 const RECENT_FILES_KEY: &str = "rbc.recentFiles";
 const CLIENT_KEY: &str = "rbc.client";
+const ACTIVE_AI_SESSION_KEY: &str = "rbc.ai.session";
 
 /// Stable per-browser id so server-side sessions never leak between clients.
 pub fn client_id() -> String {
@@ -486,4 +487,25 @@ pub fn eval_point(row: &api::EvalRow) -> (f64, f64) {
     };
     let clamped = (white / 800.0).clamp(-1.0, 1.0);
     (row.ply as f64, (1.0 - clamped) * 45.0 + 5.0)
+}
+
+/// The assistant session the tab was last showing, if any.
+pub fn read_active_ai_session() -> Option<String> {
+    let storage = web_sys::window()?.local_storage().ok().flatten()?;
+    storage.get_item(ACTIVE_AI_SESSION_KEY).ok().flatten()
+}
+
+/// Remember which assistant session is open, so a reload returns to it.
+pub fn write_active_ai_session(id: Option<&str>) {
+    let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else {
+        return;
+    };
+    match id {
+        Some(id) => {
+            let _ = storage.set_item(ACTIVE_AI_SESSION_KEY, id);
+        }
+        None => {
+            let _ = storage.remove_item(ACTIVE_AI_SESSION_KEY);
+        }
+    }
 }

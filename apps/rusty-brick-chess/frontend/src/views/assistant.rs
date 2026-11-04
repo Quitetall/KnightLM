@@ -94,6 +94,10 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     let error = RwSignal::new(String::new());
     // `(sha256, tokens)` from the last successful send.
     let last_ctx = RwSignal::new(None::<(String, u32)>);
+    // Rail controls: a search filter and an inline rename.
+    let query = RwSignal::new(String::new());
+    let renaming = RwSignal::new(None::<String>);
+    let rename_text = RwSignal::new(String::new());
     let transcript = NodeRef::<leptos::html::Div>::new();
 
     // Keep the newest message in view as the transcript grows.
@@ -111,15 +115,25 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
         spawn_local(async move {
             match ai_api::list_ai_sessions().await {
                 Ok(list) => {
-                    let first = list.first().map(|session| session.id.clone());
+                    // Return to the conversation that was open, when it still
+                    // exists; otherwise start from the newest one.
+                    let remembered = crate::model::read_active_ai_session();
+                    let restored = remembered
+                        .filter(|id| list.iter().any(|session| &session.id == id))
+                        .or_else(|| list.first().map(|session| session.id.clone()));
                     sessions.set(list);
                     if selected.get_untracked().is_none() {
-                        selected.set(first);
+                        selected.set(restored);
                     }
                 }
                 Err(e) => error.set(e),
             }
         });
+    });
+
+    // Remember the open conversation so a reload comes back to it.
+    Effect::new(move |_| {
+        crate::model::write_active_ai_session(selected.get().as_deref());
     });
 
     // Reload the transcript whenever the selected session changes.
@@ -240,34 +254,128 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                 >
                     {move || i18n::t(&language.get(), "assistant.new_chat")}
                 </button>
+                <input
+                    type="search"
+                    placeholder=move || i18n::t(&language.get(), "assistant.search")
+                    aria-label=move || i18n::t(&language.get(), "assistant.search")
+                    prop:value=move || query.get()
+                    on:input=move |event| query.set(event_target_value(&event))
+                    style="padding:.35rem .5rem;border-radius:7px;border:1px solid #3f5f45;background:#1b2620;color:#eaf5ec;"
+                />
+                {move || match renaming.get() {
+                    Some(id) => {
+                        let id_save = id.clone();
+                        let sessions = sessions;
+                        view! {
+                            <div style="display:flex;gap:.3rem;">
+                                <input
+                                    type="text"
+                                    aria-label=move || i18n::t(&language.get(), "assistant.rename")
+                                    prop:value=move || rename_text.get()
+                                    on:input=move |event| rename_text.set(event_target_value(&event))
+                                    style="flex:1 1 auto;min-width:0;padding:.3rem .4rem;border-radius:7px;border:1px solid #3f5f45;background:#1b2620;color:#eaf5ec;"
+                                />
+                                <button
+                                    on:click=move |_| {
+                                        let id = id_save.clone();
+                                        let title = rename_text.get_untracked();
+                                        if title.trim().is_empty() {
+                                            return;
+                                        }
+                                        spawn_local(async move {
+                                            if ai_api::rename_ai_session(&id, title.trim()).await.is_ok() {
+                                                sessions.update(|list| {
+                                                    if let Some(session) = list.iter_mut().find(|s| s.id == id) {
+                                                        session.title = title.trim().to_string();
+                                                    }
+                                                });
+                                            }
+                                        });
+                                        renaming.set(None);
+                                    }
+                                >
+                                    {move || i18n::t(&language.get(), "assistant.save")}
+                                </button>
+                                <button on:click=move |_| renaming.set(None)>
+                                    {move || i18n::t(&language.get(), "assistant.cancel")}
+                                </button>
+                            </div>
+                        }.into_any()
+                    }
+                    None => ().into_any(),
+                }}
                 <div style="display:flex;flex-direction:column;gap:.3rem;overflow-y:auto;min-height:0;flex:1 1 auto;">
                     {move || {
+                        let needle = query.get().trim().to_lowercase();
                         sessions
                             .get()
                             .into_iter()
+                            .filter(|session| {
+                                needle.is_empty()
+                                    || session.title.to_lowercase().contains(&needle)
+                                    || session.mode.to_lowercase().contains(&needle)
+                            })
                             .map(|session| {
                                 let id_class = session.id.clone();
                                 let id_click = session.id.clone();
                                 let title = session.title.clone();
                                 let mode = session.mode.clone();
+                                let id_rename = session.id.clone();
+                                let id_archive = session.id.clone();
+                                let title_for_rename = title.clone();
+                                let sessions_for_archive = sessions;
+                                let selected_for_archive = selected;
                                 view! {
-                                    <button
-                                        class=move || {
-                                            if selected.get().as_deref() == Some(id_class.as_str()) {
-                                                "dock-tab active"
-                                            } else {
-                                                "dock-tab"
+                                    <div style="display:flex;gap:.2rem;align-items:center;">
+                                        <button
+                                            class=move || {
+                                                if selected.get().as_deref() == Some(id_class.as_str()) {
+                                                    "dock-tab active"
+                                                } else {
+                                                    "dock-tab"
+                                                }
                                             }
-                                        }
-                                        style="width:100%;display:flex;justify-content:space-between;align-items:center;gap:.4rem;text-align:left;"
-                                        title=title.clone()
-                                        on:click=move |_| selected.set(Some(id_click.clone()))
-                                    >
-                                        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                                            {title.clone()}
-                                        </span>
-                                        <span class="muted">{mode}</span>
-                                    </button>
+                                            style="flex:1 1 auto;min-width:0;display:flex;justify-content:space-between;align-items:center;gap:.4rem;text-align:left;"
+                                            title=title.clone()
+                                            on:click=move |_| selected.set(Some(id_click.clone()))
+                                        >
+                                            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                                                {title.clone()}
+                                            </span>
+                                            <span class="muted">{mode}</span>
+                                        </button>
+                                        <button
+                                            title=move || i18n::t(&language.get(), "assistant.rename")
+                                            aria-label=move || i18n::t(&language.get(), "assistant.rename")
+                                            on:click=move |_| {
+                                                rename_text.set(title_for_rename.clone());
+                                                renaming.set(Some(id_rename.clone()));
+                                            }
+                                        >
+                                            "✎"
+                                        </button>
+                                        <button
+                                            title=move || i18n::t(&language.get(), "assistant.archive")
+                                            aria-label=move || i18n::t(&language.get(), "assistant.archive")
+                                            on:click=move |_| {
+                                                let id = id_archive.clone();
+                                                spawn_local(async move {
+                                                    if ai_api::archive_ai_session(&id).await.is_ok() {
+                                                        sessions_for_archive.update(|list| list.retain(|s| s.id != id));
+                                                        if selected_for_archive.get_untracked().as_deref() == Some(id.as_str()) {
+                                                            let next = sessions_for_archive
+                                                                .get_untracked()
+                                                                .first()
+                                                                .map(|s| s.id.clone());
+                                                            selected_for_archive.set(next);
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                        >
+                                            "×"
+                                        </button>
+                                    </div>
                                 }
                             })
                             .collect_view()

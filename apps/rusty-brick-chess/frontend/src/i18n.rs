@@ -417,6 +417,12 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("assistant.placeholder", "Ask about this position…", "Pregunta sobre esta posición…"),
     ("assistant.composer_hint", "Enter sends · Shift+Enter adds a line", "Enter envía · Mayús+Enter añade una línea"),
     ("assistant.no_session", "No conversation selected.", "Ninguna conversación seleccionada."),
+    ("assistant.search", "Search conversations", "Buscar conversaciones"),
+    ("assistant.rename", "Rename", "Renombrar"),
+    ("assistant.save", "Save", "Guardar"),
+    ("assistant.cancel", "Cancel", "Cancelar"),
+    ("assistant.archive", "Archive", "Archivar"),
+    ("assistant.no_match", "No conversation matches", "Ninguna conversación coincide"),
 ];
 
 
