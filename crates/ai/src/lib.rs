@@ -21,6 +21,9 @@ pub mod tools;
 pub mod glicko;
 
 #[cfg(feature = "core")]
+pub mod mcp;
+
+#[cfg(feature = "core")]
 pub mod tournament;
 
 #[cfg(feature = "host")]

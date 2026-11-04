@@ -9,6 +9,7 @@ RustyBrickChess — chess database, analysis and training.
 
 Usage:
   rustybrickchess            serve on RBC_ADDR (default 127.0.0.1:8090)
+  rustybrickchess mcp        run an MCP server on stdio
   rustybrickchess --open     serve, then open the app in the default browser
   rustybrickchess --version  print the version
   rustybrickchess --help     show this message
@@ -34,6 +35,14 @@ Environment:
 async fn main() -> anyhow::Result<()> {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     match arguments.first().map(String::as_str) {
+        Some("mcp") => {
+            // stdio MCP server: inherits process trust, so no token.
+            let path = std::env::var("RBC_DB").unwrap_or_else(|_| {
+                rusty_brick_chess::default_db_path().display().to_string()
+            });
+            let db = rbc_db::Db::open(&path)?;
+            return rusty_brick_chess::serve_mcp_stdio(&db);
+        }
         Some("import-dump") => return import_dump(&arguments[1..]),
         Some("export-parquet") => return archive_command(&arguments[1..], true),
         Some("import-parquet") => return archive_command(&arguments[1..], false),

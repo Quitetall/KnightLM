@@ -974,6 +974,18 @@ impl Db {
         Ok(games)
     }
 
+    /// One setting, if it has been written.
+    pub fn setting(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().expect("db lock");
+        Ok(conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                params![key],
+                |row| row.get(0),
+            )
+            .ok())
+    }
+
     pub fn settings(&self) -> Result<BTreeMap<String, String>> {
         let conn = self.conn.lock().expect("db lock");
         let mut stmt = conn.prepare("SELECT key, value FROM settings")?;

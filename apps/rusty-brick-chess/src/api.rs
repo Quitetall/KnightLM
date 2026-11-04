@@ -37,6 +37,10 @@ pub struct AppState {
 pub enum ApiError {
     BadRequest(String),
     NotFound,
+    /// A caller that did not present the right credential.
+    Unauthorized,
+    /// A connection that has spent its request budget for the window.
+    TooManyRequests,
     Unavailable(&'static str),
     Internal(anyhow::Error),
 }
@@ -46,6 +50,11 @@ impl IntoResponse for ApiError {
         let (status, message) = match self {
             ApiError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             ApiError::NotFound => (StatusCode::NOT_FOUND, "not found".to_owned()),
+            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_owned()),
+            ApiError::TooManyRequests => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many requests".to_owned(),
+            ),
             ApiError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m.to_owned()),
             ApiError::Internal(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
         };
@@ -358,7 +367,7 @@ pub async fn databases(
             });
         }
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|a| a.name.to_lowercase());
     Ok(Json(out))
 }
 
@@ -1331,10 +1340,13 @@ pub async fn openings(
         .as_deref()
         .filter(|s| *s == "lichess" || *s == "masters")
     {
-        if let Some(body) = state.db.cached_explorer(source, &q.fen)? {
-            if let Some(e) = parse_lichess_explorer(&body) {
-                return Ok(Json(e));
-            }
+        if let Some(e) = state
+            .db
+            .cached_explorer(source, &q.fen)?
+            .as_deref()
+            .and_then(parse_lichess_explorer)
+        {
+            return Ok(Json(e));
         }
         let fen = q.fen.clone();
         let source = source.to_owned();

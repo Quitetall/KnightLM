@@ -9,6 +9,7 @@ pub mod pieces;
 pub mod ai_host;
 mod api;
 pub mod domain_api;
+mod mcp;
 pub mod console;
 pub mod importer;
 pub mod vision;
@@ -95,6 +96,9 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/ai/sessions/{id}/replay/{seq}", get(domain_api::replay_ai_turn))
         .route("/api/ai/sessions/{id}/stream", get(domain_api::stream_ai_session))
         .route("/api/ai/sessions/{id}/cancel", post(domain_api::cancel_ai_turn))
+        .route("/mcp", axum::routing::post(mcp::mcp_http))
+        .route("/api/mcp/config", axum::routing::get(mcp::mcp_config))
+        .route("/api/mcp/rotate", axum::routing::post(mcp::mcp_rotate))
         .route("/api/ai/approvals", get(domain_api::list_approvals))
         .route(
             "/api/ai/sessions/{id}/permissions",
@@ -274,4 +278,9 @@ pub async fn serve_on(addr: &str) -> anyhow::Result<()> {
 pub async fn serve_from_env() -> anyhow::Result<()> {
     let addr = std::env::var("RBC_ADDR").unwrap_or_else(|_| "127.0.0.1:8090".into());
     serve_on(&addr).await
+}
+
+/// Run the MCP stdio server against this database.
+pub fn serve_mcp_stdio(db: &rbc_db::Db) -> anyhow::Result<()> {
+    mcp::serve_stdio(db)
 }
