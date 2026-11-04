@@ -56,14 +56,53 @@ A model's reply is validated before it is recorded: an illegal move is retried
 with the reason and then fails the turn with the board untouched, so a model
 cannot talk its way onto the board. `a_model_reply_that_is_not_a_legal_move_is_never_recorded`.
 
-## Not covered here
+## MCP
 
-- **MCP authentication, resource traversal and the destructive-action review**
-  (`i-23d6`, `i-5896`) have nothing to test yet: there is no MCP server
-  (`t-745d`). They are listed as unverified rather than as passing.
-- **A destructive tool does not exist in the builtin registry**, so the
-  destructive-scope test returns early instead of asserting. When one lands, the
-  test starts checking it.
+The server landed after this review began, so these two items are now
+demonstrated rather than deferred.
+
+**Authentication.** `POST /mcp` compares the bearer token before it dispatches
+anything, and answers 401 without a body so a caller without the token learns
+nothing else. The comparison accumulates differences across the whole string:
+a near miss is not a timing signal about how much matched. A missing header, an
+empty value, a scheme with no token, a short token and a long token are each
+refused (`a_token_must_match_exactly`). stdio needs no token because it inherits
+process trust — the parent process already runs as this user with this database.
+
+**Resource traversal.** `rbc://` uris are matched against a fixed list of shapes
+(`workspace/{id}`, `board/{id}`, `board/{id}/history`, `study/{id}`,
+`study/{id}/chapter/{c}`, `match/{id}`, `match/{id}/pgn`). Anything else resolves
+to nothing, so `rbc://../../etc/passwd`, `rbc://board/../workspaces`,
+`file:///etc/passwd` and a bare `/etc/passwd` are all refused
+(`a_resource_path_cannot_escape_into_another_resource`), while a known uri still
+reads (`a_known_resource_still_reads`) — a wall that also blocked real uris would
+be its own bug.
+
+**The policy applies to MCP calls.** This was a real hole: `tools/call` called
+the host directly, so an MCP client bypassed the policy entirely. It now goes
+through `decide()` with `Origin::Mcp`; a write without a grant returns
+`approval_required` with a changeset summary and runs nothing.
+
+**Rate limit.** 240 requests a minute per connection, measured: 240 answered,
+then 429s.
+
+## Destructive actions
+
+Reviewed every path that changes stored content, since the design says
+destructive actions always prompt:
+
+| Path | Guard |
+|---|---|
+| board write (in-app) | policy → approval, then revision check in the repository |
+| board write (MCP) | policy → `approval_required`, nothing runs until a person approves |
+| study content | `StudyContent` scope, never granted to MCP by default |
+| board delete/overwrite | immutability: a locked or published board refuses and offers a copy |
+| approval answer | one answer per request; a second is refused, expiry closes the rest |
+
+No tool in the registry is classified `Destructive` yet, so
+`a_destructive_tool_without_the_scope_is_refused` returns early. That is
+stated rather than counted as a pass, and the test starts asserting the moment
+such a tool is added.
 - **Transport security** is out of scope: the server binds loopback and has no
   TLS story. That belongs to a deployment decision, not to this code.
 

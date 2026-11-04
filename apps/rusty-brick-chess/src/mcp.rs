@@ -465,3 +465,105 @@ fn json_resource(
         revision,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rbc_ai::mcp::Resources;
+
+    fn db() -> rbc_db::Db {
+        let db = rbc_db::Db::open_memory().expect("db");
+        let workspace = db.create_workspace("W", "analysis").expect("workspace");
+        db.create_board(
+            "workspace",
+            &workspace.id,
+            "analysis",
+            "B",
+            rbc_core_fen(),
+            "",
+        )
+        .expect("board");
+        db
+    }
+
+    fn rbc_core_fen() -> &'static str {
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    }
+
+    #[test]
+    fn a_token_must_match_exactly() {
+        let token = "mcp-abc";
+        assert!(token_matches(Some("Bearer mcp-abc"), token));
+        assert!(token_matches(Some("mcp-abc"), token), "the scheme is optional");
+        assert!(!token_matches(Some("Bearer mcp-abd"), token));
+        assert!(!token_matches(Some("Bearer mcp-ab"), token), "short");
+        assert!(!token_matches(Some("Bearer mcp-abcd"), token), "long");
+        assert!(!token_matches(None, token), "absent");
+        assert!(!token_matches(Some(""), token), "empty");
+        assert!(!token_matches(Some("Bearer "), token), "scheme only");
+    }
+
+    #[test]
+    fn a_resource_path_cannot_escape_into_another_resource() {
+        // Traversal attempts must resolve to nothing, not to a neighbouring
+        // resource: the matcher is a fixed list of shapes, and anything that is
+        // not one of them is refused by name.
+        let db = db();
+        let resources = BoardResources { db: &db };
+        for uri in [
+            "rbc://../board/x",
+            "rbc://board/../../etc/passwd",
+            "rbc://board/../workspaces",
+            "rbc:///etc/passwd",
+            "rbc://workspaces/../../etc/passwd",
+            "file:///etc/passwd",
+            "/etc/passwd",
+            "rbc://board/x/y/z",
+            "rbc://BOARD/x",
+        ] {
+            assert!(
+                resources.read(uri).is_none(),
+                "{uri} must not resolve to a resource"
+            );
+        }
+    }
+
+    #[test]
+    fn a_known_resource_still_reads() {
+        // The refusals above must not be a wall that also blocks real uris.
+        let db = db();
+        let resources = BoardResources { db: &db };
+        let listed = resources.list();
+        assert!(listed.iter().any(|entry| entry.uri == "rbc://workspaces"));
+        let board_uri = listed
+            .iter()
+            .find(|entry| entry.uri.starts_with("rbc://board/") && !entry.uri.ends_with("history"))
+            .expect("a board resource")
+            .uri
+            .clone();
+        assert!(resources.read(&board_uri).is_some(), "{board_uri} reads");
+        assert!(resources.read("rbc://workspaces").is_some());
+    }
+
+    #[test]
+    fn an_unknown_but_well_formed_uri_is_none_rather_than_a_panic() {
+        let db = db();
+        let resources = BoardResources { db: &db };
+        assert!(resources.read("rbc://board/no-such-board").is_none());
+        assert!(resources.read("rbc://study/no-such-study").is_none());
+        assert!(resources.read("rbc://match/no-such-match").is_none());
+        assert!(resources.read("rbc://workspace/no-such-workspace").is_none());
+    }
+
+    #[test]
+    fn the_rate_limiter_refuses_the_request_after_the_cap() {
+        let limiter = RateLimiter::new(3, std::time::Duration::from_secs(60));
+        assert!(limiter.allow("a"));
+        assert!(limiter.allow("a"));
+        assert!(limiter.allow("a"));
+        assert!(!limiter.allow("a"), "the fourth is refused");
+        assert_eq!(limiter.connections(), 1);
+        // Another connection has its own budget.
+        assert!(limiter.allow("b"));
+    }
+}
