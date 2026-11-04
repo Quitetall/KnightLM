@@ -10,6 +10,24 @@ and Python/Mojo protocol slices. No pretrained inference or fine-tuning backend
 is implemented yet. There is no chess strength, vision accuracy, or semantic
 understanding result.
 
+## Running the app
+
+The chess application (RustyBrickChess) lives in `apps/rusty-brick-chess`: a
+Leptos/WASM frontend served by the same Rust binary that serves the API, over a
+local SQLite database. One command starts it and opens the browser:
+
+```bash
+packaging/install.sh                    # build, install under ~/.local, add a launcher
+rusty-brick-chess --open                # or run it from apps/rusty-brick-chess
+```
+
+- [`docs/running.md`](docs/running.md) — build, install, run, environment variables, the tabs
+- [`docs/migrations.md`](docs/migrations.md) — schema versions, the v4 reset and the session model
+- [`docs/signing.md`](docs/signing.md) — the operator checklist for closing delivery Warrants
+
+The research scaffold below (compiler, fixtures, contract tests, protocol slices)
+is what this repository is arranged around; the app is the surface it has.
+
 ## Intended system
 
 ```text

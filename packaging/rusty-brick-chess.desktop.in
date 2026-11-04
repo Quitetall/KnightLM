@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=RustyBrickChess
+Comment=Chess database, analysis and training
+Exec=@BINDIR@/rusty-brick-chess --open
+Terminal=false
+Categories=Game;BoardGame;
+Keywords=chess;pgn;analysis;stockfish;
+StartupNotify=false
