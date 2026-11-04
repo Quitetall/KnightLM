@@ -10,6 +10,18 @@ use crate::protocol::{
     AiSession, AiTurn, ContextSpecRef, ErrorInfo, ModelRef, SessionMode, TurnRole, Usage,
 };
 
+/// How a session talks: the model it uses, the context it compiles with, and
+/// what it may do without asking.
+///
+/// Three separate references that always travel together; passing them as
+/// consecutive arguments made the call sites a guessing game.
+#[derive(Debug, Clone, Copy)]
+pub struct SessionTalk<'a> {
+    pub model: &'a ModelRef,
+    pub context_spec: &'a ContextSpecRef,
+    pub permissions: &'a PermissionProfile,
+}
+
 pub struct Store {
     db: rbc_db::Db,
 }
@@ -37,10 +49,13 @@ impl Store {
         mode: SessionMode,
         home_board_id: Option<&str>,
         target_board_id: Option<&str>,
-        model: &ModelRef,
-        context_spec: &ContextSpecRef,
-        permissions: &PermissionProfile,
+        talk: SessionTalk<'_>,
     ) -> Result<AiSession> {
+        let SessionTalk {
+            model,
+            context_spec,
+            permissions,
+        } = talk;
         let model_json = serde_json::to_string(model)?;
         let context_spec_json = serde_json::to_string(context_spec)?;
         let permissions_json = serde_json::to_string(permissions)?;
@@ -212,9 +227,11 @@ mod tests {
                 SessionMode::Chat,
                 None,
                 None,
-                &ModelRef::new("test", "model"),
-                &ContextSpecRef::new("chat-v1", "1"),
-                &PermissionProfile::default(),
+                SessionTalk {
+                    model: &ModelRef::new("test", "model"),
+                    context_spec: &ContextSpecRef::new("chat-v1", "1"),
+                    permissions: &PermissionProfile::default(),
+                },
             )
             .unwrap();
         let first = store

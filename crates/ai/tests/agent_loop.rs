@@ -121,8 +121,11 @@ struct FakeHost {
     calls: Vec<ToolCall>,
     queued: VecDeque<ToolResult>,
     /// Runs before a call is answered, so a test can cancel mid-turn.
-    before_call: Option<Box<dyn FnMut(&ToolCall)>>,
+    before_call: BeforeCall,
 }
+
+/// Runs before a call is answered, so a test can cancel mid-turn.
+type BeforeCall = Option<Box<dyn FnMut(&ToolCall)>>;
 
 impl FakeHost {
     fn new() -> Self {
@@ -667,9 +670,11 @@ fn agent_loop_persists_usage_context_and_errors() {
             SessionMode::Chat,
             None,
             None,
-            &ModelRef::new("scripted", "model"),
-            &rbc_ai::protocol::ContextSpecRef::new("chat-v1", "1"),
-            &PermissionProfile::default(),
+            rbc_ai::store::SessionTalk {
+                model: &ModelRef::new("scripted", "model"),
+                context_spec: &rbc_ai::protocol::ContextSpecRef::new("chat-v1", "1"),
+                permissions: &PermissionProfile::default(),
+            },
         )
         .expect("session");
 

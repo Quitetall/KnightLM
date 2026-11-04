@@ -210,12 +210,12 @@ impl BoardWriteHost<'_> {
         content.moves.push(san.clone());
         let fen = fen_of(&played);
         let mut result = self.commit(call, &board, &content, format!("played {san}"));
-        if result.ok {
-            if let Some(data) = result.data.as_mut().and_then(Value::as_object_mut) {
-                data.insert("san".into(), Value::String(san));
-                data.insert("fen".into(), Value::String(fen));
-                data.insert("plies".into(), Value::from(content.moves.len()));
-            }
+        if result.ok
+            && let Some(data) = result.data.as_mut().and_then(Value::as_object_mut)
+        {
+            data.insert("san".into(), Value::String(san));
+            data.insert("fen".into(), Value::String(fen));
+            data.insert("plies".into(), Value::from(content.moves.len()));
         }
         result
     }
@@ -553,6 +553,11 @@ impl BoardWriteHost<'_> {
     }
 
     /// Load the board a call targets.
+    ///
+    /// The error is the tool result itself — it is handed back to the caller as
+    /// the whole answer, so boxing it would move an allocation without making
+    /// anything smaller.
+    #[allow(clippy::result_large_err)]
     fn load(&self, call: &ToolCall) -> Result<Board, ToolResult> {
         let Some(board_id) = string_arg(call, "board_id") else {
             return Err(refused(
@@ -614,10 +619,10 @@ impl BoardWriteHost<'_> {
         ) {
             Ok(updated) => {
                 let mut data = board_data(&updated);
-                if let Ok(fen) = content.fen(&updated.start_fen) {
-                    if let Some(object) = data.as_object_mut() {
-                        object.insert("fen".into(), Value::String(fen));
-                    }
+                if let Ok(fen) = content.fen(&updated.start_fen)
+                    && let Some(object) = data.as_object_mut()
+                {
+                    object.insert("fen".into(), Value::String(fen));
                 }
                 let mut result = ok(call, summary, data);
                 result.revision = Some(updated.revision as u64);

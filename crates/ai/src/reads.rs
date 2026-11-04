@@ -468,6 +468,8 @@ impl ReadHost<'_> {
 
     // --- helpers -----------------------------------------------------------
 
+    /// The error is the tool result itself; see `BoardWriteHost::load`.
+    #[allow(clippy::result_large_err)]
     fn board(&self, call: &ToolCall) -> Result<rbc_db::Board, ToolResult> {
         let Some(board_id) = call.arguments.get("board_id").and_then(Value::as_str) else {
             return Err(refused(
@@ -498,6 +500,8 @@ impl ReadHost<'_> {
             .map(|content| content.moves)
     }
 
+    /// The error is the tool result itself; see `BoardWriteHost::load`.
+    #[allow(clippy::result_large_err)]
     fn position(&self, call: &ToolCall) -> Result<(rbc_db::Board, Chess), ToolResult> {
         let board = self.board(call)?;
         let content =

@@ -167,8 +167,10 @@ impl OpenAiProvider {
             });
         }
 
-        let mut accumulator = Accumulator::default();
-        accumulator.request_id = wire.id.clone();
+        let mut accumulator = Accumulator {
+            request_id: wire.id.clone(),
+            ..Accumulator::default()
+        };
 
         // A legacy plain-text server: one field, no choices.
         if let Some(reply) = wire.reply {
@@ -303,15 +305,11 @@ impl OpenAiProvider {
             accumulator.request_id = chunk.id.clone();
         }
         for choice in &chunk.choices {
-            if let Some(text) = &choice.delta.content {
-                if !text.is_empty() {
-                    accumulator.apply(&ProviderEvent::ContentDelta(text.clone()), on_event);
-                }
+            if let Some(text) = choice.delta.content.as_ref().filter(|t| !t.is_empty()) {
+                accumulator.apply(&ProviderEvent::ContentDelta(text.clone()), on_event);
             }
-            if let Some(text) = choice.delta.reasoning_text() {
-                if !text.is_empty() {
-                    accumulator.apply(&ProviderEvent::ReasoningDelta(text.to_string()), on_event);
-                }
+            if let Some(text) = choice.delta.reasoning_text().filter(|t| !t.is_empty()) {
+                accumulator.apply(&ProviderEvent::ReasoningDelta(text.to_string()), on_event);
             }
             for call in &choice.delta.tool_calls {
                 let arguments = call
@@ -443,15 +441,11 @@ impl Accumulator {
                     }
                 };
                 let call = &mut self.calls[position];
-                if let Some(id) = id {
-                    if call.id.is_empty() {
-                        call.id = id.clone();
-                    }
+                if let Some(id) = id.as_ref().filter(|_| call.id.is_empty()) {
+                    call.id = id.clone();
                 }
-                if let Some(name) = name {
-                    if call.name.is_empty() {
-                        call.name = name.clone();
-                    }
+                if let Some(name) = name.as_ref().filter(|_| call.name.is_empty()) {
+                    call.name = name.clone();
                 }
                 call.arguments.push_str(arguments);
             }

@@ -158,11 +158,9 @@ impl RetryPolicy {
             return wait.min(self.max_delay);
         }
         let exponent = attempts.saturating_sub(1).min(16);
-        let scaled = self
-            .base_delay
+        self.base_delay
             .saturating_mul(1u32 << exponent)
-            .min(self.max_delay);
-        scaled
+            .min(self.max_delay)
     }
 }
 

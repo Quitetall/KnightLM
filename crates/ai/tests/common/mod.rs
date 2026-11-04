@@ -115,14 +115,13 @@ impl MockServer {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let seen = Arc::clone(&requests);
         std::thread::spawn(move || {
-            let mut index = 0usize;
-            for stream in listener.incoming() {
+            for (index, stream) in listener.incoming().enumerate() {
                 let Ok(stream) = stream else { break };
+                // Past the end of the script, the last reply repeats.
                 let reply = replies
                     .get(index.min(replies.len().saturating_sub(1)))
                     .cloned()
                     .unwrap_or(Reply::Drop);
-                index += 1;
                 let seen = Arc::clone(&seen);
                 std::thread::spawn(move || {
                     serve(stream, reply, seen);
@@ -202,10 +201,10 @@ fn read_request(stream: &mut TcpStream) -> Option<Recorded> {
         if header.is_empty() {
             break;
         }
-        if let Some((name, value)) = header.split_once(':') {
-            if name.eq_ignore_ascii_case("content-length") {
-                length = value.trim().parse().unwrap_or(0);
-            }
+        if let Some((name, value)) = header.split_once(':')
+            && name.eq_ignore_ascii_case("content-length")
+        {
+            length = value.trim().parse().unwrap_or(0);
         }
     }
     let mut body = vec![0u8; length];

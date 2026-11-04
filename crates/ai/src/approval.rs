@@ -269,7 +269,7 @@ impl<'a> ApprovalStore<'a> {
 
     /// Expire every request whose deadline has passed.
     pub fn expire_due(&self, now: i64) -> Result<usize> {
-        Ok(self.db.expire_ai_approvals(now)?)
+        self.db.expire_ai_approvals(now)
     }
 
     fn resolve(&self, id: &str, status: &str, now: i64) -> Result<ApprovalRequest, ApprovalError> {

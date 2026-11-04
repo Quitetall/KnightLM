@@ -261,9 +261,7 @@ impl Match {
             return None;
         }
         let color = self.position.turn();
-        let Some(clock) = self.clock.as_mut() else {
-            return None;
-        };
+        let clock = self.clock.as_mut()?;
         if let Some(last_at) = clock.last_at {
             let elapsed = (at_ms - last_at).max(0) as u64;
             clock.charge(color, elapsed);
@@ -540,11 +538,12 @@ impl Match {
         if let Some(clock) = snapshot.clock {
             game.clock = Some(clock);
         }
-        if let Some(result) = snapshot.result {
-            if matches!(snapshot.state, MatchState::Finished) {
-                game.result = Some(result);
-                game.state = MatchState::Finished;
-            }
+        if let Some(result) = snapshot
+            .result
+            .filter(|_| matches!(snapshot.state, MatchState::Finished))
+        {
+            game.result = Some(result);
+            game.state = MatchState::Finished;
         }
         if matches!(snapshot.state, MatchState::Paused) {
             game.state = MatchState::Paused;
