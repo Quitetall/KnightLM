@@ -611,6 +611,10 @@ pub async fn send_ai_turn(
     let spec = rbc_context::ContextSpec::chat_v1();
     let input = rbc_context::ContextInput {
         fen: Some(fen.clone()),
+        evidence: rbc_context::Evidence {
+            compare: compare_directory(&state.db),
+            ..Default::default()
+        },
         ..Default::default()
     };
     let compiled = rbc_context::compile(&spec, &input)?;
@@ -2122,6 +2126,97 @@ pub async fn import_study_pgn(
         "title": study.title,
         "chapters": chapters,
     })))
+}
+
+/// The setting the compare scope lives under.
+const COMPARE_SCOPE: &str = "compare_scope";
+
+/// The two studies currently being compared, if any.
+fn compare_scope(db: &rbc_db::Db) -> Option<(String, String)> {
+    let raw = db.setting(COMPARE_SCOPE).ok().flatten()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    Some((
+        value.get("left")?.as_str()?.to_string(),
+        value.get("right")?.as_str()?.to_string(),
+    ))
+}
+
+/// The compact directory the assistant sees while a scope is set.
+///
+/// One line per study, not the diff itself: a directory tells the model what it
+/// is looking at, and the tools are how it reads any of it.
+fn compare_directory(db: &rbc_db::Db) -> Vec<rbc_context::BoardSummary> {
+    let Some((left, right)) = compare_scope(db) else {
+        return Vec::new();
+    };
+    let mut summaries = Vec::new();
+    for id in [left, right] {
+        if let Ok(Some(study)) = db.study(&id) {
+            let chapters = db.chapters(&id).unwrap_or_default();
+            summaries.push(rbc_context::BoardSummary {
+                id: study.id.clone(),
+                title: format!(
+                    "{} ({} chapters, {} version{})",
+                    study.title,
+                    chapters.len(),
+                    study.current_version,
+                    if study.current_version == 1 { "" } else { "s" }
+                ),
+                fen: String::new(),
+                ply: None,
+                note: Some(format!("version {}", study.current_version)),
+            });
+        }
+    }
+    summaries
+}
+
+/// `GET /api/compare/scope` — what is being compared, if anything.
+pub async fn get_compare_scope(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(match compare_scope(&state.db) {
+        Some((left, right)) => serde_json::json!({"left": left, "right": right, "active": true}),
+        None => serde_json::json!({"active": false}),
+    }))
+}
+
+/// `PUT /api/compare/scope` — compare these two studies.
+pub async fn set_compare_scope(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let left = body
+        .get("left")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| ApiError::BadRequest("left is required".into()))?;
+    let right = body
+        .get("right")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| ApiError::BadRequest("right is required".into()))?;
+    if left == right {
+        return Err(ApiError::BadRequest(
+            "a study cannot be compared with itself".into(),
+        ));
+    }
+    // Both must exist, so a scope cannot name a study that was deleted.
+    for id in [left, right] {
+        if state.db.study(id)?.is_none() {
+            return Err(ApiError::NotFound);
+        }
+    }
+    state
+        .db
+        .set_setting(COMPARE_SCOPE, &serde_json::json!({"left": left, "right": right}).to_string())?;
+    Ok(Json(serde_json::json!({"left": left, "right": right, "active": true})))
+}
+
+/// `DELETE /api/compare/scope` — stop comparing.
+pub async fn clear_compare_scope(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state.db.set_setting(COMPARE_SCOPE, "")?;
+    Ok(Json(serde_json::json!({"active": false})))
 }
 
 /// `GET /api/compare?left=…&right=…&user=…` — the structural diff of two studies.

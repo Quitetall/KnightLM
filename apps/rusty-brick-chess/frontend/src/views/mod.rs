@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod app_ctx;
 pub mod assistant;
+pub mod compare;
 pub mod boards;
 pub mod database;
 pub mod home;

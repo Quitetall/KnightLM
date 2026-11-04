@@ -91,6 +91,12 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/studies/{id}/versions", get(domain_api::list_study_versions))
         .route("/api/studies/{id}/bundle", get(domain_api::export_study_bundle))
         .route("/api/compare", get(domain_api::compare_studies))
+        .route(
+            "/api/compare/scope",
+            get(domain_api::get_compare_scope)
+                .put(domain_api::set_compare_scope)
+                .delete(domain_api::clear_compare_scope),
+        )
         .route("/api/studies/import", post(domain_api::import_study_bundle))
         .route("/api/studies/import-pgn", post(domain_api::import_study_pgn))
         .route(

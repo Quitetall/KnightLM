@@ -1982,3 +1982,42 @@ pub async fn set_study_progress(
         Err(resp.text().await.unwrap_or_default())
     }
 }
+
+/// The studies currently being compared, if any.
+pub async fn compare_scope() -> Result<serde_json::Value, String> {
+    json_or_error(Request::get("/api/compare/scope").send().await.map_err(|e| e.to_string())?).await
+}
+
+/// Compare these two studies from now on: the assistant sees the scope too.
+pub async fn set_compare_scope(left: &str, right: &str) -> Result<serde_json::Value, String> {
+    let resp = Request::put("/api/compare/scope")
+        .json(&serde_json::json!({"left": left, "right": right}))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(resp).await
+}
+
+pub async fn clear_compare_scope() -> Result<serde_json::Value, String> {
+    json_or_error(
+        Request::delete("/api/compare/scope")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await
+}
+
+/// The structural diff of two studies.
+pub async fn compare(left: &str, right: &str, user: &str) -> Result<serde_json::Value, String> {
+    json_or_error(
+        Request::get(&format!(
+            "/api/compare?left={left}&right={right}&user={user}"
+        ))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?,
+    )
+    .await
+}

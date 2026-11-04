@@ -3526,6 +3526,9 @@ pub fn App() -> impl IntoView {
     let study_view = move || {
         view! { <views::study::StudyView language=language message=status /> }
     };
+    let compare_view = move || {
+        view! { <views::compare::CompareView language=language message=status /> }
+    };
 
     let opening_view = move || views::opening::opening(app_ctx);
 
@@ -3539,7 +3542,7 @@ pub fn App() -> impl IntoView {
             <aside class="sidebar">
                 <div class="brand">"RustyBrickChess"</div>
                 <nav>
-                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Assistant, Tab::Play, Tab::Study, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
+                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Assistant, Tab::Play, Tab::Study, Tab::Compare, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
                         .into_iter()
                         .map(|t| {
                             let key = match t {
@@ -3549,6 +3552,7 @@ pub fn App() -> impl IntoView {
                                 Tab::Assistant => "nav.assistant",
                                 Tab::Play => "nav.play",
                                 Tab::Study => "nav.study",
+                                Tab::Compare => "nav.compare",
                                 Tab::Practice => "nav.practice",
                                 Tab::Openings => "nav.openings",
                                 Tab::Puzzles => "nav.puzzles",
@@ -3659,6 +3663,7 @@ pub fn App() -> impl IntoView {
                     Tab::Assistant => assistant_view().into_any(),
                     Tab::Play => play_view().into_any(),
                     Tab::Study => study_view().into_any(),
+                    Tab::Compare => compare_view().into_any(),
                     Tab::Practice => practice_view().into_any(),
                     Tab::Openings => opening_view().into_any(),
                     Tab::Puzzles => puzzle_view().into_any(),
