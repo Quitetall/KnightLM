@@ -21,24 +21,29 @@ function getJson(port, path) {
   await send("Runtime.enable"); await sleep(2600);
   const ev = async (x) => (await send("Runtime.evaluate", { expression: x, returnByValue: true, awaitPromise: true })).result?.value;
 
-  // Seed two studies with a shared chapter through the API.
+  // Seed one pair with a single chapter each and DIFFERENT moves, so the first
+  // diff row has two real positions and the ply control has somewhere to go.
+  // Titles carry a timestamp because every run adds to the same database and
+  // matching "the newest rows" proved unreliable.
+  const stamp = Date.now().toString().slice(-6);
+  const leftTitle = "Left " + stamp;
+  const rightTitle = "Right " + stamp;
   const seeded = await ev(`(async () => {
     const post = async (p, b) => (await fetch(p, { method: "POST", headers: {"content-type":"application/json"}, body: JSON.stringify(b) })).json();
-    const a = await post("/api/studies", {title: "Left study"});
-    const b = await post("/api/studies", {title: "Right study"});
-    await post("/api/studies/" + a.id + "/chapters", {title: "Openings"});
-    // A chapter both sides share and that nothing changes, so the "only changes"
-    // filter has something to hide.
-    await post("/api/studies/" + a.id + "/chapters", {title: "Same"});
-    await post("/api/studies/" + b.id + "/chapters", {title: "Same"});
-    const chapter = await post("/api/studies/" + b.id + "/chapters", {title: "Openings"});
-    const boardId = chapter.board.id;
-    const board = await (await fetch("/api/boards/" + boardId)).json();
-    await fetch("/api/boards/" + boardId, {
-      method: "PUT",
-      headers: {"content-type":"application/json"},
-      body: JSON.stringify({ expected_revision: board.revision, content_json: JSON.stringify({ moves: ["e4","e5","Nf3"], arrows: [], circles: [], notes_md: "" }) }),
-    });
+    const seed = async (title, moves) => {
+      const study = await post("/api/studies", {title});
+      const chapter = await post("/api/studies/" + study.id + "/chapters", {title: "Openings"});
+      const boardId = chapter.board.id;
+      const board = await (await fetch("/api/boards/" + boardId)).json();
+      await fetch("/api/boards/" + boardId, {
+        method: "PUT",
+        headers: {"content-type":"application/json"},
+        body: JSON.stringify({ expected_revision: board.revision, content_json: JSON.stringify({ moves, arrows: [], circles: [], notes_md: "" }) }),
+      });
+      return title;
+    };
+    await seed(${JSON.stringify(leftTitle)}, ["e4","e5"]);
+    await seed(${JSON.stringify(rightTitle)}, ["e4","e5","Nf3"]);
     return true;
   })()`);
 
@@ -52,7 +57,7 @@ function getJson(port, path) {
   const picked = await ev(`(()=>{
     const rows=[...document.querySelectorAll(".compare-row")];
     const find=(title)=>rows.find(r=>r.querySelector(".compare-title").textContent.trim()===title);
-    const leftRow=find("Left study"), rightRow=find("Right study");
+    const leftRow=find(${JSON.stringify(leftTitle)}), rightRow=find(${JSON.stringify(rightTitle)});
     if(!leftRow||!rightRow) return false;
     leftRow.querySelector(".pick-left").click();
     rightRow.querySelector(".pick-right").click();
@@ -90,8 +95,10 @@ function getJson(port, path) {
   await sleep(700);
   const boards = await ev(`document.querySelectorAll(".compare-boards .compare-side").length`);
   const plyLabel = await ev(`document.querySelector(".ply-label")?.textContent.trim()`);
-  const advanced = await ev(`(()=>{const b=document.querySelector(".ply-forward");if(!b)return false;b.click();return true;})()`);
-  await sleep(500);
+  // Clicking a row jumps both boards to the first divergence, so "forward" may
+  // already be at the end; "back" always has somewhere to go.
+  const advanced = await ev(`(()=>{const b=document.querySelector(".ply-back");if(!b||b.disabled)return false;b.click();return true;})()`);
+  await sleep(600);
   const plyAfter = await ev(`document.querySelector(".ply-label")?.textContent.trim()`);
   const plyTotal = await ev(`document.querySelector(".ply-label")?.textContent.match(/of (\\d+)/)?.[1]`);
 
@@ -108,18 +115,35 @@ function getJson(port, path) {
   await sleep(1600);
   const exported = await ev(`(()=>{ HTMLAnchorElement.prototype.click = window.__restore; return window.__downloaded; })()`);
 
+  // A completed chapter shows a badge: mark the right study's chapter done, then
+  // re-run the comparison so the overlay is in the report.
+  const markedDone = await ev(`(async () => {
+    const studies = await (await fetch("/api/studies")).json();
+    const study = studies.find(s => s.title === ${JSON.stringify(rightTitle)}) || studies[studies.length - 1];
+    const chapters = await (await fetch("/api/studies/" + study.id + "/chapters")).json();
+    const r = await fetch("/api/studies/" + study.id + "/progress", {
+      method: "PUT", headers: {"content-type":"application/json"},
+      body: JSON.stringify({ chapter_id: chapters[0].id, board_id: chapters[0].primary_board_id, user: "you", completed: true }),
+    });
+    return r.ok;
+  })()`);
+  await ev(`document.querySelector(".compare-run").click()`);
+  await sleep(1500);
+  const badges = await ev(`document.querySelectorAll(".progress-badge").length`);
+
   await ev(`document.querySelector(".scope-clear").click()`);
   await sleep(1400);
   const afterClear = await ev(`(async () => (await (await fetch("/api/compare/scope")).json()))()`);
   const chipGone = await ev(`!document.querySelector(".scope-chip")`);
 
-  console.log(JSON.stringify({ seeded, picked, hasView, rows, chip, diffRows, summary, changedCount, allCount, focused, clickedWithMoves, boards, plyLabel, advanced, plyAfter, plyTotal, exportClicked, exported, stored, afterClear, chipGone }));
+  console.log(JSON.stringify({ seeded, picked, hasView, rows, chip, diffRows, summary, changedCount, allCount, focused, clickedWithMoves, boards, plyLabel, advanced, plyAfter, plyTotal, markedDone, badges, exportClicked, exported, stored, afterClear, chipGone }));
   const ok = seeded && picked && hasView && rows >= 2
-    && Boolean(chip) && chip.includes("Left study") && chip.includes("Right study")
+    && Boolean(chip) && chip.includes(leftTitle) && chip.includes(rightTitle)
     && diffRows >= 1
     && changedCount >= 1 && allCount >= changedCount && focused === true
     && clickedWithMoves === true && boards === 2
     && Boolean(plyLabel) && plyAfter !== plyLabel
+    && markedDone === true && badges >= 1
     && exported === "diff.md"
     && stored.active === true
     && afterClear.active === false && chipGone === true;

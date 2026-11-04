@@ -344,7 +344,10 @@ pub fn CompareView(language: RwSignal<String>, message: RwSignal<String>) -> imp
                                             <button
                                                 class="ply-back"
                                                 prop:disabled=move || ply.get() == 0
-                                                on:click=move |_| ply.update(|p| *p = p.saturating_sub(1))
+                                                on:click=move |_| {
+                                                    let current = ply.get_untracked();
+                                                    ply.set(current.saturating_sub(1));
+                                                }
                                             >"◀"</button>
                                             <span class="ply-label">
                                                 {move || format!("ply {} of {max}", ply.get().min(max))}
@@ -353,7 +356,10 @@ pub fn CompareView(language: RwSignal<String>, message: RwSignal<String>) -> imp
                                             <button
                                                 class="ply-forward"
                                                 prop:disabled=move || ply.get() >= max
-                                                on:click=move |_| ply.update(|p| *p = (*p + 1).min(max))
+                                                on:click=move |_| {
+                                                    let next = (ply.get_untracked() + 1).min(max);
+                                                    ply.set(next);
+                                                }
                                             >"▶"</button>
                                         </div>
                                     </div>
