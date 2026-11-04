@@ -388,3 +388,158 @@ fn knockout_a_second_draw_advances_by_seed() {
         "advanced players come out in seed order"
     );
 }
+
+// --- running, persisting and resuming -------------------------------------
+
+#[cfg(feature = "host")]
+mod running {
+    use rbc_ai::tournament::{
+        Budget, Entrant, Format, Outcome, Running, Status, Tournament, combined_pgn,
+    };
+    use rbc_ai::tournament_store;
+
+    fn entrants(n: usize) -> Vec<Entrant> {
+        (1..=n)
+            .map(|seed| Entrant::model(format!("llm:m{seed}:v1"), seed as u32))
+            .collect()
+    }
+
+    fn running(n: usize) -> Running {
+        let schedule = Tournament::new(Format::DoubleRoundRobin, entrants(n));
+        Running::new("t1", "Test cup", schedule)
+    }
+
+    #[test]
+    fn running_starts_only_as_many_games_as_concurrency_allows() {
+        let mut cup = running(4);
+        cup.concurrency = 2;
+        let batch = cup.next_batch();
+        assert_eq!(batch.len(), 2, "two in flight, not all six");
+    }
+
+    #[test]
+    fn running_pause_stops_new_games_and_resume_restarts_them() {
+        let mut cup = running(4);
+        cup.concurrency = 1;
+        cup.pause();
+        assert!(
+            cup.next_batch().is_empty(),
+            "a paused tournament starts nothing"
+        );
+        cup.resume();
+        assert_eq!(cup.next_batch().len(), 1, "and resumes where it stopped");
+    }
+
+    #[test]
+    fn running_records_results_and_reaches_a_finish() {
+        let mut cup = running(2);
+        cup.concurrency = 1;
+        // A double round robin between two models is two games.
+        for _ in 0..2 {
+            let batch = cup.next_batch();
+            let pairing = batch.first().expect("a game");
+            assert!(cup.finish(&pairing.white, &pairing.black, Outcome::White, 100, 0.01));
+        }
+        assert_eq!(cup.status, Status::Finished, "two games decided the cup");
+        assert!(cup.next_batch().is_empty());
+    }
+
+    #[test]
+    fn running_budget_cap_pauses_instead_of_aborting() {
+        // Four players, so the cap is reached long before the cup is decided.
+        let mut cup = running(4);
+        cup.concurrency = 1;
+        cup.budget = Budget {
+            max_tokens: 150,
+            max_cost: f64::MAX,
+            spent_tokens: 0,
+            spent_cost: 0.0,
+        };
+        let pairing = cup.next_batch().into_iter().next().expect("first game");
+        cup.finish(&pairing.white, &pairing.black, Outcome::White, 100, 0.0);
+        assert_eq!(cup.status, Status::Running, "still under the cap");
+
+        let pairing = cup.next_batch().into_iter().next().expect("second game");
+        cup.finish(&pairing.white, &pairing.black, Outcome::Draw, 100, 0.0);
+        assert_eq!(cup.budget.spent_tokens, 200);
+        assert_eq!(
+            cup.status,
+            Status::Paused,
+            "the cap pauses the tournament rather than killing it"
+        );
+        assert!(cup.next_batch().is_empty(), "nothing new starts at the cap");
+    }
+
+    #[test]
+    fn running_survives_a_restart_exactly_as_it_was() {
+        let db = rbc_db::Db::open_memory().expect("db");
+        let mut cup = running(4);
+        cup.concurrency = 1;
+        let pairing = cup.next_batch().into_iter().next().expect("a game");
+        cup.finish(&pairing.white, &pairing.black, Outcome::White, 50, 0.002);
+        tournament_store::save(&db, &cup, "").expect("saved");
+
+        // "Restart": load from storage into a fresh value.
+        let resumed = tournament_store::load(&db, "t1")
+            .expect("load")
+            .expect("present");
+        assert_eq!(resumed.schedule.rounds.len(), cup.schedule.rounds.len());
+        assert_eq!(resumed.budget.spent_tokens, 50);
+        assert_eq!(resumed.budget.spent_cost, 0.002);
+        assert_eq!(resumed.status, Status::Running);
+
+        // And it keeps playing from there.
+        let mut resumed = resumed;
+        assert!(
+            !resumed.next_batch().is_empty(),
+            "a resumed cup still schedules"
+        );
+    }
+
+    #[test]
+    fn running_a_pause_survives_a_restart() {
+        let db = rbc_db::Db::open_memory().expect("db");
+        let mut cup = running(4);
+        cup.pause();
+        tournament_store::save(&db, &cup, "").expect("saved");
+        let resumed = tournament_store::load(&db, "t1")
+            .expect("load")
+            .expect("present");
+        assert_eq!(
+            resumed.status,
+            Status::Paused,
+            "a pause is a decision, not a cache"
+        );
+        assert!(!resumed.can_start());
+    }
+
+    #[test]
+    fn running_standings_are_projected_for_a_leaderboard() {
+        let db = rbc_db::Db::open_memory().expect("db");
+        let mut cup = running(2);
+        cup.concurrency = 1;
+        let pairing = cup.next_batch().into_iter().next().expect("a game");
+        cup.finish(&pairing.white, &pairing.black, Outcome::White, 10, 0.0);
+        tournament_store::save(&db, &cup, "").expect("saved");
+
+        let rows = tournament_store::standings(&db, "t1").expect("standings");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].points, 1.0, "the winner leads");
+        assert_eq!(rows[0].played, 1);
+        assert_eq!(rows[0].wins, 1);
+    }
+
+    #[test]
+    fn running_combined_pgn_carries_event_round_and_result() {
+        let mut cup = running(2);
+        cup.concurrency = 1;
+        let pairing = cup.next_batch().into_iter().next().expect("a game");
+        cup.finish(&pairing.white, &pairing.black, Outcome::White, 0, 0.0);
+
+        let pgn = combined_pgn("Test cup", &cup.schedule.rounds, &[vec!["1. e4 e5".into()]]);
+        assert!(pgn.contains("[Event \"Test cup\"]"), "{pgn}");
+        assert!(pgn.contains("[Round \"1\"]"), "{pgn}");
+        assert!(pgn.contains("[Result \"1-0\"]"), "{pgn}");
+        assert!(pgn.contains("1. e4 e5 1-0"), "{pgn}");
+    }
+}

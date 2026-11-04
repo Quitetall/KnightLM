@@ -24,6 +24,9 @@ pub mod glicko;
 pub mod tournament;
 
 #[cfg(feature = "host")]
+pub mod tournament_store;
+
+#[cfg(feature = "host")]
 pub mod ratings;
 
 #[cfg(feature = "core")]

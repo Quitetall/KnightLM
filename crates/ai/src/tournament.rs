@@ -16,7 +16,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Which tournament this is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Format {
     /// Pair by score, avoid repeats, `rounds` rounds.
     Swiss { rounds: u32 },
@@ -39,7 +39,7 @@ impl Format {
 }
 
 /// One side of a pairing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Colour {
     White,
     Black,
@@ -56,7 +56,7 @@ impl Colour {
 }
 
 /// A player in the tournament.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Entrant {
     pub id: String,
     /// Lower is stronger. Seeds decide knockout byes and Swiss tie-breaking.
@@ -78,14 +78,14 @@ impl Entrant {
 }
 
 /// One game to play.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Pairing {
     pub white: String,
     pub black: String,
 }
 
 /// The result of a game, from white's side.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Outcome {
     White,
     Black,
@@ -109,7 +109,7 @@ impl Outcome {
 }
 
 /// A finished or pending game.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Game {
     pub white: String,
     pub black: String,
@@ -117,7 +117,7 @@ pub struct Game {
 }
 
 /// One round.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Round {
     pub number: u32,
     pub games: Vec<Game>,
@@ -137,7 +137,7 @@ impl Round {
 }
 
 /// A row of the cross table.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Standing {
     pub id: String,
     pub points: f64,
@@ -152,7 +152,7 @@ pub struct Standing {
 }
 
 /// Everything a tournament needs to schedule the next round.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Tournament {
     pub format: Format,
     pub entrants: Vec<Entrant>,
@@ -673,4 +673,238 @@ fn single_round_robin(ids: &[String]) -> Vec<Vec<Pairing>> {
 /// is the helper a scheduler uses to keep rounds independent.
 pub fn round_is_complete(round: &Round) -> bool {
     round.games.iter().all(|game| game.outcome.is_some())
+}
+
+// --- the running tournament ------------------------------------------------
+
+/// Where a tournament is in its life.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Status {
+    Running,
+    Paused,
+    Finished,
+}
+
+impl Status {
+    /// Stable spelling for storage.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Paused => "paused",
+            Self::Finished => "finished",
+        }
+    }
+
+    /// Parse the stored spelling.
+    pub fn parse(text: &str) -> Self {
+        match text {
+            "paused" => Self::Paused,
+            "finished" => Self::Finished,
+            _ => Self::Running,
+        }
+    }
+}
+
+/// A hard spend limit. Reaching it pauses the tournament; it does not abort the
+/// games already running.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Budget {
+    pub max_tokens: u64,
+    pub max_cost: f64,
+    pub spent_tokens: u64,
+    pub spent_cost: f64,
+}
+
+impl Budget {
+    /// A budget with no ceiling, for a local tournament where tokens are free.
+    pub fn unlimited() -> Self {
+        Self {
+            max_tokens: u64::MAX,
+            max_cost: f64::MAX,
+            spent_tokens: 0,
+            spent_cost: 0.0,
+        }
+    }
+
+    /// Whether another game may start.
+    pub fn allows_more(self) -> bool {
+        self.spent_tokens < self.max_tokens && self.spent_cost < self.max_cost
+    }
+
+    /// Record what a finished game cost.
+    pub fn spend(&mut self, tokens: u64, cost: f64) {
+        self.spent_tokens = self.spent_tokens.saturating_add(tokens);
+        self.spent_cost += cost;
+    }
+}
+
+/// A tournament with its queue, its limits and its persisted identity.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Running {
+    pub id: String,
+    pub name: String,
+    pub schedule: Tournament,
+    pub status: Status,
+    /// How many games may be in flight at once. Local models default to 1,
+    /// hosted ones to 2-4.
+    pub concurrency: u32,
+    pub budget: Budget,
+}
+
+impl Running {
+    /// Start running a schedule.
+    pub fn new(id: impl Into<String>, name: impl Into<String>, schedule: Tournament) -> Self {
+        let concurrency = if schedule
+            .entrants
+            .iter()
+            .any(|entrant| entrant.competitor.is_some())
+        {
+            2
+        } else {
+            1
+        };
+        Self {
+            id: id.into(),
+            name: name.into(),
+            schedule,
+            status: Status::Running,
+            concurrency: concurrency.max(1),
+            budget: Budget::unlimited(),
+        }
+    }
+
+    /// Pause: no new games start, the ones in flight keep going.
+    pub fn pause(&mut self) {
+        if self.status == Status::Running {
+            self.status = Status::Paused;
+        }
+    }
+
+    /// Resume from where it stopped.
+    pub fn resume(&mut self) {
+        if self.status == Status::Paused {
+            self.status = Status::Running;
+        }
+    }
+
+    /// Whether a game can start right now.
+    pub fn can_start(&self) -> bool {
+        self.status == Status::Running && self.budget.allows_more()
+    }
+
+    /// The games to start now, honouring concurrency and the budget.
+    ///
+    /// The round is opened when nothing is in flight, so a Swiss round never has
+    /// two versions of itself: `start_round` refuses while a game is unplayed.
+    pub fn next_batch(&mut self) -> Vec<Pairing> {
+        if !self.can_start() {
+            return Vec::new();
+        }
+        let open = self
+            .schedule
+            .rounds
+            .last()
+            .map(|round| {
+                round
+                    .games
+                    .iter()
+                    .filter(|game| game.outcome.is_none())
+                    .map(|game| Pairing {
+                        white: game.white.clone(),
+                        black: game.black.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let ready = if open.is_empty() {
+            match self.schedule.next_round() {
+                Some(round) => {
+                    let pairings: Vec<Pairing> = round
+                        .games
+                        .iter()
+                        .map(|game| Pairing {
+                            white: game.white.clone(),
+                            black: game.black.clone(),
+                        })
+                        .collect();
+                    self.schedule.rounds.push(round);
+                    pairings
+                }
+                None => return Vec::new(),
+            }
+        } else {
+            open
+        };
+
+        let limit = self.concurrency.max(1) as usize;
+        ready.into_iter().take(limit).collect()
+    }
+
+    /// Record a finished game and what it cost.
+    pub fn finish(
+        &mut self,
+        white: &str,
+        black: &str,
+        outcome: Outcome,
+        tokens: u64,
+        cost: f64,
+    ) -> bool {
+        if !self.schedule.record(white, black, outcome) {
+            return false;
+        }
+        self.budget.spend(tokens, cost);
+        if !self.budget.allows_more() {
+            // The cap pauses rather than kills: running games still finish.
+            self.status = Status::Paused;
+        }
+        if self.schedule.format == Format::Knockout {
+            self.schedule.queue_rematches();
+        }
+        if self.schedule.is_finished() {
+            self.status = Status::Finished;
+        }
+        true
+    }
+
+    /// Everything decided so far, for the standings projection.
+    pub fn standings(&self) -> Vec<Standing> {
+        self.schedule.standings()
+    }
+}
+
+/// A combined PGN: one game per round, headed by the tournament.
+///
+/// The design asks for the event, round and result headers on each game, so the
+/// combined file can be split back apart by a reader.
+pub fn combined_pgn(name: &str, rounds: &[Round], games_by_round: &[Vec<String>]) -> String {
+    let mut out = String::new();
+    let mut index = 0usize;
+    for (round_index, round) in rounds.iter().enumerate() {
+        let games = games_by_round.get(round_index).cloned().unwrap_or_default();
+        for (game_index, game) in round.games.iter().enumerate() {
+            index += 1;
+            let result = match game.outcome {
+                Some(Outcome::White) => "1-0",
+                Some(Outcome::Black) => "0-1",
+                Some(Outcome::Draw) => "1/2-1/2",
+                None => "*",
+            };
+            out.push_str(&format!("[Event \"{name}\"]\n"));
+            out.push_str(&format!("[Round \"{}\"]\n", round.number));
+            out.push_str(&format!("[Board \"{}\"]\n", game_index + 1));
+            out.push_str(&format!("[White \"{}\"]\n", game.white));
+            out.push_str(&format!("[Black \"{}\"]\n", game.black));
+            out.push_str(&format!("[Result \"{result}\"]\n\n"));
+            if let Some(moves) = games.get(game_index) {
+                out.push_str(moves);
+                out.push(' ');
+                out.push_str(result);
+                out.push('\n');
+            }
+            out.push('\n');
+        }
+    }
+    let _ = index;
+    out
 }

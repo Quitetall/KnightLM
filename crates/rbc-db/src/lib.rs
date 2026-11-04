@@ -6,6 +6,7 @@
 //! AIX extension. The public API is what the app and the frontend speak.
 
 pub mod rating;
+pub mod tournament;
 
 use anyhow::{Context, Result};
 use knightlm_core::state::{START_FEN, parse_chess, parse_variant_fen, variant_for_name};
@@ -2189,7 +2190,7 @@ fn moves_to_san(fen: &str, moves: &str) -> String {
 /// Additive migrations for databases created by older builds.
 /// Current schema version. Bump this and add a `migrate_vN` step for changes
 /// that `CREATE ... IF NOT EXISTS` cannot express.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -2231,6 +2232,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if version < 7 {
         migrate_v7(conn)?;
         version = 7;
+    }
+    if version < 8 {
+        migrate_v8(conn)?;
+        version = 8;
     }
     conn.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
@@ -2559,6 +2564,35 @@ fn migrate_v5(conn: &Connection) -> Result<()> {
 /// The v4 table knew an approval's origin, target, action and changeset. The
 /// service also needs the tool that asked, the one-line summary a queue shows,
 /// and when an untouched request stops being actionable.
+/// v8: tournaments — the state a restart has to resume from, and the standings
+/// projection a leaderboard reads without replaying anything.
+fn migrate_v8(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS tournaments (
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             format TEXT NOT NULL,
+             status TEXT NOT NULL,
+             state_json TEXT NOT NULL DEFAULT '{}',
+             pgn TEXT NOT NULL DEFAULT '',
+             created INTEGER NOT NULL,
+             updated INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS tournament_standings (
+             tournament_id TEXT NOT NULL,
+             competitor TEXT NOT NULL,
+             points REAL NOT NULL,
+             played INTEGER NOT NULL,
+             wins INTEGER NOT NULL,
+             buchholz REAL NOT NULL,
+             sonneborn_berger REAL NOT NULL,
+             calculated INTEGER NOT NULL,
+             PRIMARY KEY (tournament_id, competitor)
+         );",
+    )?;
+    Ok(())
+}
+
 /// v7: the rating pool — the games that feed it, the immutable ledger, the
 /// materialised current table, and the anchors that never move.
 fn migrate_v7(conn: &Connection) -> Result<()> {
