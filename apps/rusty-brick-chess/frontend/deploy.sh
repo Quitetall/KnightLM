@@ -12,14 +12,17 @@ cp index.html public/index.html
 rm -rf public/sounds
 cp -r assets/sounds public/sounds
 test -s public/index.html
-for f in pkg/rbc-frontend.js pkg/rbc-frontend.wasm pkg/rbc-frontend_bg.wasm; do
+for f in pkg/rbc-frontend.js pkg/rbc-frontend.wasm; do
   if [ ! -s "public/$f" ]; then
-    # cargo-leptos emits rbc-frontend.wasm; the JS loader asks for the _bg name.
-    if [ "$f" = "pkg/rbc-frontend_bg.wasm" ] && [ -s public/pkg/rbc-frontend.wasm ]; then
-      cp public/pkg/rbc-frontend.wasm public/pkg/rbc-frontend_bg.wasm
-    else
-      echo "MISSING public/$f"; exit 1
-    fi
+    echo "MISSING public/$f"; exit 1
   fi
 done
+# cargo-leptos emits rbc-frontend.wasm; the JS loader asks for the _bg name.
+# Copy it EVERY time: guarding on "does _bg exist" left the browser running
+# whatever was deployed first, which is how a freshly built app kept showing an
+# old navigation bar.
+cp -f public/pkg/rbc-frontend.wasm public/pkg/rbc-frontend_bg.wasm
+test -s public/pkg/rbc-frontend_bg.wasm
+cmp -s public/pkg/rbc-frontend.wasm public/pkg/rbc-frontend_bg.wasm || {
+  echo "the _bg copy does not match the built wasm"; exit 1; }
 echo "deployed: $(ls public/ | tr '\n' ' ')| pkg: $(ls public/pkg/ | tr '\n' ' ')"

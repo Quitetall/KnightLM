@@ -81,7 +81,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     window.__downloaded = null;
     window.__restoreClick = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function () { window.__downloaded = this.download; };
-    const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "Export PGN");
+    const b = document.querySelector(".match-export") || [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "Export PGN");
     if (!b) { HTMLAnchorElement.prototype.click = window.__restoreClick; return "no button"; }
     b.click();
     return "clicked";
