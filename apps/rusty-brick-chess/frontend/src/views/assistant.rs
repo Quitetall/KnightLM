@@ -17,19 +17,31 @@ use crate::views::AppCtx;
 const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 /// The only shared state the Assistant needs from the app.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct AssistantCtx {
     pub language: RwSignal<String>,
     pub fen: RwSignal<String>,
     pub selected_pgn: RwSignal<String>,
+    /// The conversation this tab is pinned to, when it is a pinned tab.
+    pub pinned: Option<String>,
+    /// Open a conversation in a tab of its own.
+    pub pin_session: UnsyncCallback<String, ()>,
 }
 
 impl AssistantCtx {
     fn from_app(ctx: AppCtx) -> Self {
+        let pinned = ctx
+            .workspaces
+            .get_untracked()
+            .into_iter()
+            .find(|ws| ws.key == ctx.active_ws.get_untracked())
+            .and_then(|ws| ws.session_id);
         Self {
             language: ctx.language,
             fen: ctx.fen,
             selected_pgn: ctx.selected_pgn,
+            pinned,
+            pin_session: ctx.pin_session,
         }
     }
 }
@@ -82,6 +94,8 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     let AssistantCtx {
         language,
         fen,
+        pin_session,
+        pinned,
         selected_pgn,
     } = AssistantCtx::from_app(ctx);
 
@@ -111,13 +125,17 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
 
     // Load the session rail once on mount. Restoring the first session keeps the
     // tab useful after a reload; an empty list shows the new-chat empty state.
+    let pinned_for_load = pinned.clone();
     Effect::new(move |_| {
+        // A pinned tab starts on its conversation; every other tab returns to
+        // the one that was last open.
+        let pinned = pinned_for_load.clone();
         spawn_local(async move {
             match ai_api::list_ai_sessions().await {
                 Ok(list) => {
                     // Return to the conversation that was open, when it still
                     // exists; otherwise start from the newest one.
-                    let remembered = crate::model::read_active_ai_session();
+                    let remembered = pinned.or_else(crate::model::read_active_ai_session);
                     let restored = remembered
                         .filter(|id| list.iter().any(|session| &session.id == id))
                         .or_else(|| list.first().map(|session| session.id.clone()));
@@ -322,6 +340,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                 let mode = session.mode.clone();
                                 let id_rename = session.id.clone();
                                 let id_archive = session.id.clone();
+                                let id_pin = session.id.clone();
                                 let title_for_rename = title.clone();
                                 let sessions_for_archive = sessions;
                                 let selected_for_archive = selected;
@@ -353,6 +372,13 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                             }
                                         >
                                             "✎"
+                                        </button>
+                                        <button
+                                            title=move || i18n::t(&language.get(), "assistant.pin")
+                                            aria-label=move || i18n::t(&language.get(), "assistant.pin")
+                                            on:click=move |_| pin_session.run(id_pin.clone())
+                                        >
+                                            "⧉"
                                         </button>
                                         <button
                                             title=move || i18n::t(&language.get(), "assistant.archive")

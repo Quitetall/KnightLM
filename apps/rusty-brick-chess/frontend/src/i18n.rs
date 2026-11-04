@@ -422,6 +422,7 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("assistant.save", "Save", "Guardar"),
     ("assistant.cancel", "Cancel", "Cancelar"),
     ("assistant.archive", "Archive", "Archivar"),
+    ("assistant.pin", "Open in its own tab", "Abrir en su propia pestaña"),
     ("assistant.no_match", "No conversation matches", "Ninguna conversación coincide"),
 ];
 

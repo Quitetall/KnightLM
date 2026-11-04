@@ -583,6 +583,7 @@ pub fn App() -> impl IntoView {
                         boards: Vec::new(),
                         active_board: 0,
                         server_id: None,
+                        session_id: None,
                     })
                 });
                 key
@@ -903,6 +904,7 @@ pub fn App() -> impl IntoView {
                 "database" => Tab::Database,
                 "openings" => Tab::Openings,
                 "puzzles" => Tab::Puzzles,
+                "assistant" => Tab::Assistant,
                 _ => Tab::Analysis,
             });
             return;
@@ -996,6 +998,7 @@ pub fn App() -> impl IntoView {
                 boards: Vec::new(),
                 active_board: 0,
                 server_id: None,
+                session_id: None,
             })
         });
         active_ws.set(key);
@@ -1019,6 +1022,44 @@ pub fn App() -> impl IntoView {
         tb_result.set(None);
         tb_status.set(String::new());
         tab.set(Tab::Analysis);
+    };
+
+    // Pin an assistant conversation into a tab of its own, so two sessions can
+    // be watched side by side. Re-pinning focuses the tab it already has.
+    let pin_session = move |session_id: String| {
+        save_workspace();
+        let existing = workspaces.with_untracked(|list| {
+            list.iter()
+                .find(|w| w.kind == "assistant" && w.session_id.as_deref() == Some(session_id.as_str()))
+                .map(|w| w.key)
+        });
+        let key = match existing {
+            Some(key) => key,
+            None => {
+                let key = ws_seq.get_untracked();
+                ws_seq.set(key + 1);
+                workspaces.update(|list| {
+                    list.push(Workspace {
+                        key,
+                        kind: "assistant".into(),
+                        game_id: None,
+                        title: i18n::t(&language.get_untracked(), "nav.assistant").to_string(),
+                        pgn: String::new(),
+                        ply: 0,
+                        variant: "standard".into(),
+                        preview_only: false,
+                        moves: Vec::new(),
+                        boards: Vec::new(),
+                        active_board: 0,
+                        server_id: None,
+                        session_id: Some(session_id.clone()),
+                    })
+                });
+                key
+            }
+        };
+        active_ws.set(key);
+        tab.set(Tab::Assistant);
     };
 
     let open_page_tab = move |kind: String| {
@@ -1051,6 +1092,7 @@ pub fn App() -> impl IntoView {
                         boards: Vec::new(),
                         active_board: 0,
                         server_id: None,
+                        session_id: None,
                     })
                 });
                 key
@@ -3344,6 +3386,7 @@ pub fn App() -> impl IntoView {
         rename_text,
         new_tab_kind,
         activate_workspace: views::app_ctx::view_callback(activate_workspace),
+        pin_session: views::app_ctx::view_callback(pin_session),
         select_board: views::app_ctx::view_callback(select_board),
         new_board: views::app_ctx::view_callback(move |_: ()| new_board()),
         copy_active_board: views::app_ctx::view_callback(move |_: ()| copy_active_board()),

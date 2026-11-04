@@ -230,6 +230,8 @@ pub struct AppCtx {
     pub rename_text: RwSignal<String>,
     pub new_tab_kind: RwSignal<String>,
     pub activate_workspace: UnsyncCallback<u32, ()>,
+    /// Open an assistant conversation in a tab of its own.
+    pub pin_session: UnsyncCallback<String, ()>,
     /// Open one of the workspace's stored boards by index.
     pub select_board: UnsyncCallback<usize, ()>,
     /// Create a board in the active workspace's server side.

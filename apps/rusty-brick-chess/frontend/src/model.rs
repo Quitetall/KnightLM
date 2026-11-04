@@ -114,6 +114,9 @@ pub struct Workspace {
     pub active_board: usize,
     #[serde(default)]
     pub server_id: Option<String>,
+    /// The assistant conversation a pinned tab shows, if this tab is pinned.
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
