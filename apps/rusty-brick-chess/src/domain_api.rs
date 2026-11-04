@@ -1118,6 +1118,45 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+// --- session permissions ---------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct SetPermissions {
+    #[serde(default)]
+    pub in_app: Vec<String>,
+    #[serde(default)]
+    pub mcp: Vec<String>,
+}
+
+/// `PUT /api/ai/sessions/{id}/permissions`
+///
+/// The scopes this session may take without asking. Naming a scope the policy
+/// does not know is refused rather than stored, so a typo cannot quietly grant
+/// nothing (or everything).
+pub async fn set_ai_permissions(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<SetPermissions>,
+) -> Result<Json<rbc_db::AiSession>, ApiError> {
+    let parse = |scopes: &[String]| -> Result<Vec<rbc_ai::policy::PermissionScope>, ApiError> {
+        scopes
+            .iter()
+            .map(|scope| match scope.as_str() {
+                "board-write" => Ok(rbc_ai::policy::PermissionScope::BoardWrite),
+                "study-content" => Ok(rbc_ai::policy::PermissionScope::StudyContent),
+                "destructive" => Ok(rbc_ai::policy::PermissionScope::Destructive),
+                other => Err(ApiError::BadRequest(format!("unknown scope {other}"))),
+            })
+            .collect()
+    };
+    let profile = rbc_ai::policy::PermissionProfile {
+        in_app: parse(&body.in_app)?,
+        mcp: parse(&body.mcp)?,
+    };
+    let json = serde_json::to_string(&profile)?;
+    Ok(Json(state.db.set_ai_session_permissions(&id, &json)?))
+}
+
 // --- approval queue --------------------------------------------------------
 
 /// `GET /api/ai/approvals` — everything still actionable, oldest first.

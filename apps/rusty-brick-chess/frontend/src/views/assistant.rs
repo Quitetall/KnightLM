@@ -176,6 +176,8 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     let approvals_open = RwSignal::new(false);
     let approvals = RwSignal::new(Vec::<ai_api::ApprovalInfo>::new());
     let approvals_msg = RwSignal::new(String::new());
+    // Scopes this session may take without asking, per origin.
+    let in_app_grants = RwSignal::new(Vec::<String>::new());
     let source = StoredValue::new(None::<web_sys::EventSource>);
     let transcript = NodeRef::<leptos::html::Div>::new();
 
@@ -398,6 +400,30 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
             }
         });
     };
+
+    // Read the session's auto-approve scopes when it changes.
+    Effect::new(move |_| {
+        let Some(id) = selected.get() else {
+            in_app_grants.set(Vec::new());
+            return;
+        };
+        spawn_local(async move {
+            if let Ok(session) = ai_api::get_ai_session(&id).await {
+                let profile: serde_json::Value =
+                    serde_json::from_str(&session.permissions_json).unwrap_or_default();
+                let scopes = profile
+                    .get("in_app")
+                    .and_then(|list| list.as_array())
+                    .map(|list| {
+                        list.iter()
+                            .filter_map(|scope| scope.as_str().map(str::to_string))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                in_app_grants.set(scopes);
+            }
+        });
+    });
 
     // Load the queue whenever the panel is opened.
     Effect::new(move |_| {
@@ -928,6 +954,45 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                 </button>
                             })
                         }}
+                        <div class="auto-approve" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+                            <span class="muted">
+                                {move || i18n::t(&language.get(), "approvals.auto")}
+                            </span>
+                            {["board-write", "study-content", "destructive"]
+                                .into_iter()
+                                .map(|scope| {
+                                    let name = scope.to_string();
+                                    let name_for_check = name.clone();
+                                    let name_for_change = name.clone();
+                                    view! {
+                                        <label class="muted" style="display:flex;gap:.25rem;align-items:center;">
+                                            <input
+                                                type="checkbox"
+                                                prop:checked=move || in_app_grants.get().iter().any(|s| s == &name_for_check)
+                                                on:change=move |event| {
+                                                    let granted = event_target_checked(&event);
+                                                    let name = name_for_change.clone();
+                                                    let Some(id) = selected.get_untracked() else { return };
+                                                    let mut scopes = in_app_grants.get_untracked();
+                                                    scopes.retain(|scope| scope != &name);
+                                                    if granted {
+                                                        scopes.push(name.clone());
+                                                    }
+                                                    in_app_grants.set(scopes.clone());
+                                                    let msg = approvals_msg;
+                                                    spawn_local(async move {
+                                                        if let Err(error) = ai_api::set_ai_permissions(&id, &scopes, &[]).await {
+                                                            msg.set(error);
+                                                        }
+                                                    });
+                                                }
+                                            />
+                                            {name}
+                                        </label>
+                                    }
+                                })
+                                .collect_view()}
+                        </div>
                         <div class="muted">{move || approvals_msg.get()}</div>
                     </div>
                 })}

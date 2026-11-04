@@ -363,3 +363,27 @@ pub async fn resolve_approval(id: &str, approve: bool) -> Result<serde_json::Val
     }
     Ok(value)
 }
+
+/// Replace the scopes this session may take without asking.
+pub async fn set_ai_permissions(
+    id: &str,
+    in_app: &[String],
+    mcp: &[String],
+) -> Result<(), String> {
+    let resp = Request::put(&format!("/api/ai/sessions/{id}/permissions"))
+        .json(&serde_json::json!({"in_app": in_app, "mcp": mcp}))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    match serde_json::from_str::<serde_json::Value>(&body) {
+        Ok(value) if value.get("error").is_none() => Ok(()),
+        Ok(value) => Err(value
+            .get("error")
+            .and_then(|error| error.as_str())
+            .unwrap_or("could not save the scopes")
+            .to_string()),
+        Err(_) => Err(body),
+    }
+}

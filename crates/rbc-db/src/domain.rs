@@ -1147,6 +1147,23 @@ impl Db {
         Ok(())
     }
 
+    /// Replace a session's permission profile.
+    ///
+    /// The profile decides what the policy auto-approves, so it is a write a
+    /// person makes deliberately, not something a turn can change.
+    pub fn set_ai_session_permissions(&self, id: &str, permissions_json: &str) -> Result<AiSession> {
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                "UPDATE ai_sessions SET permissions_json = ?1,
+                 updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?2",
+                params![permissions_json, id],
+            )?;
+        }
+        self.ai_session(id)?
+            .with_context(|| format!("AI session {id} not found"))
+    }
+
     pub fn set_ai_session_target(&self, id: &str, board_id: Option<&str>) -> Result<AiSession> {
         {
             let conn = self.conn.lock().expect("db lock");

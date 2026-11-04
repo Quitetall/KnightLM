@@ -428,6 +428,7 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("approvals.deny", "Deny", "Rechazar"),
     ("approvals.refresh", "Refresh", "Actualizar"),
     ("approvals.approve_all", "Approve all", "Aprobar todo"),
+    ("approvals.auto", "Never ask for:", "No preguntar por:"),
     ("assistant.reasoning", "Reasoning", "Razonamiento"),
     ("assistant.expand_reasoning", "Expand reasoning", "Expandir razonamiento"),
     ("assistant.no_context", "ctx — · no context yet", "ctx — · aún sin contexto"),

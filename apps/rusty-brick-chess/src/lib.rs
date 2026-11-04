@@ -95,6 +95,10 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/ai/sessions/{id}/stream", get(domain_api::stream_ai_session))
         .route("/api/ai/sessions/{id}/cancel", post(domain_api::cancel_ai_turn))
         .route("/api/ai/approvals", get(domain_api::list_approvals))
+        .route(
+            "/api/ai/sessions/{id}/permissions",
+            axum::routing::put(domain_api::set_ai_permissions),
+        )
         .route("/api/ai/approvals/{id}", get(domain_api::get_approval))
         .route("/api/ai/approvals/{id}/approve", post(domain_api::approve_approval))
         .route("/api/ai/approvals/{id}/deny", post(domain_api::deny_approval))
