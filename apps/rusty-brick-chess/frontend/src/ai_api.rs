@@ -507,8 +507,27 @@ pub async fn create_tournament(
     }
 }
 
+/// Post to a tournament sub-route: `step`, `pause` or `resume`.
+///
+/// Its own path, not the match one: the two nouns have separate routes and
+/// reusing the match helper sent these to the wrong endpoint.
 pub async fn tournament_action(id: &str, action: &str) -> Result<serde_json::Value, String> {
-    match_action(id, action, serde_json::json!({})).await
+    let resp = Request::post(&format!("/api/ai/tournaments/{id}/{action}"))
+        .json(&serde_json::json!({}))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(value) if value.get("error").is_none() => Ok(value),
+        Ok(value) => Err(value
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("the tournament refused")
+            .to_string()),
+        Err(_) => Err(text),
+    }
 }
 
 pub async fn tournament_detail(id: &str) -> Result<serde_json::Value, String> {
