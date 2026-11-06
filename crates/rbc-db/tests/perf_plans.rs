@@ -92,9 +92,26 @@ fn finding_a_stored_turn_by_sequence_does_not_scan() {
     )
     .unwrap();
     // The composer asks "what is the highest seq" on every send.
+    let detail = plan(&db, "SELECT MAX(seq) FROM ai_turns WHERE session_id = 'x'");
+    assert!(!detail.contains("SCAN ai_turns"), "{detail}");
+}
+
+#[test]
+fn an_elo_band_uses_both_elo_indexes() {
+    // Measured at 301 ms against a 150k-game database when the band was written
+    // as two OR groups (one for the floor, one for the ceiling), because each
+    // group spans two columns and SQLite will not use an index for either. One
+    // range per column brings it to 7 ms. This is the plan that decides it.
+    let db = Db::open_memory().unwrap();
     let detail = plan(
         &db,
-        "SELECT MAX(seq) FROM ai_turns WHERE session_id = 'x'",
+        "SELECT id FROM games
+         WHERE (white_elo BETWEEN 2000 AND 2200) OR (black_elo BETWEEN 2000 AND 2200)
+         ORDER BY date DESC LIMIT 50",
     );
-    assert!(!detail.contains("SCAN ai_turns"), "{detail}");
+    assert!(
+        detail.contains("idx_games_white_elo") || detail.contains("idx_games_black_elo"),
+        "an Elo band should reach the Elo indexes: {detail}"
+    );
+    assert!(!detail.contains("SCAN games"), "{detail}");
 }
