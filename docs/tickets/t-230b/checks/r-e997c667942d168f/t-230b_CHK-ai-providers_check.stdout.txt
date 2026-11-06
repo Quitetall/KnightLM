@@ -1,0 +1,26 @@
+
+running 8 tests
+test providers::tests::an_empty_reference_resolves_to_nothing_rather_than_failing ... ok
+test providers::tests::the_models_path_does_not_double_its_slash ... ok
+test providers::tests::a_missing_environment_reference_is_none_not_an_error ... ok
+test providers::tests::an_environment_reference_resolves_to_its_value ... ok
+test providers::tests::a_url_is_only_offered_to_the_fetcher_when_it_is_http ... ok
+test providers::tests::capabilities_are_read_off_the_id_and_left_unknown_when_unrecognised ... ok
+test providers::tests::a_key_reference_names_a_secret_and_never_holds_one ... ok
+test providers::tests::a_keyring_reference_without_an_account_is_refused_by_name ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.01s
+
+
+running 8 tests
+test a_provider_that_is_not_there_is_a_404_not_a_panic ... ok
+test a_base_url_that_is_not_http_is_refused ... ok
+test a_key_reference_is_stored_but_the_key_it_names_never_is ... ok
+test an_unresolved_reference_is_reported_as_unresolved_not_as_an_error ... ok
+test the_secret_reaches_no_row_of_the_database ... ok
+test a_label_is_required_and_a_duplicate_is_refused ... ok
+test deleting_a_provider_removes_it_and_answers_once ... ok
+test the_local_scan_answers_even_when_nothing_is_running ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+

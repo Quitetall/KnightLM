@@ -85,7 +85,7 @@
 
 ## docs/tickets/t-230b.md
 > Configure OpenAI-compatible providers and keys without exposing secrets.
-- t-230b · ticket · open · Provider settings, keyring and local detect · docs/tickets/t-230b.md:1
+- t-230b · ticket · done · Provider settings, keyring and local detect · docs/tickets/t-230b.md:1
 
 ## docs/tickets/t-2883.md
 > Add the Assistant workspace kind, session list and restore.

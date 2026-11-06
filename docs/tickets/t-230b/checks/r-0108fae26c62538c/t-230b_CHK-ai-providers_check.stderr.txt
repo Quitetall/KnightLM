@@ -1,0 +1,40 @@
+warning: constant `SCHEMA` is never used
+  --> src/providers.rs:13:11
+   |
+13 | pub const SCHEMA: &str = "rbc-provider/1";
+   |           ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `ProviderTest` is never constructed
+  --> src/providers.rs:49:12
+   |
+49 | pub struct ProviderTest {
+   |            ^^^^^^^^^^^^
+
+warning: `rusty-brick-chess` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (/mnt/4tb/build/cargo/ec/07b9530834d80f/debug/deps/rusty_brick_chess-24c0bbcfef7035ad)
+warning: constant `SCHEMA` is never used
+  --> src/providers.rs:13:11
+   |
+13 | pub const SCHEMA: &str = "rbc-provider/1";
+   |           ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `Provider` is never constructed
+  --> src/providers.rs:17:12
+   |
+17 | pub struct Provider {
+   |            ^^^^^^^^
+
+warning: struct `ProviderTest` is never constructed
+  --> src/providers.rs:49:12
+   |
+49 | pub struct ProviderTest {
+   |            ^^^^^^^^^^^^
+
+warning: `rusty-brick-chess` (lib) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running tests/providers.rs (/mnt/4tb/build/cargo/ec/07b9530834d80f/debug/deps/providers-a60f1b9774d10b1a)
