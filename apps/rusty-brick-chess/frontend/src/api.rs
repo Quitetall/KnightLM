@@ -2096,3 +2096,117 @@ pub async fn compare_markdown(left: &str, right: &str, user: &str) -> Result<Str
         .unwrap_or_default()
         .to_string())
 }
+
+
+// --- providers ---------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ProviderModel {
+    pub id: String,
+    #[serde(default)]
+    pub context: Option<u32>,
+    #[serde(default)]
+    pub vision: bool,
+    #[serde(default)]
+    pub reasoning: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ProviderInfo {
+    pub id: String,
+    pub label: String,
+    pub base_url: String,
+    #[serde(default)]
+    pub key_ref: Option<String>,
+    #[serde(default)]
+    pub key_resolves: bool,
+    #[serde(default)]
+    pub key_source: String,
+    #[serde(default)]
+    pub models: Vec<ProviderModel>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ProviderList {
+    pub providers: Vec<ProviderInfo>,
+}
+
+async fn provider_decode<T: for<'de> serde::Deserialize<'de>>(
+    resp: gloo_net::http::Response,
+) -> Result<T, String> {
+    if !resp.ok() {
+        return Err(resp.text().await.unwrap_or_default());
+    }
+    resp.json::<T>().await.map_err(|e| e.to_string())
+}
+
+pub async fn list_providers() -> Result<Vec<ProviderInfo>, String> {
+    let resp = Request::get("/api/providers")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let list: ProviderList = provider_decode(resp).await?;
+    Ok(list.providers)
+}
+
+pub async fn add_provider(
+    label: &str,
+    base_url: &str,
+    key_ref: Option<&str>,
+) -> Result<ProviderInfo, String> {
+    let resp = Request::post("/api/providers")
+        .json(&serde_json::json!({ "label": label, "base_url": base_url, "key_ref": key_ref }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    provider_decode(resp).await
+}
+
+pub async fn delete_provider(id: &str) -> Result<(), String> {
+    let resp = Request::delete(&format!("/api/providers/{id}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if resp.ok() { Ok(()) } else { Err(resp.text().await.unwrap_or_default()) }
+}
+
+/// Test and refresh in one call: what the settings page's Test button wants.
+pub async fn test_provider(id: &str) -> Result<serde_json::Value, String> {
+    let resp = Request::post(&format!("/api/providers/{id}/test"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    provider_decode(resp).await
+}
+
+pub async fn refresh_provider_models(id: &str) -> Result<serde_json::Value, String> {
+    let resp = Request::post(&format!("/api/providers/{id}/models"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    provider_decode(resp).await
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LocalEndpoint {
+    pub label: String,
+    pub base_url: String,
+    pub responding: bool,
+    #[serde(default)]
+    pub models: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LocalScan {
+    pub endpoints: Vec<LocalEndpoint>,
+}
+
+pub async fn scan_local_providers() -> Result<Vec<LocalEndpoint>, String> {
+    let resp = Request::get("/api/providers/scan")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let scan: LocalScan = provider_decode(resp).await?;
+    Ok(scan.endpoints)
+}

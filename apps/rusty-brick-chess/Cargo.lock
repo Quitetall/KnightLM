@@ -2375,6 +2375,7 @@ dependencies = [
  "base64 0.22.1",
  "brick-chess",
  "brick-chess-analysis",
+ "http-body-util",
  "image",
  "knightlm-core",
  "knightlm-engine",
@@ -2391,9 +2392,11 @@ dependencies = [
  "shakmaty-syzygy",
  "tokio",
  "tokio-stream",
+ "tower",
  "tower-http",
  "tract-onnx",
  "ureq",
+ "uuid",
  "zstd 0.13.3",
 ]
 

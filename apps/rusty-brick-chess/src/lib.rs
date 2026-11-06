@@ -7,8 +7,10 @@ pub mod accounts;
 pub mod archive;
 pub mod pieces;
 pub mod ai_host;
-mod api;
+pub mod api;
 pub mod domain_api;
+mod provider_api;
+mod providers;
 mod mcp;
 pub mod console;
 pub mod importer;
@@ -189,6 +191,14 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/engine/console/stop", post(api::console_stop))
         .route("/api/engine/console/status", get(api::console_status))
         .route("/api/vision", get(api::get_vision))
+        .route("/api/providers", get(provider_api::list_providers).post(provider_api::add_provider))
+        .route(
+            "/api/providers/{id}",
+            axum::routing::put(provider_api::edit_provider).delete(provider_api::delete_provider),
+        )
+        .route("/api/providers/{id}/test", post(provider_api::test_provider))
+        .route("/api/providers/{id}/models", post(provider_api::refresh_models))
+        .route("/api/providers/scan", get(provider_api::scan_local))
         .route("/api/vision/download", post(api::download_vision))
         .route("/api/vision/recognize", post(api::recognize_image))
         .route("/api/settings", get(api::get_settings).put(api::put_settings))
@@ -305,7 +315,13 @@ pub async fn serve_on(addr: &str) -> anyhow::Result<()> {
     let (state, db_path) = state_from_env()?;
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    println!("RustyBrickChess on http://{addr}  (db: {db_path})");
+    // Report where we actually bound. A test passes port 0 and reads this line,
+    // and a person who lost the port to another process sees which one it got.
+    let bound = listener
+        .local_addr()
+        .map(|local| local.to_string())
+        .unwrap_or_else(|_| addr.to_string());
+    println!("RustyBrickChess on http://{bound}  (db: {db_path})");
     println!("  STOCKFISH_PATH: {:?}", std::env::var("STOCKFISH_PATH").ok());
     println!("  MODEL_URL: {:?}", std::env::var("MODEL_URL").ok());
     axum::serve(listener, app).await?;

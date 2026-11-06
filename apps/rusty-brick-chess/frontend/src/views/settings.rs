@@ -51,6 +51,43 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
     let set_engine_option = move |a, b, c| ctx.set_engine_option.run((a, b, c));
     let upload_piece_set = move |a| ctx.upload_piece_set.run(a);
     let upload_sound = move |a| ctx.upload_sound.run(a);
+    // --- providers ------------------------------------------------------
+    // A provider row names where an endpoint is and which secret it needs. The
+    // secret is never typed here: `key_ref` is the *name* of an environment
+    // variable or a keyring entry, and the page reports whether that name
+    // resolves without ever showing its value.
+    let providers = RwSignal::new(Vec::<api::ProviderInfo>::new());
+    let provider_status = RwSignal::new(String::new());
+    let provider_busy = RwSignal::new(false);
+    let new_provider_label = RwSignal::new(String::new());
+    let new_provider_url = RwSignal::new(String::new());
+    let new_provider_key = RwSignal::new(String::new());
+    let local_endpoints = RwSignal::new(Vec::<api::LocalEndpoint>::new());
+
+    let load_providers = move || {
+        spawn_local(async move {
+            match api::list_providers().await {
+                Ok(list) => providers.set(list),
+                Err(error) => provider_status.set(error),
+            }
+        });
+    };
+    load_providers();
+
+    let scan_local = move || {
+        provider_status.set("scanning…".to_string());
+        spawn_local(async move {
+            match api::scan_local_providers().await {
+                Ok(found) => {
+                    let responding = found.iter().filter(|endpoint| endpoint.responding).count();
+                    local_endpoints.set(found);
+                    provider_status.set(format!("{responding} local endpoint(s) answered"));
+                }
+                Err(error) => provider_status.set(error),
+            }
+        });
+    };
+
     view! {
         <section class="panel">
             <div class="panel-head">
@@ -641,6 +678,155 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
                     <span class="status">{move || settings_status.get()}</span>
                 </div>
             </div>
+
+                <div class="settings-providers">
+                    <h3>{move || i18n::t(&language.get(), "settings.providers")}</h3>
+                    <div class="muted">
+                        {move || i18n::t(&language.get(), "settings.providers_hint")}
+                    </div>
+                    <ul class="provider-list">
+                        {move || providers.get().into_iter().map(|provider| {
+                            let id_remove = provider.id.clone();
+                            let id_test = provider.id.clone();
+                            let id_models = provider.id.clone();
+                            let key_state = if provider.key_ref.is_none() {
+                                i18n::t(&language.get_untracked(), "settings.no_key").to_string()
+                            } else if provider.key_resolves {
+                                format!("key ok ({})", provider.key_source)
+                            } else {
+                                format!("key unresolved ({})", provider.key_source)
+                            };
+                            let model_count = provider.models.len();
+                            view! {
+                                <li class="provider-row" data-provider=provider.id.clone()>
+                                    <div class="provider-head">
+                                        <strong>{provider.label.clone()}</strong>
+                                        <span class="muted">{provider.base_url.clone()}</span>
+                                    </div>
+                                    <div class="provider-meta">
+                                        <span class="provider-key muted">{key_state}</span>
+                                        <span class="provider-models muted">{format!("{model_count} model(s)")}</span>
+                                    </div>
+                                    <div class="row-btns">
+                                        <button class="provider-test" on:click=move |_| {
+                                            let id = id_test.clone();
+                                            provider_busy.set(true);
+                                            spawn_local(async move {
+                                                match api::test_provider(&id).await {
+                                                    Ok(value) => provider_status.set(format!(
+                                                        "{}: {} model(s) in {} ms",
+                                                        if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) { "ok" } else { "failed" },
+                                                        value.get("models").and_then(|v| v.as_u64()).unwrap_or(0),
+                                                        value.get("latency_ms").and_then(|v| v.as_u64()).unwrap_or(0),
+                                                    )),
+                                                    Err(error) => provider_status.set(error),
+                                                }
+                                                provider_busy.set(false);
+                                            });
+                                        }>{move || i18n::t(&language.get(), "settings.test")}</button>
+                                        <button class="provider-refresh" on:click=move |_| {
+                                            let id = id_models.clone();
+                                            spawn_local(async move {
+                                                match api::refresh_provider_models(&id).await {
+                                                    Ok(_) => load_providers(),
+                                                    Err(error) => provider_status.set(error),
+                                                }
+                                            });
+                                        }>{move || i18n::t(&language.get(), "settings.fetch_models")}</button>
+                                        <button class="provider-delete" on:click=move |_| {
+                                            let id = id_remove.clone();
+                                            spawn_local(async move {
+                                                match api::delete_provider(&id).await {
+                                                    Ok(()) => load_providers(),
+                                                    Err(error) => provider_status.set(error),
+                                                }
+                                            });
+                                        }>{move || i18n::t(&language.get(), "common.delete")}</button>
+                                    </div>
+                                    <div class="provider-model-list muted">
+                                        {provider.models.iter().map(|model| {
+                                            let caps = format!(
+                                                "{}{}",
+                                                if model.vision { " vision" } else { "" },
+                                                model.context.map(|c| format!(" {c} ctx")).unwrap_or_default(),
+                                            );
+                                            view! { <span class="model-chip">{format!("{}{}", model.id, caps)}</span> }
+                                        }).collect_view()}
+                                    </div>
+                                </li>
+                            }
+                        }).collect_view()}
+                    </ul>
+                    <div class="provider-add">
+                        <input
+                            class="provider-label"
+                            placeholder=move || i18n::t(&language.get(), "settings.provider_label")
+                            prop:value=move || new_provider_label.get()
+                            on:input=move |ev| new_provider_label.set(event_target_value(&ev))
+                        />
+                        <input
+                            class="provider-url"
+                            placeholder="http://127.0.0.1:11434/v1"
+                            prop:value=move || new_provider_url.get()
+                            on:input=move |ev| new_provider_url.set(event_target_value(&ev))
+                        />
+                        <input
+                            class="provider-key-ref"
+                            placeholder=move || i18n::t(&language.get(), "settings.key_ref")
+                            prop:value=move || new_provider_key.get()
+                            on:input=move |ev| new_provider_key.set(event_target_value(&ev))
+                        />
+                        <button class="provider-add-btn" on:click=move |_| {
+                            let label = new_provider_label.get_untracked();
+                            let url = new_provider_url.get_untracked();
+                            let key = new_provider_key.get_untracked();
+                            let key = if key.trim().is_empty() { None } else { Some(key) };
+                            spawn_local(async move {
+                                match api::add_provider(&label, &url, key.as_deref()).await {
+                                    Ok(_) => {
+                                        new_provider_label.set(String::new());
+                                        new_provider_url.set(String::new());
+                                        new_provider_key.set(String::new());
+                                        provider_status.set(String::new());
+                                        load_providers();
+                                    }
+                                    Err(error) => provider_status.set(error),
+                                }
+                            });
+                        }>{move || i18n::t(&language.get(), "settings.add_provider")}</button>
+                        <button class="provider-scan" on:click=move |_| scan_local()>
+                            {move || i18n::t(&language.get(), "settings.scan_local")}
+                        </button>
+                    </div>
+                    <ul class="local-endpoints">
+                        {move || local_endpoints.get().into_iter().map(|endpoint| {
+                            let class = if endpoint.responding { "local-endpoint found" } else { "local-endpoint" };
+                            let label = endpoint.label.clone();
+                            let url = endpoint.base_url.clone();
+                            let add_label = endpoint.label.clone();
+                            let add_url = endpoint.base_url.clone();
+                            view! {
+                                <li class=class>
+                                    <span>{format!("{label} · {url}")}</span>
+                                    {endpoint.responding.then(|| view! {
+                                        <button class="local-add" on:click=move |_| {
+                                            let label = add_label.clone();
+                                            let url = add_url.clone();
+                                            spawn_local(async move {
+                                                match api::add_provider(&label, &url, None).await {
+                                                    Ok(_) => load_providers(),
+                                                    Err(error) => provider_status.set(error),
+                                                }
+                                            });
+                                        }>{move || i18n::t(&language.get(), "settings.add_provider")}</button>
+                                    })}
+                                </li>
+                            }
+                        }).collect_view()}
+                    </ul>
+                    <div class="status">{move || provider_status.get()}</div>
+                    <div class="status">{move || if provider_busy.get() { "testing…".to_string() } else { String::new() }}</div>
+                </div>
         </section>
     }
     .into_any()

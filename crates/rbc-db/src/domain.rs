@@ -1887,3 +1887,117 @@ impl Db {
 fn a_i64(value: bool) -> i64 {
     if value { 1 } else { 0 }
 }
+
+// --- providers ---------------------------------------------------------------
+// A row here is configuration, never a secret: `key_ref` names an environment
+// variable or a keyring entry, and the value is resolved at call time.
+
+/// One configured provider.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRow {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub base_url: String,
+    pub key_ref: Option<String>,
+    pub models_json: String,
+    pub caps_json: String,
+    pub created: i64,
+    pub updated: i64,
+}
+
+impl Db {
+    pub fn list_providers(&self) -> Result<Vec<ProviderRow>> {
+        let conn = self.conn.lock().expect("db lock");
+        let mut stmt = conn.prepare(
+            "SELECT id, label, kind, base_url, key_ref, models_json, caps_json, created, updated
+             FROM providers ORDER BY label COLLATE NOCASE",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(ProviderRow {
+                    id: row.get(0)?,
+                    label: row.get(1)?,
+                    kind: row.get(2)?,
+                    base_url: row.get(3)?,
+                    key_ref: row.get(4)?,
+                    models_json: row.get(5)?,
+                    caps_json: row.get(6)?,
+                    created: row.get(7)?,
+                    updated: row.get(8)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn provider(&self, id: &str) -> Result<Option<ProviderRow>> {
+        Ok(self.list_providers()?.into_iter().find(|row| row.id == id))
+    }
+
+    pub fn add_provider(
+        &self,
+        label: &str,
+        kind: &str,
+        base_url: &str,
+        key_ref: Option<&str>,
+    ) -> Result<ProviderRow> {
+        let id = uuid::Uuid::new_v4().to_string();
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                "INSERT INTO providers (id, label, kind, base_url, key_ref, created, updated)
+                 VALUES (?1, ?2, ?3, ?4, ?5, CAST(strftime('%s','now') AS INTEGER),
+                         CAST(strftime('%s','now') AS INTEGER))",
+                rusqlite::params![id, label, kind, base_url, key_ref],
+            )?;
+        }
+        self.provider(&id)?
+            .ok_or_else(|| anyhow::anyhow!("provider vanished"))
+    }
+
+    pub fn update_provider(
+        &self,
+        id: &str,
+        label: Option<&str>,
+        base_url: Option<&str>,
+        key_ref: Option<Option<&str>>,
+    ) -> Result<Option<ProviderRow>> {
+        let Some(current) = self.provider(id)? else {
+            return Ok(None);
+        };
+        let label = label.unwrap_or(&current.label);
+        let base_url = base_url.unwrap_or(&current.base_url);
+        let key_ref = match key_ref {
+            Some(None) => None,
+            Some(Some(value)) => Some(value.to_string()),
+            None => current.key_ref.clone(),
+        };
+        {
+            let conn = self.conn.lock().expect("db lock");
+            conn.execute(
+                "UPDATE providers SET label = ?2, base_url = ?3, key_ref = ?4,
+                        updated = CAST(strftime('%s','now') AS INTEGER)
+                 WHERE id = ?1",
+                rusqlite::params![id, label, base_url, key_ref],
+            )?;
+        }
+        self.provider(id)
+    }
+
+    /// Store the models an endpoint reported, and the capabilities read off them.
+    pub fn set_provider_models(&self, id: &str, models_json: &str, caps_json: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("db lock");
+        conn.execute(
+            "UPDATE providers SET models_json = ?2, caps_json = ?3,
+                    updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?1",
+            rusqlite::params![id, models_json, caps_json],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_provider(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().expect("db lock");
+        Ok(conn.execute("DELETE FROM providers WHERE id = ?1", [id])? > 0)
+    }
+}

@@ -37,3 +37,8 @@ knightlm-engine = { path = "../../crates/engine" }
 
 [profile.release]
 opt-level = 2
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

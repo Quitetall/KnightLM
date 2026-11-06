@@ -2249,7 +2249,7 @@ fn moves_to_san(fen: &str, moves: &str) -> String {
 /// Additive migrations for databases created by older builds.
 /// Current schema version. Bump this and add a `migrate_vN` step for changes
 /// that `CREATE ... IF NOT EXISTS` cannot express.
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
 
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -2307,6 +2307,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if version < 11 {
         migrate_v11(conn)?;
         version = 11;
+    }
+    if version < 12 {
+        migrate_v12(conn)?;
+        version = 12;
     }
     conn.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
@@ -2639,6 +2643,27 @@ fn migrate_v5(conn: &Connection) -> Result<()> {
 ///
 /// Lifecycle already says whether a study has versions; a lock says "do not
 /// change this", which is a different decision and can be taken at any time.
+/// v12: the provider registry. A row names where a provider is and which secret
+/// it needs; the secret itself is never stored here. `key_ref` is a name to look
+/// up at call time - an environment variable, or a keyring entry.
+fn migrate_v12(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS providers (
+             id TEXT PRIMARY KEY,
+             label TEXT NOT NULL,
+             kind TEXT NOT NULL DEFAULT 'openai_compatible',
+             base_url TEXT NOT NULL,
+             key_ref TEXT,
+             models_json TEXT NOT NULL DEFAULT '[]',
+             caps_json TEXT NOT NULL DEFAULT '{}',
+             created INTEGER NOT NULL,
+             updated INTEGER NOT NULL
+         );
+         CREATE UNIQUE INDEX IF NOT EXISTS providers_label ON providers(label);",
+    )?;
+    Ok(())
+}
+
 fn migrate_v11(conn: &Connection) -> Result<()> {
     let _ = conn.execute(
         "ALTER TABLE studies ADD COLUMN locked INTEGER NOT NULL DEFAULT 0",
