@@ -65,7 +65,7 @@
 
 ## docs/tickets/t-0aaf.md
 > Tag, run all gates, record evidence and hand off signing.
-- t-0aaf · ticket · open · Release candidate and signing handoff · docs/tickets/t-0aaf.md:1
+- t-0aaf · ticket · done · Release candidate and signing handoff · docs/tickets/t-0aaf.md:1
 
 ## docs/tickets/t-0ba4.md
 > Implement deterministic alignment and change detection.
