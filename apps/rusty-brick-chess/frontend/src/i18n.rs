@@ -243,11 +243,7 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "Delete this collection?",
         "¿Eliminar esta colección?",
     ),
-    ("db.import", "Import", "Importar"),
-    ("db.import_file", "Import file…", "Importar archivo…"),
     ("db.import_pgn", "Import PGN", "Importar PGN"),
-    ("db.all_games", "All games", "Todas las partidas"),
-    ("db.recent_files", "Recent files", "Archivos recientes"),
     ("db.apply_filters", "Apply filters", "Aplicar filtros"),
     ("db.clear_filters", "Clear filters", "Borrar filtros"),
     ("db.find_position", "Find position", "Buscar posición"),
@@ -280,7 +276,6 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "Importar al repertorio seleccionado",
     ),
     ("puzzles.rating", "Rating", "Puntuación"),
-    ("settings.sounds", "Sounds", "Sonidos"),
     ("settings.sound_theme", "Sound theme", "Tema de sonido"),
     ("settings.volume", "Volume", "Volumen"),
     (
@@ -1069,23 +1064,13 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     ("assistant.sending", "Thinking…", "Pensando…"),
     ("assistant.send", "Send", "Enviar"),
-    ("settings.providers", "Providers", "Proveedores"),
-    ("settings.providers_hint", "Where models come from. The key field is the name of an environment variable or a keyring entry, never the secret itself.", "De dónde vienen los modelos. El campo de clave es el nombre de una variable de entorno o entrada del llavero, nunca el secreto."),
-    ("settings.provider_label", "Name", "Nombre"),
-    ("settings.key_ref", "KEY_REF (env var or keyring:svc/acct)", "KEY_REF (variable de entorno o keyring:svc/acct)"),
-    ("settings.add_provider", "Add provider", "Añadir proveedor"),
-    ("settings.scan_local", "Scan this machine", "Escanear este equipo"),
-    ("settings.test", "Test", "Probar"),
-    ("settings.fetch_models", "Fetch models", "Obtener modelos"),
-    ("settings.no_key", "no key", "sin clave"),
     ("assistant.temperature", "Temperature", "Temperatura"),
     ("assistant.model", "Model", "Modelo"),
-    ("assistant.model_auto", "session default", "por defecto"),
-    ("assistant.attach_fen", "Attach position", "Adjuntar posición"),
-    ("assistant.attach_pgn", "Attach PGN", "Adjuntar PGN"),
-    ("assistant.no_position", "Paste a FEN first, or open a board", "Pega una FEN primero, o abre un tablero"),
-    ("assistant.regenerate", "Regenerate", "Regenerar"),
-    ("assistant.slash_hint", "Type / for a command or @ to reference a board or study", "Escribe / para un comando o @ para referenciar un tablero o estudio"),
+    (
+        "assistant.slash_hint",
+        "Type / for a command or @ to reference a board or study",
+        "Escribe / para un comando o @ para referenciar un tablero o estudio",
+    ),
     ("assistant.stop", "Stop", "Detener"),
     ("assistant.context", "Context", "Contexto"),
     ("assistant.replay", "Replay", "Reproducir"),
@@ -1163,6 +1148,84 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "No conversation matches",
         "Ninguna conversación coincide",
     ),
+    ("assistant.model_auto", "session default", "por defecto"),
+    (
+        "assistant.attach_fen",
+        "Attach position",
+        "Adjuntar posición",
+    ),
+    ("assistant.attach_pgn", "Attach PGN", "Adjuntar PGN"),
+    (
+        "assistant.no_position",
+        "Paste a FEN first, or open a board",
+        "Pega una FEN primero, o abre un tablero",
+    ),
+    (
+        "assistant.no_provider",
+        "No provider is configured, so nothing can answer yet. Add one in Settings, or start the app with MODEL_URL.",
+        "No hay ningún proveedor configurado, así que nada puede responder todavía. Añade uno en Ajustes o inicia la aplicación con MODEL_URL.",
+    ),
+    (
+        "assistant.context_too_large",
+        "That prompt is larger than the model's window. Drop an attachment or shorten it.",
+        "Ese mensaje es más grande que la ventana del modelo. Quita un adjunto o acórtalo.",
+    ),
+    (
+        "assistant.locked_board",
+        "That board is locked, so the assistant cannot change it. Unlock it, or ask it to work on a copy.",
+        "Ese tablero está bloqueado, así que el asistente no puede cambiarlo. Desbloquéalo o pídele que trabaje sobre una copia.",
+    ),
+    ("assistant.regenerate", "Regenerate", "Regenerar"),
+    (
+        "assistant.cmd_analyse",
+        "analyse the current position",
+        "analizar la posición actual",
+    ),
+    (
+        "assistant.cmd_plan",
+        "suggest a plan for both sides",
+        "sugerir un plan para ambos bandos",
+    ),
+    (
+        "assistant.cmd_blunder",
+        "find the mistakes in this game",
+        "encontrar los errores de esta partida",
+    ),
+    (
+        "assistant.cmd_explain",
+        "explain this position to a beginner",
+        "explicar esta posición a un principiante",
+    ),
+    (
+        "assistant.cmd_drills",
+        "suggest practice from this position",
+        "sugerir ejercicios desde esta posición",
+    ),
+    ("a11y.transcript", "Conversation", "Conversación"),
+    ("a11y.composer", "Message", "Mensaje"),
+    ("settings.providers", "Providers", "Proveedores"),
+    (
+        "settings.providers_hint",
+        "Where models come from. The key field is the name of an environment variable or a keyring entry, never the secret itself.",
+        "De dónde vienen los modelos. El campo de clave es el nombre de una variable de entorno o entrada del llavero, nunca el secreto.",
+    ),
+    ("settings.provider_label", "Name", "Nombre"),
+    (
+        "settings.key_ref",
+        "KEY_REF (env var or keyring:svc/acct)",
+        "KEY_REF (variable de entorno o keyring:svc/acct)",
+    ),
+    ("settings.add_provider", "Add provider", "Añadir proveedor"),
+    (
+        "settings.scan_local",
+        "Scan this machine",
+        "Escanear este equipo",
+    ),
+    ("settings.test", "Test", "Probar"),
+    ("settings.fetch_models", "Fetch models", "Obtener modelos"),
+    ("settings.no_key", "no key", "sin clave"),
+    ("settings.multipv", "Lines to analyse", "Líneas a analizar"),
+    ("assistant.composer", "Message", "Mensaje"),
 ];
 
 /// Like [`t`], but substitutes `{name}` placeholders. Used for messages that
@@ -1181,5 +1244,102 @@ pub fn t(lang: &str, key: &str) -> &'static str {
         Some((_, en, _)) if lang != "es" => en,
         Some((_, _, es)) => es,
         None => "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every key the UI asks for must exist in the table.
+    ///
+    /// `t` returns "" for a key it does not know, so a missing string is not a
+    /// crash - it is a blank label or an empty banner, which is exactly the kind
+    /// of thing nobody notices until a screenshot looks odd. This scans the view
+    /// sources for the literals they pass to `i18n::t` and `tf`.
+    #[test]
+    fn every_key_the_views_ask_for_exists() {
+        let sources = [
+            include_str!("lib.rs"),
+            include_str!("views/assistant.rs"),
+            include_str!("views/settings.rs"),
+            include_str!("views/play.rs"),
+            include_str!("views/study.rs"),
+            include_str!("views/compare.rs"),
+            include_str!("views/analysis.rs"),
+            include_str!("views/database.rs"),
+            include_str!("views/home.rs"),
+        ];
+        let mut missing: Vec<String> = Vec::new();
+        for source in sources {
+            for key in literals_in(source) {
+                if !STRINGS.iter().any(|(known, _, _)| *known == key) {
+                    missing.push(key);
+                }
+            }
+        }
+        missing.sort();
+        missing.dedup();
+        assert!(missing.is_empty(), "keys with no string: {missing:?}");
+    }
+
+    /// Keys the app asks for by a value that is not a literal at the call site -
+    /// the slash palette holds its keys as data.
+    #[test]
+    fn the_palette_keys_are_all_translated() {
+        for key in [
+            "assistant.cmd_analyse",
+            "assistant.cmd_plan",
+            "assistant.cmd_blunder",
+            "assistant.cmd_explain",
+            "assistant.cmd_drills",
+        ] {
+            assert!(!t("en", key).is_empty(), "{key} has no English string");
+            assert!(!t("es", key).is_empty(), "{key} has no Spanish string");
+        }
+    }
+
+    #[test]
+    fn a_key_nobody_knows_returns_empty_rather_than_panicking() {
+        assert_eq!(t("en", "no.such.key"), "");
+    }
+
+    /// Both languages are present for every key: a half-filled row shows English
+    /// to a Spanish reader, which is the quiet kind of untranslated.
+    #[test]
+    fn no_row_has_an_empty_translation() {
+        let empty: Vec<&str> = STRINGS
+            .iter()
+            .filter(|(_, en, es)| en.trim().is_empty() || es.trim().is_empty())
+            .map(|(key, _, _)| *key)
+            .collect();
+        assert!(empty.is_empty(), "rows missing a language: {empty:?}");
+    }
+
+    /// Pull the string literals out of `i18n::t(&lang, "…")` and `tf(…, "…", …)`.
+    fn literals_in(source: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        for needle in ["i18n::t(", "i18n::tf(", "tf("] {
+            let mut rest = source;
+            while let Some(at) = rest.find(needle) {
+                rest = &rest[at + needle.len()..];
+                let Some(quote) = rest.find('"') else {
+                    continue;
+                };
+                let after = &rest[quote + 1..];
+                let Some(end) = after.find('"') else { continue };
+                let candidate = &after[..end];
+                // Keys are dotted identifiers; this skips the prose a `tf`
+                // template or an unrelated call may pass in the same shape.
+                if candidate.contains('.')
+                    && candidate
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "._".contains(c))
+                {
+                    found.push(candidate.to_string());
+                }
+            }
+        }
+        found
     }
 }

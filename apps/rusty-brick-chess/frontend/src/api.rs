@@ -2097,7 +2097,6 @@ pub async fn compare_markdown(left: &str, right: &str, user: &str) -> Result<Str
         .to_string())
 }
 
-
 // --- providers ---------------------------------------------------------------
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -2168,7 +2167,11 @@ pub async fn delete_provider(id: &str) -> Result<(), String> {
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    if resp.ok() { Ok(()) } else { Err(resp.text().await.unwrap_or_default()) }
+    if resp.ok() {
+        Ok(())
+    } else {
+        Err(resp.text().await.unwrap_or_default())
+    }
 }
 
 /// Test and refresh in one call: what the settings page's Test button wants.

@@ -97,6 +97,22 @@ fn tool_cards(json: &str) -> Vec<ToolCard> {
         .unwrap_or_default()
 }
 
+/// Turn a raw failure into something a person can act on.
+///
+/// The two failures worth naming are the ones with a specific remedy: a prompt
+/// past the model's window, and a tool that refused because the board is locked.
+/// Everything else is passed through as the server said it.
+fn explain(language: &str, raw: &str) -> String {
+    let lower = raw.to_lowercase();
+    if lower.contains("context") || lower.contains("too long") || lower.contains("maximum") {
+        return i18n::t(language, "assistant.context_too_large").to_string();
+    }
+    if lower.contains("locked") || lower.contains("published") {
+        return i18n::t(language, "assistant.locked_board").to_string();
+    }
+    raw.to_string()
+}
+
 /// Extract the human-readable message from a stored `error_json` blob.
 fn error_text(json: &str) -> Option<String> {
     if json.trim().is_empty() {
@@ -172,17 +188,29 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     // Empty means "whatever the session is configured with".
     let model_override = RwSignal::new(String::new());
     let reference_source = RwSignal::new(Vec::<(String, String)>::new());
+    // Whether anything is configured to answer: a provider registry row, or the
+    // MODEL_URL this build was started with. Without one, the composer still
+    // works and every send fails, so say so before it does.
+    let has_provider = RwSignal::new(true);
 
     // --- composer helpers -----------------------------------------------
     // Slash commands are prompts the app ships, not model features: picking one
     // inserts text a person could have typed.
     let commands: Vec<(&'static str, &'static str)> = vec![
-        ("/analyse", "Analyse the current position"),
-        ("/plan", "Suggest a plan for both sides"),
-        ("/blunder", "Find the mistakes in this game"),
-        ("/explain", "Explain this position to a beginner"),
-        ("/drills", "Suggest practice from this position"),
+        ("/analyse", "assistant.cmd_analyse"),
+        ("/plan", "assistant.cmd_plan"),
+        ("/blunder", "assistant.cmd_blunder"),
+        ("/explain", "assistant.cmd_explain"),
+        ("/drills", "assistant.cmd_drills"),
     ];
+
+    spawn_local(async move {
+        let configured = api::list_providers()
+            .await
+            .map(|list| !list.is_empty())
+            .unwrap_or(false);
+        has_provider.set(configured);
+    });
 
     // The reference list behind `@`: boards and studies, loaded once.
     spawn_local(async move {
@@ -212,7 +240,15 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
             let items: Vec<(String, String)> = commands
                 .iter()
                 .filter(|(command, _)| command.trim_start_matches('/').starts_with(&needle))
-                .map(|(command, description)| (command.to_string(), format!("{command} — {description}")))
+                .map(|(command, description)| {
+                    (
+                        command.to_string(),
+                        format!(
+                            "{command} — {}",
+                            i18n::t(&language.get_untracked(), description)
+                        ),
+                    )
+                })
                 .collect();
             if items.is_empty() {
                 palette.set(None);
@@ -250,7 +286,9 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
         match palette.get_untracked() {
             Some("slash") => {
                 let addition = match key {
-                    "/analyse" => "Analyse this position: material, pawn structure, the three most forcing moves.",
+                    "/analyse" => {
+                        "Analyse this position: material, pawn structure, the three most forcing moves."
+                    }
                     "/plan" => "What is each side's plan here, and what should I do next?",
                     "/blunder" => "Find the mistakes in this game and the better move at each.",
                     "/explain" => "Explain this position to a beginner.",
@@ -492,19 +530,18 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
         }
 
         spawn_local(async move {
-            let result =
-                ai_api::send_ai_message(
-                    &id,
-                    &message,
-                    fen.as_deref(),
-                    Some(temperature.get_untracked()),
-                    {
-                        let model = model_override.get_untracked();
-                        if model.is_empty() { None } else { Some(model) }
-                    }
-                    .as_deref(),
-                )
-                    .await;
+            let result = ai_api::send_ai_message(
+                &id,
+                &message,
+                fen.as_deref(),
+                Some(temperature.get_untracked()),
+                {
+                    let model = model_override.get_untracked();
+                    if model.is_empty() { None } else { Some(model) }
+                }
+                .as_deref(),
+            )
+            .await;
             sending.set(false);
             source.with_value(|held| {
                 if let Some(stream) = held {
@@ -951,7 +988,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                     }}
                     {move || {
                         sending.get().then(|| view! {
-                            <div class="muted">
+                            <div class="muted" role="status" aria-live="polite">
                                 {i18n::t(&language.get(), "assistant.sending")}
                             </div>
                         })
@@ -959,8 +996,11 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                 </div>
                 {move || {
                     let message = error.get();
-                    (!message.is_empty()).then(|| view! {
-                        <div class="chat-msg error">{message}</div>
+                    (!message.is_empty()).then(|| {
+                        let shown = explain(&language.get_untracked(), &message);
+                        view! {
+                            <div class="chat-msg error" role="alert" aria-live="assertive">{shown}</div>
+                        }
                     })
                 }}
                 <div class="muted">
@@ -1387,7 +1427,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                         let items = palette_items.get();
                         let index = palette_index.get();
                         view! {
-                            <ul class=format!("composer-palette {kind}") role="listbox">
+                            <ul class=format!("composer-palette {kind}") role="listbox" id="composer-palette">
                                 {items.into_iter().enumerate().map(|(i, (key, label))| {
                                     let selected_class = if i == index { "item selected" } else { "item" };
                                     view! {
@@ -1404,10 +1444,19 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                         }.into_any()
                     })}
                 </div>
+                {move || (!has_provider.get()).then(|| view! {
+                    <div class="provider-missing" role="status">
+                        {move || i18n::t(&language.get(), "assistant.no_provider")}
+                    </div>
+                })}
                 <div class="chat-input">
                     <textarea
                         class="composer"
-                        aria-label=move || i18n::t(&language.get(), "assistant.placeholder")
+                        role="combobox"
+                        aria-expanded=move || palette.get().is_some().to_string()
+                        aria-controls="composer-palette"
+                        aria-autocomplete="list"
+                        aria-label=move || i18n::t(&language.get(), "assistant.composer")
                         placeholder=move || i18n::t(&language.get(), "assistant.placeholder")
                         prop:value=move || draft.get()
                         on:input=move |ev| {
