@@ -253,7 +253,7 @@
 
 ## docs/tickets/t-c5a4.md
 > Measure 1M DB, long sessions, SSE and 16-model tournaments.
-- t-c5a4 · ticket · open · Performance and load · docs/tickets/t-c5a4.md:1
+- t-c5a4 · ticket · in_progress · Performance and load · docs/tickets/t-c5a4.md:1
 
 ## docs/tickets/t-c76d.md
 > Export Markdown/JSON and reserve R2 fields.
