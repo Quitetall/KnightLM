@@ -99,6 +99,9 @@ fi
 
 # --- browser ---------------------------------------------------------------
 
+step "check_compare.sh (compare tests in one place)"
+(cd "$ROOT" && timeout 600 ./scripts/check_compare.sh) || fail "check_compare.sh"
+
 step "check_studies.sh (study tests in one place)"
 (cd "$ROOT" && timeout 600 ./scripts/check_studies.sh) || fail "check_studies.sh"
 
