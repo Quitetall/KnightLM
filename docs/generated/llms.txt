@@ -265,7 +265,7 @@
 
 ## docs/tickets/t-dcb0.md
 > Translate and label the new surfaces; cover setup/no-session/error states.
-- t-dcb0 · ticket · open · Assistant i18n, a11y and empty/error states · docs/tickets/t-dcb0.md:1
+- t-dcb0 · ticket · done · Assistant i18n, a11y and empty/error states · docs/tickets/t-dcb0.md:1
 
 ## docs/tickets/t-dfbc.md
 > Add engine, openings, database, tablebase, annotations, notes, siblings and compare evidence.

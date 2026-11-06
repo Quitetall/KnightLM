@@ -1,0 +1,2 @@
+{"skipLink":{"href":"#app-main","text":"Saltar al contenido"},"mainLandmark":{"id":"app-main"},"skipTargetsMain":true,"skipFocusable":true,"focusRule":true,"composer":"none","palette":"none","chipLabel":"","liveRegions":{"alert":0,"status":0,"polite":1,"assertive":0},"providerBanner":false,"englishPlaceholder":"","spanishPlaceholder":"Pregunta sobre esta posición…","translated":true}
+AI_I18N_A11Y_FAIL

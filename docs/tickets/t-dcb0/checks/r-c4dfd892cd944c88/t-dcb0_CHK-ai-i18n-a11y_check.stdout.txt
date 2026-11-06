@@ -1,0 +1,2 @@
+{"skipLink":{"href":"#app-main","text":"Skip to content"},"mainLandmark":{"id":"app-main"},"skipTargetsMain":true,"skipFocusable":true,"focusRule":true,"composer":{"role":"combobox","expanded":"false","label":"Message"},"palette":{"role":"listbox","options":5,"firstRole":"option","selected":1,"expanded":"true"},"chipLabel":"remove attachment","liveRegions":{"alert":0,"status":1,"polite":2,"assertive":0},"providerBanner":true,"englishPlaceholder":"Ask about this position…","spanishPlaceholder":"Pregunta sobre esta posición…","translated":true}
+AI_I18N_A11Y_PASS

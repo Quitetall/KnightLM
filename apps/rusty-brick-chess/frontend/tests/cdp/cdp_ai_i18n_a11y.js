@@ -22,6 +22,28 @@ function getJson(port, path) {
   await send("Runtime.enable"); await sleep(2600);
   const ev = async (x) => (await send("Runtime.evaluate", { expression: x, returnByValue: true, awaitPromise: true })).result?.value;
 
+  // The app remembers the language it was last left in, and this suite changes
+  // it, so it sets the starting language itself rather than inheriting whatever
+  // the previous run left behind.
+  const toSettings = async () => {
+    await ev(`(()=>{const n=[...document.querySelectorAll(".nav")];const t=n.find(b=>/^(Settings|Ajustes)$/.test(b.textContent.trim()));if(t){t.click();return true}return false})()`);
+    await sleep(1200);
+  };
+  const setLanguage = async (code) => ev(`(()=>{
+    const target = [...document.querySelectorAll("select")].find(s=>[...s.options].some(o=>o.value==="${code}"));
+    if(!target) return false;
+    target.value = "${code}";
+    target.dispatchEvent(new Event("change",{bubbles:true}));
+    return true;
+  })()`);
+  await toSettings();
+  await setLanguage("en");
+  await sleep(1200);
+  const toAssistant = async () => {
+    await ev(`(()=>{const n=[...document.querySelectorAll(".nav")];const t=n.find(b=>/^(Assistant|Asistente)$/.test(b.textContent.trim()));if(t){t.click();return true}return false})()`);
+    await sleep(1400);
+  };
+
   // Landmarks and the skip link, on the shell rather than any one tab.
   const skipLink = await ev(`(()=>{const a=document.querySelector(".skip-link");return a?{href:a.getAttribute("href"), text:a.textContent.trim()}:"none";})()`);
   const mainLandmark = await ev(`(()=>{const m=document.querySelector("main");return m?{id:m.id}:"none";})()`);
@@ -33,8 +55,7 @@ function getJson(port, path) {
   // A focus ring is defined for keyboard users.
   const focusRule = await ev(`(()=>{const css=[...document.styleSheets].flatMap(s=>{try{return [...s.cssRules].map(r=>r.cssText)}catch{return []}});return css.some(r=>r.includes(":focus-visible"));})()`);
 
-  await ev(`[...document.querySelectorAll(".nav")].find(b=>b.textContent.trim()==="Assistant")?.click()`);
-  await sleep(1500);
+  await toAssistant();
   await ev(`(()=>{const b=[...document.querySelectorAll("button")].find(x=>x.textContent.trim()==="New chat");b?.click();})()`);
   await sleep(1800);
 
@@ -66,18 +87,10 @@ function getJson(port, path) {
 
   // Switching to Spanish changes the Assistant's own strings.
   const englishPlaceholder = await ev(`document.querySelector(".composer")?.getAttribute("placeholder") || ""`);
-  await ev(`[...document.querySelectorAll(".nav")].find(b=>b.textContent.trim()==="Settings")?.click()`);
-  await sleep(1400);
-  const switched = await ev(`(()=>{
-    const target = [...document.querySelectorAll("select")].find(s=>[...s.options].some(o=>o.value==="es"));
-    if(!target) return false;
-    target.value = "es";
-    target.dispatchEvent(new Event("change",{bubbles:true}));
-    return true;
-  })()`);
+  await toSettings();
+  const switched = await setLanguage("es");
   await sleep(1200);
-  await ev(`[...document.querySelectorAll(".nav")].find(b=>/Assistant|Asistente/.test(b.textContent.trim()))?.click()`);
-  await sleep(1400);
+  await toAssistant();
   const spanishPlaceholder = await ev(`document.querySelector(".composer")?.getAttribute("placeholder") || ""`);
   const translated = spanishPlaceholder && spanishPlaceholder !== englishPlaceholder;
 
