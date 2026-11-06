@@ -273,7 +273,7 @@
 
 ## docs/tickets/t-e4fa.md
 > Slash commands, @-mentions, attachments, context chips, model picker, stop/regenerate.
-- t-e4fa · ticket · open · Composer bundle · docs/tickets/t-e4fa.md:1
+- t-e4fa · ticket · done · Composer bundle · docs/tickets/t-e4fa.md:1
 
 ## docs/tickets/t-e777.md
 > Show exactly what the model saw and replay it.
