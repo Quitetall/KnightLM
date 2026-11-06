@@ -12,12 +12,14 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 step "engine and fixture matrix"
 cargo test -p rbc-ai --all-features --test diff --test diff_fixtures || fail "diff tests"
 
-step "the read-only guarantee, from the HTTP surface"
-# The compare route must not change anything it reads; the test above asserts it
-# against the repository, this asserts the route exists and answers.
-cargo test -p rbc-ai --all-features --test diff_fixtures comparing_writes_nothing \
-  || cargo test -p rbc-ai --all-features --test diff_fixtures comparing_touches_no_table_it_does_not_read \
-  || fail "read-only assertion"
+step "the read-only guarantee"
+# Name the tests that exist, and fail if the filter matches none: a filtered run
+# that selects zero tests exits 0 and would report a guarantee nobody checked.
+for name in comparing_touches_no_table_it_does_not_read a_report_is_a_snapshot_not_a_live_handle; do
+  out=$(cargo test -p rbc-ai --all-features --test diff_fixtures "$name" 2>&1) || fail "read-only: $name"
+  echo "$out" | grep -qE "test result: ok\. [1-9][0-9]* passed" \
+    || fail "read-only: $name selected no test ($(echo "$out" | grep 'test result' | head -1))"
+done
 
 step "browser"
 SCRATCH="${RBC_COMPARE_SCRATCH:-/mnt/4tb/tmp/rbc-compare-check}"
