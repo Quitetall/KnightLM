@@ -94,6 +94,14 @@ function getJson(port, path) {
   const spanishPlaceholder = await ev(`document.querySelector(".composer")?.getAttribute("placeholder") || ""`);
   const translated = spanishPlaceholder && spanishPlaceholder !== englishPlaceholder;
 
+  // Put the app back the way it was found. The language is persisted in the
+  // database, not in this tab, so leaving it in Spanish made every later suite in
+  // the same run look for English labels and fail - eleven of them, for a reason
+  // that had nothing to do with what they test.
+  await toSettings();
+  await setLanguage("en");
+  await sleep(800);
+
   console.log(JSON.stringify({ skipLink, mainLandmark, skipTargetsMain, skipFocusable, focusRule, composer, palette, chipLabel, liveRegions, providerBanner, englishPlaceholder, spanishPlaceholder, translated }));
   const ok = Boolean(skipLink && skipLink.href)
     && mainLandmark !== "none" && skipTargetsMain && skipFocusable
