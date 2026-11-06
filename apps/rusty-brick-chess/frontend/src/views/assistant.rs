@@ -8,6 +8,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
+use crate::api;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 
@@ -159,6 +160,125 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     let draft = assistant_draft;
     let sending = RwSignal::new(false);
     let error = RwSignal::new(String::new());
+    // --- composer state -------------------------------------------------
+    // Attachments are references the model should see in the turn: a board, a
+    // study, a game, a player. Nothing is uploaded; each is a label and a value
+    // the message carries.
+    let attachments = RwSignal::new(Vec::<(String, String, String)>::new());
+    let palette = RwSignal::new(None::<&'static str>);
+    let palette_index = RwSignal::new(0usize);
+    let palette_items = RwSignal::new(Vec::<(String, String)>::new());
+    let temperature = RwSignal::new(0.2f32);
+    // Empty means "whatever the session is configured with".
+    let model_override = RwSignal::new(String::new());
+    let reference_source = RwSignal::new(Vec::<(String, String)>::new());
+
+    // --- composer helpers -----------------------------------------------
+    // Slash commands are prompts the app ships, not model features: picking one
+    // inserts text a person could have typed.
+    let commands: Vec<(&'static str, &'static str)> = vec![
+        ("/analyse", "Analyse the current position"),
+        ("/plan", "Suggest a plan for both sides"),
+        ("/blunder", "Find the mistakes in this game"),
+        ("/explain", "Explain this position to a beginner"),
+        ("/drills", "Suggest practice from this position"),
+    ];
+
+    // The reference list behind `@`: boards and studies, loaded once.
+    spawn_local(async move {
+        let mut refs = Vec::new();
+        if let Ok(studies) = api::list_studies().await {
+            for study in studies {
+                refs.push((format!("study:{}", study.id), study.title));
+            }
+        }
+        if let Ok(workspaces) = api::list_workspaces().await {
+            for workspace in workspaces {
+                if let Ok(boards) = api::list_boards(&workspace.id).await {
+                    for board in boards {
+                        refs.push((format!("board:{}", board.id), board.title));
+                    }
+                }
+            }
+        }
+        reference_source.set(refs);
+    });
+
+    // Recompute the palette from what has just been typed.
+    let refresh_palette = move |text: &str| {
+        let trimmed = text.trim_start();
+        if let Some(rest) = trimmed.strip_prefix('/').filter(|rest| !rest.contains(' ')) {
+            let needle = rest.to_lowercase();
+            let items: Vec<(String, String)> = commands
+                .iter()
+                .filter(|(command, _)| command.trim_start_matches('/').starts_with(&needle))
+                .map(|(command, description)| (command.to_string(), format!("{command} — {description}")))
+                .collect();
+            if items.is_empty() {
+                palette.set(None);
+            } else {
+                palette_items.set(items);
+                palette_index.set(0);
+                palette.set(Some("slash"));
+            }
+            return;
+        }
+        if let Some(at) = trimmed.rfind('@') {
+            let needle = trimmed[at + 1..].to_lowercase();
+            if !needle.contains(' ') {
+                let items: Vec<(String, String)> = reference_source
+                    .get_untracked()
+                    .into_iter()
+                    .filter(|(_, label)| label.to_lowercase().contains(&needle))
+                    .take(8)
+                    .map(|(key, label)| (key, label))
+                    .collect();
+                if !items.is_empty() {
+                    palette_items.set(items);
+                    palette_index.set(0);
+                    palette.set(Some("mention"));
+                    return;
+                }
+            }
+        }
+        palette.set(None);
+    };
+
+    // Apply the highlighted entry: a command replaces the draft, a mention
+    // becomes a chip and is removed from the text.
+    let pick_palette = move |key: &str| {
+        match palette.get_untracked() {
+            Some("slash") => {
+                let addition = match key {
+                    "/analyse" => "Analyse this position: material, pawn structure, the three most forcing moves.",
+                    "/plan" => "What is each side's plan here, and what should I do next?",
+                    "/blunder" => "Find the mistakes in this game and the better move at each.",
+                    "/explain" => "Explain this position to a beginner.",
+                    "/drills" => "Suggest practice that would help me in this kind of position.",
+                    _ => "",
+                };
+                draft.set(addition.to_string());
+            }
+            Some("mention") => {
+                let label = palette_items
+                    .get_untracked()
+                    .into_iter()
+                    .find(|(k, _)| k == key)
+                    .map(|(_, label)| label)
+                    .unwrap_or_else(|| key.to_string());
+                let (kind, id) = key.split_once(':').unwrap_or(("ref", key));
+                attachments.update(|list| list.push((kind.to_string(), label, id.to_string())));
+                // Drop the half-typed `@query` from the draft.
+                let text = draft.get_untracked();
+                if let Some(at) = text.rfind('@') {
+                    draft.set(text[..at].trim_end().to_string());
+                }
+            }
+            _ => {}
+        }
+        palette.set(None);
+    };
+
     // `(sha256, tokens)` from the last successful send.
     let last_ctx = RwSignal::new(None::<(String, u32)>);
     // Rail controls: a search filter and an inline rename.
@@ -277,9 +397,20 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
             error.set(i18n::t(&language.get_untracked(), "assistant.no_session").to_string());
             return;
         };
-        let message = draft.get_untracked().trim().to_owned();
+        let mut message = draft.get_untracked().trim().to_owned();
         if message.is_empty() || sending.get_untracked() {
             return;
+        }
+        // Attachments travel in the message text, in a block the model can read
+        // and a person can see in the transcript afterwards.
+        let attached = attachments.get_untracked();
+        if !attached.is_empty() {
+            let refs = attached
+                .iter()
+                .map(|(kind, label, value)| format!("- {kind}: {label} ({value})"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            message = format!("{message}\n\nContext:\n{refs}");
         }
         let fen = fen.get_untracked();
         let fen = (!fen.trim().is_empty()).then_some(fen);
@@ -361,7 +492,19 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
         }
 
         spawn_local(async move {
-            let result = ai_api::send_ai_message(&id, &message, fen.as_deref()).await;
+            let result =
+                ai_api::send_ai_message(
+                    &id,
+                    &message,
+                    fen.as_deref(),
+                    Some(temperature.get_untracked()),
+                    {
+                        let model = model_override.get_untracked();
+                        if model.is_empty() { None } else { Some(model) }
+                    }
+                    .as_deref(),
+                )
+                    .await;
             sending.set(false);
             source.with_value(|held| {
                 if let Some(stream) = held {
@@ -1126,19 +1269,197 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                         </div>
                     }
                 })}
+                // Attachments ride in the turn as references, so the model sees
+                // what "this board" means without an upload step.
+                <div class="composer-attach">
+                    <button
+                        class="attach-fen"
+                        on:click=move |_| {
+                            // A FEN typed or pasted into the composer is the one the
+                            // person means; the position on screen is the fallback.
+                            let typed = draft.get_untracked();
+                            let from_draft = typed
+                                .split_whitespace()
+                                .collect::<Vec<_>>()
+                                .windows(4)
+                                .find(|window| {
+                                    window[0].contains('/')
+                                        && matches!(window[1], "w" | "b")
+                                        && window[2].chars().all(|c| "KQkq-".contains(c))
+                                })
+                                .map(|window| window.join(" "));
+                            let position = from_draft.filter(|fen| !fen.trim().is_empty()).or_else(|| {
+                                let current = fen.get_untracked();
+                                (!current.trim().is_empty()).then_some(current)
+                            });
+                            match position {
+                                Some(position) => {
+                                    attachments.update(|list| {
+                                        list.push(("fen".into(), "position".into(), position));
+                                    });
+                                    draft.set(String::new());
+                                }
+                                None => error.set(
+                                    i18n::t(&language.get_untracked(), "assistant.no_position")
+                                        .to_string(),
+                                ),
+                            }
+                        }
+                    >
+                        {move || i18n::t(&language.get(), "assistant.attach_fen")}
+                    </button>
+                    <button
+                        class="attach-pgn"
+                        on:click=move |_| {
+                            // The whole draft is taken as the game and removed from
+                            // the question, so a pasted PGN does not become prose.
+                            let text = draft.get_untracked();
+                            if text.contains("[Event") || text.contains("1.") {
+                                attachments.update(|list| {
+                                    list.push(("pgn".into(), "pasted game".into(), text.clone()));
+                                });
+                                draft.set(String::new());
+                            }
+                        }
+                    >
+                        {move || i18n::t(&language.get(), "assistant.attach_pgn")}
+                    </button>
+                    <input
+                        class="attach-image"
+                        type="file"
+                        accept="image/*"
+                        on:change=move |ev| {
+                            let Some(files) = ev.target().and_then(|t| {
+                                wasm_bindgen::JsCast::dyn_into::<web_sys::HtmlInputElement>(t).ok()
+                            }).and_then(|input| input.files()) else {
+                                return;
+                            };
+                            let Some(file) = files.get(0) else {
+                                return;
+                            };
+                            let reader = web_sys::FileReader::new().ok();
+                            let Some(reader) = reader else { return };
+                            let reader_for_load = reader.clone();
+                            let onload = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
+                                if let Ok(result) = reader_for_load.result() {
+                                    if let Some(data) = result.as_string() {
+                                        spawn_local(async move {
+                                            match api::recognize_image(&data).await {
+                                                Ok(vision) => {
+                                                    attachments.update(|list| {
+                                                        list.push((
+                                                            "position".into(),
+                                                            format!("from image ({:.0}%)", vision.confidence * 100.0),
+                                                            vision.placement,
+                                                        ));
+                                                    });
+                                                }
+                                                Err(failure) => error.set(failure),
+                                            }
+                                        });
+                                    }
+                                }
+                            });
+                            reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+                            onload.forget();
+                            let _ = reader.read_as_data_url(&file);
+                        }
+                    />
+                </div>
+                <div class="composer-chips">
+                    {move || attachments.get().into_iter().enumerate().map(|(index, (kind, label, _))| {
+                        view! {
+                            <span class="context-chip" data-kind=kind.clone()>
+                                {format!("{kind}: {label}")}
+                                <button
+                                    class="chip-remove"
+                                    aria-label="remove attachment"
+                                    on:click=move |_| attachments.update(|list| {
+                                        if index < list.len() { list.remove(index); }
+                                    })
+                                >"×"</button>
+                            </span>
+                        }
+                    }).collect_view()}
+                </div>
+                <div class="composer-palette-anchor">
+                    {move || palette.get().map(|kind| {
+                        let items = palette_items.get();
+                        let index = palette_index.get();
+                        view! {
+                            <ul class=format!("composer-palette {kind}") role="listbox">
+                                {items.into_iter().enumerate().map(|(i, (key, label))| {
+                                    let selected_class = if i == index { "item selected" } else { "item" };
+                                    view! {
+                                        <li class=selected_class role="option" aria-selected=if i == index { "true" } else { "false" }
+                                            data-key=key.clone()
+                                            on:click={
+                                                let key = key.clone();
+                                                move |_| pick_palette(&key)
+                                            }
+                                        >{label}</li>
+                                    }
+                                }).collect_view()}
+                            </ul>
+                        }.into_any()
+                    })}
+                </div>
                 <div class="chat-input">
                     <textarea
+                        class="composer"
+                        aria-label=move || i18n::t(&language.get(), "assistant.placeholder")
                         placeholder=move || i18n::t(&language.get(), "assistant.placeholder")
                         prop:value=move || draft.get()
-                        on:input=move |ev| draft.set(event_target_value(&ev))
+                        on:input=move |ev| {
+                            let text = event_target_value(&ev);
+                            draft.set(text.clone());
+                            refresh_palette(&text);
+                        }
                         on:keydown=move |ev| {
-                            if ev.key() == "Enter" && !ev.shift_key() {
-                                ev.prevent_default();
-                                send();
+                            match ev.key().as_str() {
+                                "Enter" if !ev.shift_key() => {
+                                    if palette.get_untracked().is_some() {
+                                        // Enter accepts the highlighted command
+                                        // rather than sending a half-typed one.
+                                        ev.prevent_default();
+                                        if let Some((key, _)) = palette_items
+                                            .get_untracked()
+                                            .get(palette_index.get_untracked())
+                                            .cloned()
+                                        {
+                                            pick_palette(&key);
+                                        }
+                                    } else {
+                                        ev.prevent_default();
+                                        send();
+                                    }
+                                }
+                                "Escape" => {
+                                    if palette.get_untracked().is_some() {
+                                        ev.prevent_default();
+                                        palette.set(None);
+                                    }
+                                }
+                                "ArrowDown" if palette.get_untracked().is_some() => {
+                                    ev.prevent_default();
+                                    let len = palette_items.get_untracked().len();
+                                    if len > 0 {
+                                        palette_index.update(|i| *i = (*i + 1) % len);
+                                    }
+                                }
+                                "ArrowUp" if palette.get_untracked().is_some() => {
+                                    ev.prevent_default();
+                                    let len = palette_items.get_untracked().len();
+                                    if len > 0 {
+                                        palette_index.update(|i| *i = (*i + len - 1) % len);
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                     ></textarea>
                     <button
+                        class="composer-send"
                         disabled=move || selected.get().is_none()
                         on:click=move |_| {
                             if sending.get_untracked() {
@@ -1159,6 +1480,52 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                         } else {
                             i18n::t(&language.get(), "assistant.send")
                         }}
+                    </button>
+                </div>
+                <div class="composer-controls">
+                    <label class="composer-model">
+                        {move || i18n::t(&language.get(), "assistant.model")}
+                        <input
+                            class="model-override"
+                            placeholder=move || i18n::t(&language.get(), "assistant.model_auto")
+                            prop:value=move || model_override.get()
+                            on:input=move |ev| model_override.set(event_target_value(&ev))
+                        />
+                    </label>
+                    <label class="composer-temperature">
+                        {move || i18n::t(&language.get(), "assistant.temperature")}
+                        <input
+                            class="temperature"
+                            type="range"
+                            min="0" max="2" step="0.1"
+                            prop:value=move || temperature.get().to_string()
+                            on:input=move |ev| {
+                                if let Ok(value) = event_target_value(&ev).parse::<f32>() {
+                                    temperature.set(value);
+                                }
+                            }
+                        />
+                        <output class="temperature-value">{move || format!("{:.1}", temperature.get())}</output>
+                    </label>
+                    <button
+                        class="composer-regenerate"
+                        disabled=move || sending.get() || selected.get().is_none()
+                        on:click=move |_| {
+                            // Regenerate asks again with the last thing a person
+                            // said; the previous answer stays in the transcript.
+                            let last_user = turns
+                                .get_untracked()
+                                .into_iter()
+                                .filter(|turn| turn.role == "user")
+                                .next_back()
+                                .map(|turn| turn.content);
+                            if let Some(content) = last_user {
+                                draft.set(content);
+                                send();
+                            }
+                        }
+                    >
+                        {move || i18n::t(&language.get(), "assistant.regenerate")}
                     </button>
                 </div>
                 <div class="muted">

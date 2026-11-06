@@ -201,7 +201,9 @@ if [ "$DO_CDP" = 1 ]; then
           "INSERT OR REPLACE INTO legacy_sessions (client, payload, updated) VALUES ('check-legacy','{}',1);" \
           2>/dev/null || true
       fi
-      for script in "$CDP"/cdp_*.js; do
+      # cdp_composer talks to the mock provider, so it belongs to the shared group;
+  # the loop below picks up every cdp_*.js, so nothing to add here.
+  for script in "$CDP"/cdp_*.js; do
         base="$(basename "$script")"
         case " $SELF_HOSTED " in *" $base "*) continue ;; esac
         run_suite "$script"

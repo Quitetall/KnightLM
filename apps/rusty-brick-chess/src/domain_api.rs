@@ -564,6 +564,10 @@ pub struct SendAiTurn {
     pub message: String,
     pub fen: Option<String>,
     pub depth: Option<u32>,
+    /// Sampling temperature for this turn. Absent means the session's default.
+    pub temperature: Option<f32>,
+    /// Model id for this turn. Absent means the session's configured model.
+    pub model: Option<String>,
 }
 
 pub async fn send_ai_turn(
@@ -656,6 +660,16 @@ pub async fn send_ai_turn(
         body.message.clone(),
     );
     plan.seq = user_turn.seq as u64;
+    // Clamp rather than trust: a temperature outside 0..=2 makes some providers
+    // answer 400 and others answer nonsense.
+    if let Some(temperature) = body.temperature {
+        plan.temperature = temperature.clamp(0.0, 2.0);
+    }
+    // A per-turn model override. The provider stays the session's: switching to
+    // a model at another provider is a settings change, not a turn option.
+    if let Some(model) = body.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+        plan.model.model = model.to_string();
+    }
     plan.mode = match session.mode.as_str() {
         "play" => SessionMode::Play,
         "watch" => SessionMode::Watch,

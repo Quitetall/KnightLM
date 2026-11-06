@@ -245,9 +245,18 @@ pub async fn send_ai_message(
     id: &str,
     message: &str,
     fen: Option<&str>,
+    temperature: Option<f32>,
+    model: Option<&str>,
 ) -> Result<AiSendResponse, String> {
     let resp = Request::post(&format!("/api/ai/sessions/{id}/send"))
-        .json(&serde_json::json!({ "message": message, "fen": fen }))
+        // Round before sending: an f32 0.9 widens to 0.8999999761581421 in JSON,
+        // and a person who set 0.9 should see 0.9 in the transcript of the call.
+        .json(&serde_json::json!({
+            "message": message,
+            "fen": fen,
+            "temperature": temperature.map(|t| (f64::from(t) * 100.0).round() / 100.0),
+            "model": model,
+        }))
         .map_err(|e| e.to_string())?
         .send()
         .await
