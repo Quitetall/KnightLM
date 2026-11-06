@@ -1,0 +1,38 @@
+
+== engine and fixture matrix
+
+running 12 tests
+test a_fen_is_the_same_position_without_its_counters ... ok
+test notes_are_compared_by_line ... ok
+test exporting_does_not_mutate_either_side ... ok
+test a_chapter_only_on_one_side_is_added_or_removed ... ok
+test chapters_at_the_same_ordinal_align_even_when_everything_else_differs ... ok
+test the_json_export_round_trips_through_the_report ... ok
+test two_identically_built_studies_are_identical_apart_from_the_study_fields ... ok
+test comparing_writes_nothing ... ok
+test progress_travels_with_the_chapter_when_a_user_is_given ... ok
+test the_markdown_export_names_what_changed ... ok
+test an_identical_comparison_exports_as_one_line ... ok
+test a_chapter_that_kept_its_title_lines_up_and_reports_its_board_change ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+
+running 8 tests
+test a_report_is_a_snapshot_not_a_live_handle ... ok
+test chapters_align_by_id_before_anything_else ... ok
+test every_kind_of_change_reaches_the_report ... ok
+test a_second_chapter_only_on_one_side_is_reported_as_removed ... ok
+test boards_align_by_title_and_a_fen_matches_without_its_counters ... ok
+test chapters_fall_back_to_ordinal_when_the_id_is_new ... ok
+test an_unchanged_study_pair_reports_nothing_but_the_copy_title ... ok
+test comparing_touches_no_table_it_does_not_read ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+
+== the read-only guarantee
+
+== browser
+{"seeded":true,"picked":false,"hasView":false,"rows":0,"diffRows":0,"changedCount":0,"allCount":0,"focused":false,"clickedWithMoves":false,"boards":0,"advanced":false,"markedDone":true,"badges":0,"asked":false,"onAssistant":false,"draftAfter":"","exportClicked":"no button","exported":null,"stored":{"active":false},"afterClear":{"active":false},"chipGone":true}
+AI_COMPARE_FAIL

@@ -1,0 +1,6 @@
+   Compiling rbc-db v0.1.0 (/mnt/4tb/KnightLM/crates/rbc-db)
+   Compiling rbc-ai v0.1.0 (/mnt/4tb/KnightLM/crates/ai)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.86s
+     Running tests/diff.rs (/mnt/4tb/build/cargo/c5/9213afa9b47f20/debug/deps/diff-603a2b7c4c301104)
+     Running tests/diff_fixtures.rs (/mnt/4tb/build/cargo/c5/9213afa9b47f20/debug/deps/diff_fixtures-6d78602a0efa1918)
+FAIL: cdp_compare

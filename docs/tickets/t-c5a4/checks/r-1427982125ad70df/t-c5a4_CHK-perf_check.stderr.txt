@@ -1,0 +1,28 @@
+   Compiling rbc-db v0.1.0 (/mnt/4tb/KnightLM/crates/rbc-db)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.53s
+     Running tests/perf_plans.rs (/mnt/4tb/build/cargo/c5/9213afa9b47f20/debug/deps/perf_plans-9dceb5a198311345)
+   Compiling rbc-db v0.1.0 (/mnt/4tb/KnightLM/crates/rbc-db)
+   Compiling rbc-ai v0.1.0 (/mnt/4tb/KnightLM/crates/ai)
+   Compiling rusty-brick-chess v0.1.0 (/mnt/4tb/KnightLM/apps/rusty-brick-chess)
+warning: constant `SCHEMA` is never used
+  --> src/providers.rs:13:11
+   |
+13 | pub const SCHEMA: &str = "rbc-provider/1";
+   |           ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `Provider` is never constructed
+  --> src/providers.rs:17:12
+   |
+17 | pub struct Provider {
+   |            ^^^^^^^^
+
+warning: struct `ProviderTest` is never constructed
+  --> src/providers.rs:49:12
+   |
+49 | pub struct ProviderTest {
+   |            ^^^^^^^^^^^^
+
+warning: `rusty-brick-chess` (lib) generated 3 warnings
+    Finished `release` profile [optimized] target(s) in 17.03s

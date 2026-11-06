@@ -1,0 +1,25 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/diff.rs (/mnt/4tb/build/cargo/c5/9213afa9b47f20/debug/deps/diff-603a2b7c4c301104)
+     Running tests/diff_fixtures.rs (/mnt/4tb/build/cargo/c5/9213afa9b47f20/debug/deps/diff_fixtures-6d78602a0efa1918)
+warning: constant `SCHEMA` is never used
+  --> src/providers.rs:13:11
+   |
+13 | pub const SCHEMA: &str = "rbc-provider/1";
+   |           ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `Provider` is never constructed
+  --> src/providers.rs:17:12
+   |
+17 | pub struct Provider {
+   |            ^^^^^^^^
+
+warning: struct `ProviderTest` is never constructed
+  --> src/providers.rs:49:12
+   |
+49 | pub struct ProviderTest {
+   |            ^^^^^^^^^^^^
+
+warning: `rusty-brick-chess` (lib) generated 3 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s

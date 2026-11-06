@@ -1,0 +1,10 @@
+
+running 5 tests
+test finding_a_stored_turn_by_sequence_does_not_scan ... ok
+test an_elo_band_uses_both_elo_indexes ... ok
+test reading_a_conversation_walks_its_index ... ok
+test replaying_events_after_a_sequence_walks_the_stream_index ... ok
+test tearing_down_a_conversation_walks_its_index ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+

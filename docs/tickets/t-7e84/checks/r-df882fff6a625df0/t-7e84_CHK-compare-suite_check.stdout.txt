@@ -1,0 +1,43 @@
+
+== engine and fixture matrix
+
+running 12 tests
+test a_fen_is_the_same_position_without_its_counters ... ok
+test notes_are_compared_by_line ... ok
+test a_chapter_only_on_one_side_is_added_or_removed ... ok
+test an_identical_comparison_exports_as_one_line ... ok
+test a_chapter_that_kept_its_title_lines_up_and_reports_its_board_change ... ok
+test chapters_at_the_same_ordinal_align_even_when_everything_else_differs ... ok
+test two_identically_built_studies_are_identical_apart_from_the_study_fields ... ok
+test the_markdown_export_names_what_changed ... ok
+test the_json_export_round_trips_through_the_report ... ok
+test exporting_does_not_mutate_either_side ... ok
+test progress_travels_with_the_chapter_when_a_user_is_given ... ok
+test comparing_writes_nothing ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+running 8 tests
+test boards_align_by_title_and_a_fen_matches_without_its_counters ... ok
+test chapters_fall_back_to_ordinal_when_the_id_is_new ... ok
+test a_second_chapter_only_on_one_side_is_reported_as_removed ... ok
+test a_report_is_a_snapshot_not_a_live_handle ... ok
+test every_kind_of_change_reaches_the_report ... ok
+test comparing_touches_no_table_it_does_not_read ... ok
+test chapters_align_by_id_before_anything_else ... ok
+test an_unchanged_study_pair_reports_nothing_but_the_copy_title ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+
+== the read-only guarantee
+
+== browser
+[1/2] cargo leptos build...
+[2/2] deploying...
+deployed: index.html pkg sounds | pkg: rbc-frontend_bg.wasm rbc-frontend_bg.wasm.d.ts rbc-frontend.css rbc-frontend.d.ts rbc-frontend.js rbc-frontend.wasm 
+{"seeded":true,"picked":true,"hasView":true,"rows":10,"chip":"Left 521437 ↔ Right 521437","diffRows":1,"summary":"These studies differ:","changedCount":1,"allCount":1,"focused":true,"clickedWithMoves":true,"boards":2,"plyLabel":"ply 3 of 3 (first divergence at 2)","advanced":true,"plyAfter":"ply 2 of 3 (first divergence at 2)","plyTotal":"3","markedDone":true,"badges":1,"asked":true,"onAssistant":true,"draftAfter":"Compare Left 521437 and Right 521437. What are the substantive differences, and what should I look at first?","exportClicked":"clicked","exported":"diff.md","stored":{"active":true,"left":"24c5a614-903a-489a-a742-5605ea383d12","right":"62c5c689-b0ae-484a-b98f-f3a7d20ce0e4"},"afterClear":{"active":false},"chipGone":true}
+AI_COMPARE_PASS
+
+COMPARE_SUITE_PASS

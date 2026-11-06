@@ -189,7 +189,7 @@
 
 ## docs/tickets/t-7e84.md
 > Pin alignment, coverage, export and no-mutation.
-- t-7e84 · ticket · open · Compare tests and read-only guard · docs/tickets/t-7e84.md:1
+- t-7e84 · ticket · done · Compare tests and read-only guard · docs/tickets/t-7e84.md:1
 
 ## docs/tickets/t-7e92.md
 > Drive a turn from context compilation through tool calls to a stored turn.
@@ -253,7 +253,7 @@
 
 ## docs/tickets/t-c5a4.md
 > Measure 1M DB, long sessions, SSE and 16-model tournaments.
-- t-c5a4 · ticket · in_progress · Performance and load · docs/tickets/t-c5a4.md:1
+- t-c5a4 · ticket · done · Performance and load · docs/tickets/t-c5a4.md:1
 
 ## docs/tickets/t-c76d.md
 > Export Markdown/JSON and reserve R2 fields.
