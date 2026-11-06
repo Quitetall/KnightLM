@@ -15,3 +15,4 @@ shakmaty.workspace = true
 uuid.workspace = true
 knightlm-notation = { path = "../notation" }
 knightlm-core = { path = "../core" }
+

@@ -1022,6 +1022,13 @@ impl Db {
     }
 
     /// One setting, if it has been written.
+    /// A connection for tests that need to ask SQLite a question directly -
+    /// `EXPLAIN QUERY PLAN`, mostly. Not part of the domain surface.
+    #[doc(hidden)]
+    pub fn connection_for_test(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
+        self.conn.lock().expect("db lock")
+    }
+
     pub fn setting(&self, key: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().expect("db lock");
         Ok(conn
