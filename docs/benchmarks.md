@@ -36,19 +36,26 @@ because they are dominated by SQLite's page cache and indexes either way.
 
 ## The database
 
-Measured on a tmpfs, 150,000 synthetic games of 8–67 plies in one database
-(564 MB), release build:
+Measured on a tmpfs, synthetic games of 8–67 plies in one database, release
+build. Two sizes, because the interesting failures only appear at the larger one:
 
-| | |
-|---|---|
-| import | **1,340 games/s** (SOFT: tmpfs, see above) |
-| first page, no filter | 1 ms |
-| by result | 1 ms |
-| by player | 1 ms |
-| by Elo band | 7 ms |
-| by date range | 2 ms |
-| position search (after 1.e4) | 1 ms, 500 hits |
-| explorer (after 1.e4) | 30 ms, 12 continuations |
+| | 150,000 games (564 MB) | **1,000,000 games (3.6 GB)** |
+|---|---|---|
+| import | 1,340 games/s | **495 games/s** (2,021 s) |
+| first page, no filter | 1 ms | 15 ms |
+| by result | 1 ms | 15 ms |
+| by player | 1 ms | 6 ms |
+| by Elo band | 7 ms | **170 ms** |
+| by date range | 2 ms | 42 ms |
+| position search (after 1.e4) | 1 ms, 500 hits | 3 ms, 500 hits |
+| explorer (after 1.e4) | 30 ms, 12 continuations | **1,312 ms**, 12 continuations |
+
+Import throughput falls by more than half between the two sizes — SQLite's index
+maintenance, not the generator, which is the same code at both. Everything a
+person waits on in the explorer stays fast; **the explorer itself does not**:
+1.3 seconds at a million games is a visible stall on the board, and it is the
+next thing to fix. It groups continuations per candidate move and has no covering
+index for that; `search_position` next to it resolves in 3 ms.
 
 **The Elo band was 301 ms before this pass.** The filter was written as two OR
 groups — one for the floor, one for the ceiling — and each group spans two
