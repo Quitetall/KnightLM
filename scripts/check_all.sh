@@ -154,7 +154,12 @@ if [ "$DO_CDP" = 1 ]; then
   # Some suites bring their own provider on 8100 and so need the server pointed
   # there; the rest use this script's mock. Two fixed groups, one server each:
   # restarting per suite left the port churning and the run hanging.
-  SELF_HOSTED="cdp_ai_stream.js cdp_ai_context.js cdp_ai_scopes.js"
+  #
+  # cdp_ai_approvals belongs to the first group: it starts its own mock on 8100
+  # and the approval it checks is queued by a tool call that only that mock
+  # makes. In the shared group it was talking to the python mock, which answers
+  # with moves, so nothing was ever queued and the queue was always empty.
+  SELF_HOSTED="cdp_ai_stream.js cdp_ai_context.js cdp_ai_scopes.js cdp_ai_approvals.js"
   # A suite that queues approvals must not inherit another's queue, or it reads
   # the wrong first row. Clearing between suites keeps the shared database from
   # turning "passes alone" into "fails in a run".

@@ -117,7 +117,7 @@
 
 ## docs/tickets/t-4158.md
 > Run every gate, including the new AI suites.
-- t-4158 · ticket · in_progress · Full Rust and CDP suite, warning-free builds · docs/tickets/t-4158.md:1
+- t-4158 · ticket · done · Full Rust and CDP suite, warning-free builds · docs/tickets/t-4158.md:1
 
 ## docs/tickets/t-41af.md
 > Add the Compare tab and the compare scope.
