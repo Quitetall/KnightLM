@@ -33,10 +33,10 @@ impl Lcg {
     }
 }
 
-fn game_pgn(rng: &mut Lcg, index: usize) -> String {
+fn game_pgn(rng: &mut Lcg, index: usize, max_plies: usize) -> String {
     let mut position = Chess::default();
     let mut sans = Vec::new();
-    let plies = 8 + rng.pick(60);
+    let plies = 8 + rng.pick(max_plies.max(8));
     for _ in 0..plies {
         let moves = position.legal_moves();
         if moves.is_empty() {
@@ -89,11 +89,18 @@ fn main() -> anyhow::Result<()> {
     let mut games = 10_000usize;
     let mut path = "/tmp/rbc-bench.db".to_string();
     let mut json = false;
+    let mut turns = 0usize;
+    // How long a generated game runs. Shorter games mean fewer position rows,
+    // which is how a million of them fit on a disk with less room than the whole
+    // corpus would need.
+    let mut max_plies = 60usize;
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--games" => games = args.next().unwrap_or_default().parse()?,
             "--db" => path = args.next().unwrap_or_default(),
             "--json" => json = true,
+            "--turns" => turns = args.next().unwrap_or_default().parse()?,
+            "--max-plies" => max_plies = args.next().unwrap_or_default().parse()?,
             _ => {}
         }
     }
@@ -106,7 +113,7 @@ fn main() -> anyhow::Result<()> {
     let mut batch_games = 0;
     let mut imported = 0;
     for index in 0..games {
-        batch.push_str(&game_pgn(&mut rng, index));
+        batch.push_str(&game_pgn(&mut rng, index, max_plies));
         batch.push('\n');
         batch_games += 1;
         if batch_games == 500 {
@@ -155,6 +162,62 @@ fn main() -> anyhow::Result<()> {
     let explorer = db.explore(after_e4)?;
     let explore_ms = millis(started);
 
+    // --- transcripts -----------------------------------------------------
+    // A long conversation is the other thing that grows without bound: every
+    // turn stores its context blob and its compiled hash. This measures writing
+    // them, reading them back, and what the rows cost on disk.
+    let transcript = if turns > 0 {
+        use rbc_db::{AiTurnInput, SessionProfile};
+        let session = db.create_ai_session(
+            "bench",
+            "chat",
+            None,
+            None,
+            SessionProfile {
+                model_json: r#"{"model":"bench"}"#,
+                context_spec_json: r#"{"id":"chat-v1"}"#,
+                permissions_json: "{}",
+            },
+        )?;
+        let body = "x".repeat(600);
+        let started = Instant::now();
+        for index in 0..turns {
+            db.append_ai_turn(
+                &session.id,
+                &AiTurnInput {
+                    role: if index % 2 == 0 { "user".into() } else { "assistant".into() },
+                    content: format!("{body} {index}"),
+                    context_json: r#"{"position":{"fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}}"#.into(),
+                    context_sha256: "0".repeat(64),
+                    ..AiTurnInput::default()
+                },
+            )?;
+        }
+        let write_ms = millis(started);
+        let started = Instant::now();
+        let loaded = db.ai_turns(&session.id)?.len();
+        let read_ms = millis(started);
+        // The newest turn is what the composer needs on send.
+        let started = Instant::now();
+        let newest = db
+            .ai_turns(&session.id)?
+            .into_iter()
+            .next_back()
+            .map(|turn| turn.seq);
+        let newest_ms = millis(started);
+        Some(serde_json::json!({
+            "turns": turns,
+            "loaded": loaded,
+            "newest_seq": newest,
+            "write_ms": write_ms.round(),
+            "write_per_second": (turns as f64 / (write_ms / 1000.0)).round(),
+            "full_read_ms": read_ms.round(),
+            "newest_read_ms": newest_ms.round(),
+        }))
+    } else {
+        None
+    };
+
     let report = serde_json::json!({
         "games_requested": games,
         "games_imported": imported,
@@ -166,6 +229,7 @@ fn main() -> anyhow::Result<()> {
         "position_search": { "ms": search_ms.round(), "hits": hits },
         "explore": { "ms": explore_ms.round(), "continuations": explorer.continuations.len() },
         "database_bytes": std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+        "transcript": transcript,
     });
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -180,6 +244,13 @@ fn main() -> anyhow::Result<()> {
         println!("  position search: {search_ms:.1} ms, {hits} hit(s)");
         println!("  explore: {explore_ms:.1} ms, {} continuation(s)", explorer.continuations.len());
         println!("  database: {} bytes", report["database_bytes"]);
+        if let Some(transcript) = report.get("transcript").filter(|t| !t.is_null()) {
+            println!(
+                "  transcript: {} turns written at {}/s, full read {} ms, newest {} ms",
+                transcript["turns"], transcript["write_per_second"],
+                transcript["full_read_ms"], transcript["newest_read_ms"]
+            );
+        }
     }
     Ok(())
 }
