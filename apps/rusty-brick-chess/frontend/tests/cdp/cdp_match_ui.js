@@ -30,9 +30,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const started = await clickText("button", "Watch two models");
   await sleep(2000);
   const cards = await ev(`document.querySelectorAll(".player-card").length`);
-  const stepped = await clickText("button", "Step");
+  const stepped = await ev(`(()=>{const b=document.querySelector(".match-step");if(!b||b.disabled)return false;b.click();return true;})()`);
   await sleep(1500);
-  await clickText("button", "Step");
+  await ev(`(()=>{const b=document.querySelector(".match-step");if(!b||b.disabled)return false;b.click();return true;})()`);
   await sleep(1500);
   const plies = await ev(`[...document.querySelectorAll(".match-moves .ply")].map(p=>p.textContent.trim())`);
   const pgn = await ev(`(()=>{const e=document.querySelector(".match-pgn");return e?e.textContent.trim():"";})()`);
@@ -53,7 +53,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const shortCard = await ev(`(()=>{const cards=[...document.querySelectorAll(".match-card")];const c=cards[0];if(!c)return false;c.click();return true;})()`);
   await sleep(1400);
   const resultLine = await ev(`(()=>{const e=document.querySelector(".match-result");return e?e.textContent.trim():"";})()`);
-  const stepDisabled = await ev(`(()=>{const b=[...document.querySelectorAll("button")].find(x=>x.textContent.trim()==="Step");return b?b.disabled:null;})()`);
+  const stepDisabled = await ev(`(()=>{const b=document.querySelector(".match-step");return b?b.disabled:null;})()`);
 
   // Rematch makes a new game rather than reopening the old one.
   const beforeRematch = await ev(`document.querySelectorAll(".match-card").length`);
@@ -63,7 +63,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const freshPlies = await ev(`document.querySelectorAll(".match-moves .ply").length`);
 
   // Pause, then try to step: the button must stop adding plies.
-  const paused = await clickText("button", "Pause");
+  const paused = await ev(`(()=>{const b=document.querySelector(".match-pause");if(!b||b.disabled)return false;b.click();return true;})()`);
   await sleep(1200);
   const afterPause = await ev(`document.querySelector(".match-state")?.textContent.trim()`);
 
