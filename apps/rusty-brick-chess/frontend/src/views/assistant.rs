@@ -1460,7 +1460,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                         }.into_any()
                     })}
                 </div>
-                {move || (!has_provider.get() && model_override.get() != "knightlm-smolvlm-500m").then(|| view! {
+                {move || (!has_provider.get() && model_override.get() != super::play::KNIGHTLM_MODEL).then(|| view! {
                     <div class="provider-missing" role="status">
                         {move || i18n::t(&language.get(), "assistant.no_provider")}
                     </div>
@@ -1558,10 +1558,14 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                         />
                     </label>
                     <button type="button" class="composer-knightlm"
-                        aria-pressed=move || if model_override.get() == "knightlm-smolvlm-500m" { "true" } else { "false" }
+                        aria-pressed=move || if model_override.get() == super::play::KNIGHTLM_MODEL { "true" } else { "false" }
                         disabled=move || sending.get()
-                        on:click=move |_| model_override.set("knightlm-smolvlm-500m".into())>
+                        on:click=move |_| model_override.set(super::play::KNIGHTLM_MODEL.into())>
                         "KnightLM (LAMU)"
+                    </button>
+                    <button type="button" class="composer-play"
+                        on:click=move |_| ctx.switch_tab.run(crate::model::Tab::Play)>
+                        {move || i18n::t(&language.get(), "play.from_assistant")}
                     </button>
                     <label class="composer-temperature">
                         {move || i18n::t(&language.get(), "assistant.temperature")}

@@ -210,6 +210,23 @@
     }
     .status { font-size: .78rem; color: var(--accent); min-height: 1.1em; }
 
+    .play-new, .play-new label, .match-actions, .match-handoff {
+      display: flex; align-items: center; flex-wrap: wrap; gap: .5rem;
+    }
+    .play-new label, .play-opponent { min-width: 0; max-width: 100%; }
+    .play-opponent, .play-start {
+      font: inherit; padding: .5rem .7rem; border-radius: 7px; border: 1px solid var(--line);
+    }
+    .play-start { background: #31583b; color: var(--text); cursor: pointer; }
+    .match-cards { margin: .8rem 0 .2rem; }
+    .match-status { margin-bottom: .25rem; color: var(--accent); }
+    .match-error { margin: .3rem 0; color: #ffb2ac; }
+    .match-error:empty { display: none; }
+    .match-moves { display: flex; flex-wrap: wrap; gap: .3rem .6rem; list-style: none; padding: 0; }
+    .match-handoff, .play-more { margin-top: .7rem; }
+    .match-pgn { flex-basis: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .play-more summary { cursor: pointer; color: var(--muted); }
+
     @media (max-width: 900px) {
       body { padding: 1rem; }
       .layout { grid-template-columns: 1fr; max-width: 560px; }

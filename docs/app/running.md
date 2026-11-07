@@ -78,12 +78,14 @@ own will serve the API and no UI.
 
 ## Play a local model through LAMU
 
-RBC starts and serves the chess UI with the AI runtime offline. When you want
-a model opponent, run LAMU on `127.0.0.1:8020`, open **Play**, click **Find local
-models**, choose a **LAMU** opponent, and start a casual game. Move a piece on
-the board and RBC asks that endpoint for a reply. LAMU manages model loading when
-the request arrives. RBC checks the reply against the position before adding
-it to the game.
+RBC serves the chess UI with the AI runtime offline. Open **Play**, choose an
+**Opponent model**, and click **Start game**. You play White. Drag a piece or
+click its source and destination squares. RBC asks the model for a reply and
+checks it against the current position before adding it to the game.
+
+KnightLM is available in the picker immediately. Its first reply starts LAMU
+if needed. Play discovers other local models when it opens. **Play a game**
+in Assistant opens this same screen.
 
 For Assistant chat, select **KnightLM (LAMU)** in the composer and send a
 message. RBC uses the local LAMU service if it is healthy. Otherwise it

@@ -1379,10 +1379,8 @@ pub fn Board(
                 <div
                     class="board-wrap"
                     style=move || {
-                        format!(
-                            "width: min({}%, calc(100vh - 240px)); margin-inline: auto;",
-                            board_pct.get()
-                        )
+                        let viewport_limit = if board_only { "max(240px, 100dvh - 300px)" } else { "calc(100vh - 240px)" };
+                        format!("width: min({}%, {viewport_limit}); margin-inline: auto;", board_pct.get())
                     }
                     tabindex="0"
                     on:keydown=move |ev| { if !board_only { on_key(ev); } }

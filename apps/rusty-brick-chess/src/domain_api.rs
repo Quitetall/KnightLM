@@ -1416,7 +1416,12 @@ pub async fn model_match_move(
     if seat.provider == "local:LAMU" {
         policy.request_reasoning = false;
     }
-    let url = match_endpoint(settings.model_url.as_deref(), &seat)?;
+    let url = if seat.provider == "local:LAMU" && seat.model == crate::lamu_runtime::KNIGHTLM_MODEL
+    {
+        crate::lamu_runtime::knightlm_endpoint(&state.lamu_child).await?
+    } else {
+        match_endpoint(settings.model_url.as_deref(), &seat)?
+    };
     let playing = tokio::task::spawn_blocking(move || {
         let provider = provider_for(&url, &seat, true)?;
         let cancel = rbc_ai::provider::Cancellation::new();

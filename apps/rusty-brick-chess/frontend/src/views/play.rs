@@ -1,10 +1,7 @@
 //! The Play tab: matches against a model, and model-versus-model games.
 //!
-//! The view is a list of matches on the left and the chosen one on the right:
-//! player cards with their clocks, the move list, the controls that suit that
-//! kind of game (a move picker for a human seat, step/pause for two models),
-//! and the three ways a finished game leaves this screen — into the database,
-//! into the Analysis tab, or out as a PGN file.
+//! The opponent selector and active board come first. Saved games,
+//! leaderboards, and tournaments sit below them.
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -16,9 +13,14 @@ use crate::board::Board;
 use crate::i18n;
 use crate::views::AppCtx;
 
+pub(crate) const KNIGHTLM_MODEL: &str = "knightlm-smolvlm-500m";
+
 const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 fn seat_label(seat: &serde_json::Value) -> String {
+    if seat["provider"] == "local:LAMU" && seat["model"] == KNIGHTLM_MODEL {
+        return "KnightLM".into();
+    }
     match seat.get("kind").and_then(|kind| kind.as_str()) {
         Some("model") => format!(
             "{} · {}",
@@ -102,6 +104,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     let AppCtx {
         language,
         open_game,
+        settings_model,
         ..
     } = ctx;
 
@@ -111,7 +114,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     let busy = RwSignal::new(false);
     let message = RwSignal::new(String::new());
     let local_models = RwSignal::new(Vec::<(String, String)>::new());
-    let opponent = RwSignal::new(0usize);
+    let opponent = RwSignal::new(1usize);
     let scanning = RwSignal::new(false);
     let scan_local = move || {
         message.set(String::new());
@@ -123,12 +126,18 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         .flat_map(|endpoint| {
                             let label = endpoint.label;
                             endpoint.models.into_iter().map(move |model| (label.clone(), model))
-                        }).collect::<Vec<_>>();
-                    if models.is_empty() {
-                        message.set(i18n::t(&language.get_untracked(), "play.no_local_models").to_string());
-                    }
-                    opponent.set(0);
+                        }).filter(|(label, model)| label != "LAMU" || model != KNIGHTLM_MODEL)
+                        .collect::<Vec<_>>();
+                    let selected = opponent.get_untracked();
+                    let next = selected.checked_sub(2).map(|index| {
+                        let previous = local_models.with_untracked(|old| old.get(index).cloned());
+                        previous.and_then(|seat| models.iter().position(|model| *model == seat))
+                            .map_or(1, |index| index + 2)
+                    });
                     local_models.set(models);
+                    if let Some(next) = next {
+                        opponent.set(next);
+                    }
                 }
                 Err(error) => message.set(error),
             }
@@ -160,7 +169,8 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     let load_detail = move |id: String| {
         spawn_local(async move {
             match ai_api::get_ai_match(&id).await {
-                Ok(value) => detail.set(Some(value)),
+                Ok(value) if selected.get_untracked().as_deref() == Some(&id) => detail.set(Some(value)),
+                Ok(_) => {}
                 Err(error) => message.set(error),
             }
         });
@@ -185,6 +195,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     };
 
     // Load once, and whenever the list is asked for again.
+    Effect::new(move |_| scan_local());
     Effect::new(move |_| reload());
     Effect::new(move |_| reload_board());
     Effect::new(move |_| reload_tournaments());
@@ -201,19 +212,33 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     // Follow the selection.
     Effect::new(move |_| {
         if let Some(id) = selected.get() {
-            load_detail(id);
+            let already_loaded = detail.with_untracked(|payload| {
+                payload.as_ref().and_then(|value| value["id"].as_str()) == Some(id.as_str())
+            });
+            if !already_loaded {
+                detail.set(None);
+                load_detail(id);
+            }
         } else {
             detail.set(None);
         }
     });
 
     let start_match = move |white_model: bool, black_model: bool| {
-        let model_seat = local_models.with_untracked(|models| {
-            opponent.get_untracked().checked_sub(1).and_then(|index| models.get(index)).map_or_else(
-                || serde_json::json!({"kind": "model", "provider": "local", "model": "assistant"}),
-                |(label, model)| serde_json::json!({"kind": "model", "provider": format!("local:{label}"), "model": model}),
-            )
-        });
+        let model_seat = match opponent.get_untracked() {
+            0 if !settings_model.get_untracked().trim().is_empty() => {
+                serde_json::json!({"kind": "model", "provider": "local", "model": "assistant"})
+            }
+            1 => serde_json::json!({"kind": "model", "provider": "local:LAMU", "model": KNIGHTLM_MODEL}),
+            choice => {
+                let Some((label, model)) = choice.checked_sub(2)
+                    .and_then(|index| local_models.with_untracked(|models| models.get(index).cloned()))
+                else {
+                    return;
+                };
+                serde_json::json!({"kind": "model", "provider": format!("local:{label}"), "model": model})
+            }
+        };
         message.set(String::new());
         let config = serde_json::json!({
             "start_fen": START_FEN,
@@ -236,8 +261,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             match ai_api::create_ai_match(config).await {
                 Ok(value) => {
                     if let Some(id) = value.get("id").and_then(|id| id.as_str()) {
-                        selected.set(Some(id.to_string()));
+                        let id = id.to_owned();
                         detail.set(Some(value));
+                        selected.set(Some(id));
                     }
                     reload();
                 }
@@ -261,13 +287,12 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                     // A route may answer with the match itself or wrap it.
                     let next = value.get("match").cloned().unwrap_or(value);
                     if next.get("id").is_some() {
-                        let local_reply = action == "move" && next["result"].is_null()
-                            && next["turn"].as_str().and_then(|turn| next[turn]["provider"].as_str())
-                                .is_some_and(|provider| provider.starts_with("local:"));
+                        let model_reply = action == "move" && next["result"].is_null()
+                            && next["turn"].as_str().is_some_and(|turn| next[turn]["kind"] == "model");
                         if selected.get_untracked().as_deref() == Some(&id) {
                             detail.set(Some(next));
                         }
-                        if local_reply {
+                        if model_reply {
                             match ai_api::match_action(&id, "model-move", serde_json::json!({})).await {
                                 Ok(reply) if selected.get_untracked().as_deref() == Some(&id) => {
                                     detail.set(reply.get("match").cloned());
@@ -320,8 +345,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             match ai_api::create_ai_match(config).await {
                 Ok(value) => {
                     if let Some(id) = value.get("id").and_then(|id| id.as_str()) {
-                        selected.set(Some(id.to_string()));
+                        let id = id.to_owned();
                         detail.set(Some(value));
+                        selected.set(Some(id));
                     }
                     reload();
                 }
@@ -369,16 +395,17 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             <header class="play-head">
                 <h2>{move || i18n::t(&language.get(), "nav.play")}</h2>
                 <div class="play-new">
-                    <button class="play-scan-models" disabled=move || scanning.get() || busy.get() on:click=move |_| scan_local()>
-                        {move || i18n::t(&language.get(), "play.scan_models")}
-                    </button>
                     <label>
                         {move || i18n::t(&language.get(), "play.opponent")}
-                        <select class="play-opponent" disabled=move || scanning.get() || busy.get()
-                            on:change=move |event| opponent.set(event_target_value(&event).parse().unwrap_or(0))>
-                            <option value="0" selected=move || opponent.get() == 0>{move || i18n::t(&language.get(), "play.default_model")}</option>
+                        <select class="play-opponent" disabled=move || busy.get()
+                            prop:value=move || opponent.get().to_string()
+                            on:change=move |event| opponent.set(event_target_value(&event).parse().unwrap_or(1))>
+                            <option value="1">"KnightLM (LAMU)"</option>
+                            {move || (!settings_model.get().trim().is_empty()).then(|| view! {
+                                <option value="0">{move || i18n::t(&language.get(), "play.default_model")}</option>
+                            })}
                             {move || local_models.get().into_iter().enumerate().map(|(index, (label, model))| view! {
-                                <option value=index + 1 selected=move || opponent.get() == index + 1>{format!("{label} · {model}")}</option>
+                                <option value=index + 2 selected=move || opponent.get() == index + 2>{format!("{label} · {model}")}</option>
                             }).collect_view()}
                         </select>
                     </label>
@@ -389,16 +416,6 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                     >
                         {move || i18n::t(&language.get(), "play.new_casual")}
                     </button>
-                    <button
-                        class="play-start"
-                        disabled=move || busy.get()
-                        on:click=move |_| start_match(true, true)
-                    >
-                        {move || i18n::t(&language.get(), "play.new_watch")}
-                    </button>
-                    <button class="play-refresh" on:click=move |_| reload()>
-                        {move || i18n::t(&language.get(), "approvals.refresh")}
-                    </button>
                 </div>
             </header>
 
@@ -407,7 +424,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                     {move || {
                         let Some(payload) = detail.get() else {
                             return view! {
-                                <p class="muted">{move || i18n::t(&language.get(), "play.choose")}</p>
+                                <p class="muted">{move || i18n::t(&language.get(), "play.ready")}</p>
                             }.into_any();
                         };
                         let (white_clock, black_clock) = clocks(&payload);
@@ -439,26 +456,27 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         let fen = payload["fen"].as_str().unwrap_or(START_FEN).to_owned();
                         let orientation = human_color.unwrap_or("white").to_owned();
                         view! {
-                            <div class="match-cards">
-                                <div class="player-card">
-                                    <span class="player-name">{move || i18n::t(&language.get(), "play.white")}</span>
-                                    <span>{white}</span>
-                                    <span class="player-clock">{clock_text(white_clock)}</span>
-                                </div>
-                                <div class="player-card">
-                                    <span class="player-name">{move || i18n::t(&language.get(), "play.black")}</span>
-                                    <span>{black}</span>
-                                    <span class="player-clock">{clock_text(black_clock)}</span>
-                                </div>
-                            </div>
-
-                            <div class="match-status">
-                                <span class="match-state">{state.clone()}</span>
-                                <span class="muted">{format!("{} to move", turn)}</span>
-                                {result_for_line.map(|result| view! {
-                                    <span class="match-result">{result}</span>
+                            <p class="match-cards">
+                                <strong>{white}" vs "{black}</strong>
+                                {white_clock.zip(black_clock).map(|(white, black)| {
+                                    format!(" · {} / {}", clock_text(Some(white)), clock_text(Some(black)))
                                 })}
+                            </p>
+
+                            <div class="match-status" role="status">
+                                {move || if let Some(result) = &result_for_line {
+                                    result.clone()
+                                } else if watching {
+                                    format!("{state} · {turn} to move")
+                                } else if human_turn {
+                                    i18n::t(&language.get(), "play.your_turn").to_owned()
+                                } else if busy.get() {
+                                    i18n::t(&language.get(), "play.thinking").to_owned()
+                                } else {
+                                    i18n::t(&language.get(), "play.opponent_turn").to_owned()
+                                }}
                             </div>
+                            <p class="match-error" role="alert">{move || message.get()}</p>
 
                             <Board
                                 pgn=Signal::derive(String::new)
@@ -513,7 +531,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 </button>
                                 })}
                                 {(!finished && !watching && !human_turn).then(|| view! {
-                                    <button class="match-model-move" disabled=move || busy.get()
+                                    <button class="match-model-move" hidden=move || busy.get()
                                         on:click=move |_| act("model-move", serde_json::json!({}))>
                                         {move || i18n::t(&language.get(), "play.model_move")}
                                     </button>
@@ -564,8 +582,21 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             </div>
                         }.into_any()
                     }}
-                    <div class="muted">{move || message.get()}</div>
+                    {move || detail.get().is_none().then(|| view! {
+                        <p class="match-error" role="alert">{move || message.get()}</p>
+                    })}
                 </div>
+                <details class="play-more">
+                    <summary>{move || i18n::t(&language.get(), "play.more")}</summary>
+                    <button class="play-scan-models" disabled=move || scanning.get() || busy.get() on:click=move |_| scan_local()>
+                        {move || i18n::t(&language.get(), "play.scan_models")}
+                    </button>
+                    <button class="play-watch" disabled=move || busy.get() on:click=move |_| start_match(true, true)>
+                        {move || i18n::t(&language.get(), "play.new_watch")}
+                    </button>
+                    <button class="play-refresh" on:click=move |_| reload()>
+                        {move || i18n::t(&language.get(), "approvals.refresh")}
+                    </button>
                 <ul class="match-list">
                     {move || {
                         let list = matches.get();
@@ -598,6 +629,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                         } else {
                                             "match-card"
                                         }
+                                        disabled=move || busy.get()
                                         on:click=move |_| selected.set(Some(id_click.clone()))
                                     >
                                         <span class="match-card-seats">{format!("{white} vs {black}")}</span>
@@ -893,6 +925,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         })}
                     </section>
                 </div>
+                </details>
             </div>
         </section>
     }
