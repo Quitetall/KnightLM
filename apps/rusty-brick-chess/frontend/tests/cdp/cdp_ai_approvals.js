@@ -1,161 +1,160 @@
-// Streaming, stop and tool cards — self-contained.
-//
-// This script serves its own OpenAI-compatible SSE provider, so the check does
-// not depend on an external mock staying alive. The app's server must be
-// pointed at it: MODEL_URL=http://127.0.0.1:8100/v1/chat.
-const { spawn } = require("child_process");
-const http = require("http");
-const PORT = 9536;
-const PROVIDER = 8100;
-const CHUNK_DELAY_MS = 400;
+// A queued write appears in an already-open panel and applies only on approval.
+// Run against an app with MODEL_URL=http://127.0.0.1:8100/v1/chat.
+const { spawn } = require("node:child_process");
+const { once } = require("node:events");
+const { mkdtempSync, readFileSync, rmSync } = require("node:fs");
+const http = require("node:http");
+const os = require("node:os");
+const path = require("node:path");
 
-// --- a provider that streams slowly and can call a tool --------------------
+const BASE = "http://127.0.0.1:8090";
+const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function startProvider() {
-  const server = http.createServer((req, res) => {
+async function waitFor(read, timeout = 12000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    const value = await read();
+    if (value) return value;
+    await sleep(150);
+  }
+  return null;
+}
+
+async function main() {
+  let boardId;
+  const provider = http.createServer((req, res) => {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
-      let payload = {};
-      try { payload = JSON.parse(body || "{}"); } catch {}
-      const messages = payload.messages || [];
-      const sawTool = messages.some((message) => message.role === "tool");
-      const user = ([...messages].reverse().find((message) => message.role === "user") || {}).content || "";
-      res.writeHead(200, {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      });
-      const send = (obj) => res.write("data: " + JSON.stringify(obj) + "\n\n");
-      const chunk = (delta) => send({ id: "mock", choices: [{ index: 0, delta }] });
-      const finish = (tokensIn, tokensOut) => {
-        send({ id: "mock", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
-        send({ id: "mock", choices: [], usage: { prompt_tokens: tokensIn, completion_tokens: tokensOut } });
-        res.write("data: [DONE]\n\n");
-        res.end();
+      const { messages } = JSON.parse(body);
+      const followUp = messages.some((message) => message.role === "tool");
+      const delta = followUp ? { content: "I requested the move." } : {
+        tool_calls: [{ index: 0, id: "call_play", function: {
+          name: "play_move",
+          arguments: JSON.stringify({ board_id: boardId, move: "e4", expected_revision: 1 }),
+        } }],
       };
-
-      if (/play/i.test(user)) {
-        const toolMessage = messages.filter((m) => m.role === "tool").pop();
-        if (!toolMessage) {
-          // First round: find a board to write to.
-          chunk({ tool_calls: [{ index: 0, id: "call_1", function: { name: "list_boards", arguments: "{}" } }] });
-          send({ id: "mock", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
-          send({ id: "mock", choices: [], usage: { prompt_tokens: 5, completion_tokens: 2 } });
-          res.write("data: [DONE]\n\n");
-          res.end();
-          return;
-        }
-        // Second round: the tool result names a board, so ask to write to it.
-        const match = /"board_id"\s*:\s*"([^"]+)"/.exec(String(toolMessage.content || ""));
-        if (match) {
-          chunk({ tool_calls: [{ index: 0, id: "call_2", function: { name: "play_move", arguments: JSON.stringify({ board_id: match[1], move: "e4", expected_revision: 1 }) } }] });
-          send({ id: "mock", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
-          send({ id: "mock", choices: [], usage: { prompt_tokens: 7, completion_tokens: 3 } });
-          res.write("data: [DONE]\n\n");
-          res.end();
-          return;
-        }
-        finish(9, 4);
-        return;
-      }
-      if (/board/i.test(user) && !sawTool) {
-        // A tool round: ask for the boards, the server answers, we reply.
-        chunk({ tool_calls: [{ index: 0, id: "call_1", function: { name: "list_boards", arguments: "{}" } }] });
-        send({ id: "mock", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
-        send({ id: "mock", choices: [], usage: { prompt_tokens: 5, completion_tokens: 2 } });
-        res.write("data: [DONE]\n\n");
-        res.end();
-        return;
-      }
-
-      const words = (sawTool ? "there are boards here" : "the position is equal and quiet").split(" ");
-      let index = 0;
-      const tick = () => {
-        if (index < words.length) {
-          chunk({ content: words[index++] + " " });
-          setTimeout(tick, CHUNK_DELAY_MS);
-          return;
-        }
-        finish(sawTool ? 11 : 9, sawTool ? 4 : 6);
-      };
-      tick();
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const send = (choice) => res.write(`data: ${JSON.stringify({ id: "mock", choices: [choice] })}\n\n`);
+      send({ index: 0, delta });
+      send({ index: 0, delta: {}, finish_reason: followUp ? "stop" : "tool_calls" });
+      res.end("data: [DONE]\n\n");
     });
   });
-  server.listen(PROVIDER, "127.0.0.1");
-  return server;
+  const profile = mkdtempSync(path.join(os.tmpdir(), "rbc-cdp-approvals-"));
+  let chrome, ws;
+  try {
+    provider.listen(8100, "127.0.0.1");
+    await once(provider, "listening");
+    chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", "--no-first-run",
+      "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--remote-allow-origins=*",
+      "--window-size=1500,1000", `${BASE}/`], { stdio: ["ignore", "ignore", "pipe"] });
+    let startupLog = "";
+    chrome.stderr.on("data", (data) => { startupLog = (startupLog + data).slice(-1600); });
+    const target = await waitFor(async () => {
+      try {
+        const [port] = readFileSync(path.join(profile, "DevToolsActivePort"), "utf8").split("\n");
+        const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1000) });
+        return (await response.json()).find((tab) => tab.type === "page" && tab.url === `${BASE}/`);
+      } catch { return null; }
+    }, 20000);
+    if (!target) throw new Error(`Chrome did not open RustyBrickChess\n${startupLog}`);
+    ws = new WebSocket(target.webSocketDebuggerUrl);
+    await once(ws, "open");
+    let id = 0;
+    const pending = new Map();
+    ws.onmessage = (event) => {
+      const reply = JSON.parse(event.data);
+      pending.get(reply.id)?.(reply);
+    };
+    const evaluate = (expression) => new Promise((resolve, reject) => {
+      const request = ++id;
+      const timer = setTimeout(() => {
+        pending.delete(request);
+        reject(new Error(`CDP evaluation ${request} timed out`));
+      }, 5000);
+      pending.set(request, (reply) => {
+        clearTimeout(timer);
+        pending.delete(request);
+        if (reply.error || reply.result?.exceptionDetails) {
+          reject(new Error(`CDP evaluation failed: ${reply.error?.message || reply.result.exceptionDetails.text}`));
+        } else {
+          resolve(reply.result.result.value);
+        }
+      });
+      ws.send(JSON.stringify({ id: request, method: "Runtime.evaluate",
+        params: { expression, returnByValue: true, awaitPromise: true } }));
+    });
+    const click = (selector, label, prefix = false) => evaluate(`(() => {
+      const button = [...document.querySelectorAll(${JSON.stringify(selector)})].find((element) =>
+        ${prefix ? `element.textContent.trim().startsWith(${JSON.stringify(label)})` : `element.textContent.trim() === ${JSON.stringify(label)}`});
+      button?.click();
+      return !!button;
+    })()`);
+    if (!await waitFor(() => click(".nav", "Assistant"))) throw new Error("Assistant did not load");
+    if (!await waitFor(() => click("button", "New chat"))) throw new Error("New chat button did not load");
+    if (!await waitFor(() => evaluate(`!!document.querySelector(".chat-input textarea")`))) {
+      throw new Error("New chat did not open");
+    }
+
+    boardId = await evaluate(`(async () => {
+      async function create(route, body) {
+        const response = await fetch(route, { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify(body) });
+        if (!response.ok) throw new Error(route + " failed");
+        return response.json();
+      }
+      const workspace = await create("/api/workspaces", { title: "Approvals", kind: "analysis" });
+      const board = await create("/api/boards", { parent_kind: "workspace", parent_id: workspace.id,
+        title: "Approval board", kind: "analysis", start_fen: ${JSON.stringify(START)} });
+      return board.id;
+    })()`);
+    const readBoard = () => evaluate(`(async () => {
+      const board = await fetch("/api/boards/" + ${JSON.stringify(boardId)}).then((response) => response.json());
+      return { revision: board.revision, moves: JSON.parse(board.content_json).moves ?? [] };
+    })()`);
+    if (!await click("button", "Approvals", true)) throw new Error("Approvals button is missing");
+    const empty = await waitFor(() => evaluate(`document.querySelector(".approval-queue")?.textContent.includes("Nothing is waiting for you")`));
+    await evaluate(`(() => {
+      const input = document.querySelector(".chat-input textarea");
+      input.value = "Please play e4";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    if (!await click(".chat-input button", "Send")) throw new Error("Send button is missing");
+
+    const queued = await waitFor(() => evaluate(`(async () => {
+      const response = await fetch("/api/ai/approvals");
+      return response.ok && (await response.json()).pending.some((approval) =>
+        approval.tool === "play_move" && approval.target_id === ${JSON.stringify(boardId)});
+    })()`), 12000);
+    const before = await readBoard();
+    const visible = await waitFor(() => evaluate(`document.querySelector(".approval-row .tool-chip")?.textContent.trim() === "play_move"`), 5000);
+    const approved = visible && await click(".approval-row button", "Approve");
+    const applied = approved && await waitFor(() => evaluate(`(() => {
+      const queue = document.querySelector(".approval-queue");
+      return queue && !queue.querySelector(".approval-row") && queue.textContent.includes("applied · played e4");
+    })()`));
+    const after = await readBoard();
+    console.log(JSON.stringify({ empty, queued, before, visible, approved, applied, after }));
+    return empty && queued && before.revision === 1 && before.moves.length === 0 && visible && approved && applied
+      && after.revision === 2 && JSON.stringify(after.moves) === '["e4"]';
+  } finally {
+    ws?.close();
+    provider.closeAllConnections();
+    provider.close();
+    if (chrome?.kill() && chrome.exitCode === null && chrome.signalCode === null) {
+      await Promise.race([once(chrome, "exit"), sleep(1500)]);
+    }
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 }
 
-function getJson(port, path) {
-  return new Promise((resolve, reject) => {
-    http.get({ host: "127.0.0.1", port, path }, (response) => {
-      let data = "";
-      response.on("data", (chunk) => (data += chunk));
-      response.on("end", () => resolve(JSON.parse(data)));
-    }).on("error", reject);
-  });
-}
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-(async () => {
-  const provider = startProvider();
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-stream2-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
-  let target;
-  for (let i = 0; i < 40; i++) { await sleep(300); try { target = await getJson(PORT, "/json/list"); break; } catch {} }
-  const ws = new WebSocket(target.find((x) => x.type === "page").webSocketDebuggerUrl);
-  let id = 0; const pend = new Map();
-  const send = (method, params = {}) => new Promise((resolve) => { const i = ++id; pend.set(i, resolve); ws.send(JSON.stringify({ id: i, method, params })); });
-  ws.onmessage = (event) => { const m = JSON.parse(event.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m.result); pend.delete(m.id); } };
-  await new Promise((resolve) => (ws.onopen = resolve));
-  await send("Runtime.enable");
-  await sleep(2800);
-  const ev = async (expression) => (await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true })).result?.value;
-  const clickText = async (selector, text) => await ev(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(x=>x.textContent.trim()===${JSON.stringify(text)});e&&e.click();return !!e;})()`);
-  const type = async (text) => await ev(`(()=>{const t=document.querySelector(".chat-input textarea");if(!t)return false;t.value=${JSON.stringify(text)};t.dispatchEvent(new Event("input",{bubbles:true}));return true;})()`);
-  const streamingText = async () => await ev(`(()=>{const b=document.querySelector(".chat-msg.streaming");return b?b.textContent.trim():"";})()`);
-  const waitFor = async (read, ms = 8000) => { const start = Date.now(); while (Date.now() - start < ms) { const value = await read(); if (value) return value; await sleep(250); } return ""; };
-
-  await clickText(".nav", "Assistant");
-  await sleep(900);
-  await clickText("button", "New chat");
-  await sleep(1500);
-
-  // A workspace with one board, so the model has something to write to.
-  const board = await ev(`(async()=>{
-    const ws = await fetch('/api/workspaces',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:'Approvals',kind:'analysis'})}).then(r=>r.json());
-    const b = await fetch('/api/boards',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({parent_kind:'workspace',parent_id:ws.id,title:'Approval board',kind:'analysis',start_fen:'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'})}).then(r=>r.json());
-    return b.id;
-  })()`);
-
-  await type("please play e4");
-  await sleep(200);
-  await clickText(".chat-input button", "Send");
-  await waitFor(async () => await ev(`!document.querySelector(".chat-msg.streaming")`), 15000);
-  await sleep(800);
-
-  const opened = await ev(`(()=>{const b=[...document.querySelectorAll("button")].find(x=>x.textContent.startsWith("Approvals"));if(!b)return false;b.click();return true;})()`);
-  await sleep(1200);
-  const rows = await ev(`document.querySelectorAll(".approval-row").length`);
-  const tool = await ev(`(()=>{const e=document.querySelector(".approval-row .tool-chip");return e?e.textContent.trim():"";})()`);
-  const notes = await ev(`(()=>{const e=[...document.querySelectorAll(".approval-row .muted")].map(x=>x.textContent.trim());return e.join(" | ");})()`);
-  const approved = await ev(`(()=>{const b=[...document.querySelectorAll(".approval-row button")].find(x=>x.textContent.trim()==="Approve");if(!b)return false;b.click();return true;})()`);
-  await sleep(2000);
-  const rowsAfter = await ev(`document.querySelectorAll(".approval-row").length`);
-  const message = await ev(`(()=>{const e=[...document.querySelectorAll(".approval-queue .muted")].map(x=>x.textContent.trim()).filter(Boolean);return e.join(" | ");})()`);
-  // The board must actually have the move on it now.
-  const board_state = await ev(`(async()=>{
-    const boardId = ${JSON.stringify(board)};
-    const b = await fetch('/api/boards/' + boardId).then(r=>r.json());
-    return { revision: b.revision, content: b.content_json };
-  })()`);
-
-  console.log(JSON.stringify({ board, opened, rows, tool, notes, approved, rowsAfter, message, board_state }));
-  const applied = board_state && board_state.revision === 2 && /"moves":\["e4"\]/.test(board_state.content || "");
-  const ok = !!board && opened && rows >= 1 && tool === "play_move" && approved && rowsAfter === rows - 1
-    && applied && /applied/.test(message || "");
+main().then((ok) => {
   console.log(ok ? "AI_APPROVALS_PASS" : "AI_APPROVALS_FAIL");
-  ws.close();
-  chrome.kill();
-  provider.close();
-  process.exit(ok ? 0 : 1);
-})().catch((error) => { console.error(error); process.exit(1); });
+  process.exitCode = ok ? 0 : 1;
+}).catch((error) => {
+  console.error(error);
+  console.log("AI_APPROVALS_FAIL");
+  process.exitCode = 1;
+});
