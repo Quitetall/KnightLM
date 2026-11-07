@@ -1400,6 +1400,8 @@ pub async fn list_matches(
 pub struct ModelMoveOptions {
     #[serde(default)]
     thinking: bool,
+    knightlm_samples: Option<u8>,
+    knightlm_temperature: Option<f32>,
 }
 
 /// `POST /api/ai/matches/{id}/model-move`
@@ -1423,15 +1425,17 @@ pub async fn model_match_move(
         ));
     };
 
-    let thinking = options.is_some_and(|Json(options)| options.thinking)
-        && policy.request_reasoning
-        && seat.provider == "local:LAMU"
-        && seat.model != crate::lamu_runtime::KNIGHTLM_MODEL;
+    let options = options.map(|Json(options)| options);
+    let longer =
+        options.as_ref().is_some_and(|options| options.thinking) && policy.request_reasoning;
+    let knightlm =
+        seat.provider == "local:LAMU" && seat.model == crate::lamu_runtime::KNIGHTLM_MODEL;
+    let native_thinking = longer && seat.provider == "local:LAMU" && !knightlm;
+    let sampled = longer && knightlm;
     if seat.provider == "local:LAMU" {
-        policy.request_reasoning = thinking;
+        policy.request_reasoning = native_thinking;
     }
-    let url = if seat.provider == "local:LAMU" && seat.model == crate::lamu_runtime::KNIGHTLM_MODEL
-    {
+    let url = if knightlm {
         format!(
             "{}/chat/completions",
             crate::lamu_runtime::ensure_runtime(&state.lamu_child).await?
@@ -1440,23 +1444,47 @@ pub async fn model_match_move(
         match_endpoint(settings.model_url.as_deref(), &seat)?
     };
     let playing = tokio::task::spawn_blocking(move || {
-        let provider = provider_for(&url, &seat, true, thinking)?;
+        let provider = provider_for(&url, &seat, true, native_thinking)?;
         let cancel = rbc_ai::provider::Cancellation::new();
-        rbc_ai::play::request_move(&mut game, &provider, &seat, &policy, &cancel)
-            .map(|played| (game, played))
-            .map_err(|error| error.message)
+        let (played, vote) = if sampled {
+            let samples = options
+                .as_ref()
+                .and_then(|value| value.knightlm_samples)
+                .unwrap_or(5);
+            let temperature = options
+                .as_ref()
+                .and_then(|value| value.knightlm_temperature)
+                .unwrap_or(0.6);
+            let (played, vote) = rbc_ai::play::request_sampled_knightlm_move(
+                &mut game,
+                &provider,
+                &seat,
+                &policy,
+                &cancel,
+                samples,
+                temperature,
+            )
+            .map_err(|error| error.message)?;
+            (played, Some(vote))
+        } else {
+            let played = rbc_ai::play::request_move(&mut game, &provider, &seat, &policy, &cancel)
+                .map_err(|error| error.message)?;
+            (played, None)
+        };
+        Ok::<_, String>((game, played, vote))
     })
     .await
     .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?
     .map_err(ApiError::BadRequest)?;
 
-    let (game, played) = playing;
+    let (game, played, vote) = playing;
     save_match_after(&state, &id, &game)?;
     Ok(Json(serde_json::json!({
         "match": match_payload(&id, &game),
         "move": played.mv,
         "reasoning": played.reasoning,
         "attempts": played.attempts,
+        "knightlm_vote": vote,
     })))
 }
 

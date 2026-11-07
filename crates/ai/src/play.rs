@@ -274,6 +274,89 @@ pub fn request_move(
         .unwrap_or_else(|| error(error_code::PROTOCOL, "the model gave no legal move", true)))
 }
 
+/// Evidence for comparing a sampled turn against the pilot's direct reply.
+#[derive(Debug, serde::Serialize)]
+pub struct KnightLmVote {
+    pub samples: u8,
+    pub legal_samples: u8,
+    pub winning_votes: u8,
+    pub direct_move: String,
+}
+
+/// Keep the trained prompt and choose among legal replies by frequency.
+/// The deterministic reply breaks ties. Each additional sample starts from the
+/// same position, and the live match changes only after a move is chosen.
+pub fn request_sampled_knightlm_move(
+    game: &mut Match,
+    provider: &dyn Provider,
+    model: &ModelRef,
+    policy: &PlayPolicy,
+    cancel: &Cancellation,
+    samples: u8,
+    temperature: f32,
+) -> Result<(ModelMove, KnightLmVote), ErrorInfo> {
+    if !(2..=9).contains(&samples) || !(0.1..=1.5).contains(&temperature) {
+        return Err(error(
+            error_code::PROTOCOL,
+            "KnightLM needs 2–9 samples and a temperature from 0.1 to 1.5",
+            false,
+        ));
+    }
+    let prompt = knightlm_pilot_prompt(game)
+        .map_err(|failure| error(error_code::PROTOCOL, failure.to_string(), false))?;
+    let mut direct_game = game.clone();
+    let direct = request_move(&mut direct_game, provider, model, policy, cancel)?;
+    let direct_move = direct.mv.uci.clone();
+    let mut candidates = vec![(direct, 1u8)];
+    let mut legal_samples = 1;
+    let request = CompletionRequest::new(model.model.clone(), vec![ChatMessage::user(prompt)])
+        .with_temperature(temperature)
+        .with_max_tokens(20)
+        .with_stream(false);
+    for _ in 1..samples {
+        let response = provider.complete(&request, cancel, &mut |_| {})?;
+        let raw = response.content.trim();
+        let mut trial = game.clone();
+        let Ok(mv) = trial.apply(raw) else { continue };
+        legal_samples += 1;
+        if let Some((_, votes)) = candidates
+            .iter_mut()
+            .find(|(candidate, _)| candidate.mv.uci == mv.uci)
+        {
+            *votes += 1;
+        } else {
+            candidates.push((
+                ModelMove {
+                    mv,
+                    reasoning: None,
+                    raw: raw.to_owned(),
+                    attempts: 1,
+                },
+                1,
+            ));
+        }
+    }
+    // max_by_key takes the last equal element, so reverse the insertion order.
+    let (mut winner, winning_votes) = candidates
+        .into_iter()
+        .rev()
+        .max_by_key(|(_, votes)| *votes)
+        .expect("the direct move is always a candidate");
+    winner.mv = game
+        .apply(&winner.mv.uci)
+        .map_err(|failure| error(error_code::PROTOCOL, failure.to_string(), false))?;
+    game.note_attempts(winner.mv.ply, winner.attempts);
+    Ok((
+        winner,
+        KnightLmVote {
+            samples,
+            legal_samples,
+            winning_votes,
+            direct_move,
+        },
+    ))
+}
+
 /// Ask a model to talk about the position.
 ///
 /// Refused outright in a competitive game: the policy is the gate, not the

@@ -116,6 +116,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     let detail = RwSignal::new(None::<serde_json::Value>);
     let busy = RwSignal::new(false);
     let thinking = RwSignal::new(false);
+    let knightlm_samples = RwSignal::new(5u8);
+    let knightlm_temperature = RwSignal::new(0.6f32);
+    let knightlm_vote = RwSignal::new(None::<serde_json::Value>);
     let model_status = RwSignal::new(String::new());
     let message = RwSignal::new(String::new());
     let local_models = RwSignal::new(Vec::<(String, String)>::new());
@@ -262,6 +265,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     };
 
     let create_game = move |config: serde_json::Value| {
+        knightlm_vote.set(None);
         busy.set(true);
         message.set(String::new());
         model_status.set(String::new());
@@ -338,22 +342,30 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
         };
         busy.set(true);
         message.set(String::new());
-        let thinking = thinking.get_untracked();
-        let body = if action == "model-move" { serde_json::json!({ "thinking": thinking }) } else { body };
+        knightlm_vote.set(None);
+        let model_options = serde_json::json!({
+            "thinking": thinking.get_untracked(),
+            "knightlm_samples": knightlm_samples.get_untracked(),
+            "knightlm_temperature": knightlm_temperature.get_untracked(),
+        });
+        let body = if action == "model-move" { model_options.clone() } else { body };
         spawn_local(async move {
             match ai_api::match_action(&id, action, body).await {
                 Ok(value) => {
                     // A route may answer with the match itself or wrap it.
+                    let vote = value.get("knightlm_vote").filter(|vote| !vote.is_null()).cloned();
                     let next = value.get("match").cloned().unwrap_or(value);
                     if next.get("id").is_some() {
                         let model_reply = action == "move" && next["result"].is_null()
                             && next["turn"].as_str().is_some_and(|turn| next[turn]["kind"] == "model");
                         if selected.get_untracked().as_deref() == Some(&id) {
+                            knightlm_vote.set(vote);
                             detail.set(Some(next));
                         }
                         if model_reply {
-                            match ai_api::match_action(&id, "model-move", serde_json::json!({ "thinking": thinking })).await {
+                            match ai_api::match_action(&id, "model-move", model_options).await {
                                 Ok(reply) if selected.get_untracked().as_deref() == Some(&id) => {
+                                    knightlm_vote.set(reply.get("knightlm_vote").filter(|vote| !vote.is_null()).cloned());
                                     detail.set(reply.get("match").cloned());
                                 }
                                 Err(error) if selected.get_untracked().as_deref() == Some(&id) => {
@@ -468,8 +480,8 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                 <div class="play-new">
                     <label title=move || i18n::t(&language.get(), "play.thinking_hint")>
                         <input type="checkbox"
-                            prop:checked=move || thinking.get() && lamu_model().is_some_and(|model| model != KNIGHTLM_MODEL)
-                            disabled=move || busy.get() || lamu_model().is_none_or(|model| model == KNIGHTLM_MODEL)
+                            prop:checked=move || thinking.get() && lamu_model().is_some()
+                            disabled=move || busy.get() || lamu_model().is_none()
                             on:change=move |event| thinking.set(event_target_checked(&event)) />
                         {move || i18n::t(&language.get(), "play.longer_thinking")}
                     </label>
@@ -478,6 +490,27 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                     <button type="button" disabled=move || busy.get() || lamu_model().is_none()
                         on:click=move |_| manage_model("unload")>{move || i18n::t(&language.get(), "play.unload_model")}</button>
                 </div>
+                {move || (thinking.get() && lamu_model().as_deref() == Some(KNIGHTLM_MODEL)).then(|| view! {
+                    <div class="play-new">
+                        <label>
+                            {move || i18n::t(&language.get(), "play.knightlm_samples")}
+                            <select prop:value=move || knightlm_samples.get().to_string()
+                                disabled=move || busy.get()
+                                on:change=move |event| knightlm_samples.set(event_target_value(&event).parse().unwrap_or(5))>
+                                {(2..=9).map(|count| view! { <option value=count>{count}</option> }).collect_view()}
+                            </select>
+                        </label>
+                        <label>
+                            {move || i18n::t(&language.get(), "play.knightlm_temperature")}
+                            <input type="range" min="0.1" max="1.5" step="0.1"
+                                prop:value=move || knightlm_temperature.get().to_string()
+                                disabled=move || busy.get()
+                                on:input=move |event| knightlm_temperature.set(event_target_value(&event).parse().unwrap_or(0.6)) />
+                            <output>{move || format!("{:.1}", knightlm_temperature.get())}</output>
+                        </label>
+                    </div>
+                    <small class="muted">{move || i18n::t(&language.get(), "play.knightlm_hint")}</small>
+                })}
                 {move || lamu_model().is_some().then(|| view! {
                     <small class="muted">{move || i18n::t(&language.get(), "play.model_load_hint")}</small>
                 })}
@@ -541,6 +574,14 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                     i18n::t(&language.get(), "play.opponent_turn").to_owned()
                                 }}
                             </div>
+                            {move || knightlm_vote.get().map(|vote| {
+                                let summary = i18n::t(&language.get(), "play.knightlm_vote")
+                                    .replace("{votes}", &vote["winning_votes"].to_string())
+                                    .replace("{legal}", &vote["legal_samples"].to_string())
+                                    .replace("{samples}", &vote["samples"].to_string())
+                                    .replace("{direct}", vote["direct_move"].as_str().unwrap_or(""));
+                                view! { <p class="muted">{summary}</p> }
+                            })}
                             <p class="match-error" role="alert">{move || message.get()}</p>
 
                             <Board
@@ -695,7 +736,10 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                             "match-card"
                                         }
                                         disabled=move || busy.get()
-                                        on:click=move |_| selected.set(Some(id_click.clone()))
+                                        on:click=move |_| {
+                                            knightlm_vote.set(None);
+                                            selected.set(Some(id_click.clone()));
+                                        }
                                     >
                                         <span class="match-card-seats">{format!("{white} vs {black}")}</span>
                                         <span class="muted">
