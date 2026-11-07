@@ -13,6 +13,8 @@
 //! a model that answers with an illegal move gets [`MatchConfig::max_retries`]
 //! chances, and the match never records a move the rules refuse.
 
+use knightlm_core::state::{GameRecord, GameState, PacketOptions, START_FEN};
+
 use crate::game::{Match, MatchConfig, MatchMove, Player};
 use crate::protocol::{ErrorInfo, ModelRef};
 use crate::provider::{
@@ -184,6 +186,31 @@ pub fn move_prompt(game: &Match, policy: &PlayPolicy) -> String {
     prompt
 }
 
+/// Match the pilot's single user message and canonical packet serialization.
+fn knightlm_pilot_prompt(game: &Match) -> anyhow::Result<String> {
+    let config = game.config();
+    anyhow::ensure!(
+        config.ruleset == "standard-v1" && config.time_control.is_none(),
+        "the KnightLM pilot plays untimed standard chess"
+    );
+    let state = GameState::replay(&GameRecord {
+        schema_version: knightlm_core::SCHEMA_VERSION,
+        game_id: "rbc-match".into(),
+        source: "rbc-play".into(),
+        initial_fen: config.start_fen.clone(),
+        history_complete: config.start_fen == START_FEN,
+        moves: game.moves().iter().map(|mv| mv.uci.clone()).collect(),
+        variant: "standard".into(),
+    })?;
+    let packet = serde_json::to_value(state.compile(PacketOptions {
+        legal_choices: true,
+        derived_features: false,
+    }))?;
+    Ok(format!(
+        "Choose a legal chess move. Reply with just the UCI move.\n{packet}"
+    ))
+}
+
 /// Ask a model for one move and record it on the match.
 ///
 /// An unparseable or illegal reply is fed back to the model with the reason
@@ -197,15 +224,25 @@ pub fn request_move(
     cancel: &Cancellation,
 ) -> Result<ModelMove, ErrorInfo> {
     let budget = game.config().max_retries.max(1) as u32;
-    let mut messages = vec![
-        ChatMessage::system(move_prompt(game, policy)),
-        ChatMessage::user("Your move."),
-    ];
+    let knightlm_pilot = model.provider == "local:LAMU" && model.model == "knightlm-smolvlm-500m";
+    let mut messages = if knightlm_pilot {
+        let prompt = knightlm_pilot_prompt(game)
+            .map_err(|failure| error(error_code::PROTOCOL, failure.to_string(), false))?;
+        vec![ChatMessage::user(prompt)]
+    } else {
+        vec![
+            ChatMessage::system(move_prompt(game, policy)),
+            ChatMessage::user("Your move."),
+        ]
+    };
     let mut last_error = None;
     for attempt in 1..=budget {
-        let request = CompletionRequest::new(model.model.clone(), messages.clone())
+        let mut request = CompletionRequest::new(model.model.clone(), messages.clone())
             .with_temperature(0.0)
             .with_stream(false);
+        if knightlm_pilot {
+            request = request.with_max_tokens(20);
+        }
         let response = provider.complete(&request, cancel, &mut |_event: ProviderEvent| {})?;
         let raw = response.content.trim().to_string();
         match game.apply(&raw) {
