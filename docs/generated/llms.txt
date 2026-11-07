@@ -18,6 +18,10 @@
 > -
 - doc:README.md · document · - · RustyBrickChess (RBC) · README.md:1
 
+## docs/README.md
+> -
+- doc:docs/README.md · document · - · Documentation · docs/README.md:1
+
 ## docs/benchmarks.md
 > -
 - doc:docs/benchmarks.md · document · - · Benchmarks · docs/benchmarks.md:1
@@ -25,6 +29,14 @@
 ## docs/contracts.md
 > -
 - doc:docs/contracts.md · document · - · Version 1 contracts · docs/contracts.md:1
+
+## docs/contributors/README.md
+> -
+- doc:docs/contributors/README.md · document · - · Contributor onboarding · docs/contributors/README.md:1
+
+## docs/contributors/work/README.md
+> -
+- doc:docs/contributors/work/README.md · document · - · Work orders · docs/contributors/work/README.md:1
 
 ## docs/mcp.md
 > -

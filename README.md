@@ -55,20 +55,9 @@ provider in **Settings** when you want those features.
   contracts and CPU smoke test. The [model plan](docs/plan.md) explains the
   fresh-state experiment and [contracts](docs/contracts.md) define its evidence.
 
-See the [running guide](docs/running.md), [release notes](docs/release-notes-1.0.md),
-and [roadmap](apps/rusty-brick-chess/ROADMAP.md).
+## Documentation and contributing
 
-## Contributing
-
-The [contributor guide](CONTRIBUTING.md) explains the PR workflow and lists
-starter orders by role.
-
-OpenWarrant is optional for repository contributors. This checkout uses
-[OpenWarrant 1.0.0-alpha.7](https://github.com/Quitetall/OpenWarrant/releases/tag/v1.0.0-alpha.7).
-Run its commands from the Git checkout that contains `openwarrant.toml`.
-
-```sh
-war --version
-war status
-war check --generated
-```
+- [Documentation index](docs/README.md) for the app, model, release evidence, and OpenWarrant records.
+- [Contributor onboarding](CONTRIBUTING.md) for setup, checks, and pull requests.
+- [Work orders by role](docs/contributors/work/README.md) for ready tasks and pickup commands.
+- [Roadmap](apps/rusty-brick-chess/ROADMAP.md) for upcoming app and model work.
