@@ -62,20 +62,23 @@ fn state_text(payload: &serde_json::Value) -> String {
         .replace('_', " ")
 }
 
-fn result_text(payload: &serde_json::Value) -> Option<String> {
+fn result_text(payload: &serde_json::Value, language: &str) -> Option<String> {
     let result = payload.get("result")?;
     if result.is_null() {
         return None;
     }
-    let winner = result
-        .get("winner")
-        .and_then(|w| w.as_str())
-        .unwrap_or("draw");
-    let termination = result
-        .get("termination")
-        .and_then(|t| t.as_str())
-        .unwrap_or("");
-    Some(format!("{winner} · {termination}"))
+    let label = i18n::t(language, match result["score"].as_str() {
+        Some("1-0") => "db.white_wins",
+        Some("0-1") => "db.black_wins",
+        Some("1/2-1/2") => "db.draw",
+        _ => "play.ended",
+    });
+    let termination = result["termination"].as_str().unwrap_or_default();
+    if termination.is_empty() {
+        Some(label.to_owned())
+    } else {
+        Some(format!("{label} · {}", termination.replace('_', " ")))
+    }
 }
 
 /// Save the PGN as a file the browser downloads.
@@ -495,7 +498,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             .and_then(|moves| moves.as_array())
                             .cloned()
                             .unwrap_or_default();
-                        let result = result_text(&payload);
+                        let result = result_text(&payload, &language.get());
                         let finished = result.is_some();
                         let result_for_line = result.clone();
                         let state = state_text(&payload);
