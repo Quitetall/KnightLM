@@ -396,3 +396,39 @@ fn play_prompt_is_explicit_about_the_side_and_format() {
         "examples are given"
     );
 }
+
+#[test]
+fn knightlm_sampling_uses_the_trained_prompt_and_only_counts_legal_moves() {
+    let model = ModelRef::new("local:LAMU", "knightlm-smolvlm-500m");
+    for (replies, expected, legal_samples, winning_votes) in [
+        (vec!["c7c5", "e7e5", "e5", "e2e4"], "e7e5", 3, 2),
+        (vec!["c7c5", "e7e5", "e2e4", "junk"], "c7c5", 2, 1),
+    ] {
+        let mut game = model_match();
+        game.apply("e4").expect("human move");
+        let provider = Scripted::new(replies.into_iter().map(|mv| (mv, None)).collect());
+        let (played, vote) = rbc_ai::play::request_sampled_knightlm_move(
+            &mut game,
+            &provider,
+            &model,
+            &PlayPolicy::casual(),
+            &Cancellation::new(),
+            4,
+            0.6,
+        )
+        .expect("one sampled move");
+        assert_eq!(game.moves().len(), 2);
+        assert_eq!(played.mv.uci, expected);
+        assert_eq!(vote.direct_move, "c7c5");
+        assert_eq!(vote.legal_samples, legal_samples);
+        assert_eq!(vote.winning_votes, winning_votes);
+        let requests = provider.requests();
+        assert_eq!(requests.len(), 4);
+        assert_eq!(requests[0].temperature, 0.0);
+        for request in &requests[1..] {
+            assert_eq!(request.temperature, 0.6);
+            assert_eq!(request.max_tokens, Some(20));
+            assert_eq!(request.messages[0].content, requests[0].messages[0].content);
+        }
+    }
+}

@@ -94,8 +94,12 @@ for new loads to reduce GPU memory use during chess. GPU memory held by other
 services, such as Ollama, can still prevent a large model from fitting.
 
 **Longer thinking** gives compatible LAMU opponents more time and up to 2,048
-tokens to reason and answer on each turn. KnightLM's pilot uses the one-move
-format it was trained on.
+tokens to reason and answer on each turn. KnightLM's pilot uses a separate
+sampling mode. It keeps the prompt it was trained on and picks the most
+frequent legal reply from 2–9 samples. The direct reply breaks ties when it is
+among the tied moves. Use **Move samples** and **Sampling temperature** to
+adjust how many replies it generates and how much they vary. Turn off
+**Longer thinking** to compare with the one-move mode at temperature zero.
 
 For Assistant chat, select **KnightLM (LAMU)** in the composer and send a
 message. RBC uses the local LAMU service if it is healthy. Otherwise it
