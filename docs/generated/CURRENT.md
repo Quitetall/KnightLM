@@ -189,7 +189,7 @@ by kind, and `war sign` needs a terminal or an ssh agent loaded with `-c`.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | OpenWarrant adoption and the project's agent instructions | `AGENTS.md` | verified |
+| D-001 | OpenWarrant adoption and the project's agent instructions | `AGENTS.md` | drift |
 | D-002 | Warrant corpus root | `docs/warrants/KLM-WAR-0001/manifest.toml` | verified |
 | D-003 | The repository's own check entry point | `scripts/check_all.sh` | verified |
 

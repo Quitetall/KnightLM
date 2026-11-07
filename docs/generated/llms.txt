@@ -4,11 +4,15 @@
 
 ## AGENTS.md
 > -
-- md:AGENTS.md#tracking-work-with-tickets-optional · instruction · - · Tracking work with tickets (optional) · AGENTS.md:18
-- md:AGENTS.md#loading-context · instruction · - · Loading context · AGENTS.md:41
-- md:AGENTS.md#planning-a-larger-piece-of-work-optional · instruction · - · Planning a larger piece of work (optional) · AGENTS.md:58
-- md:AGENTS.md#when-a-warrants-type-requires-sign-off · instruction · - · When a Warrant's type requires sign-off · AGENTS.md:108
-- md:AGENTS.md#tools · instruction · - · Tools · AGENTS.md:168
+- md:AGENTS.md#tracking-work-with-tickets-optional · instruction · - · Tracking work with tickets (optional) · AGENTS.md:20
+- md:AGENTS.md#loading-context · instruction · - · Loading context · AGENTS.md:43
+- md:AGENTS.md#planning-a-larger-piece-of-work-optional · instruction · - · Planning a larger piece of work (optional) · AGENTS.md:60
+- md:AGENTS.md#when-a-warrants-type-requires-sign-off · instruction · - · When a Warrant's type requires sign-off · AGENTS.md:110
+- md:AGENTS.md#tools · instruction · - · Tools · AGENTS.md:170
+
+## CONTRIBUTING.md
+> -
+- doc:CONTRIBUTING.md · document · - · Contributing to RustyBrickChess · CONTRIBUTING.md:1
 
 ## README.md
 > -
@@ -103,6 +107,10 @@
 > Bring README/ROADMAP/MCP/study/context docs and packaging in line.
 - t-1b87 · ticket · done · Docs, installer and release checklist · docs/tickets/t-1b87.md:1
 
+## docs/tickets/t-1ce9.md
+> Verify the Windows source launcher and desktop package on native Windows.
+- t-1ce9 · ticket · open · Release Engineer — Qualify RBC on native Windows · docs/tickets/t-1ce9.md:1
+
 ## docs/tickets/t-230b.md
 > Configure OpenAI-compatible providers and keys without exposing secrets.
 - t-230b · ticket · done · Provider settings, keyring and local detect · docs/tickets/t-230b.md:1
@@ -126,6 +134,10 @@
 ## docs/tickets/t-3241.md
 > Document setup and pin both transports end to end.
 - t-3241 · ticket · done · MCP docs and mock client tests · docs/tickets/t-3241.md:1
+
+## docs/tickets/t-3458.md
+> Prepare provenance-backed Lichess shards and a leak-free temporal holdout for KnightLM Run 1.
+- t-3458 · ticket · open · Data Engineer — Build and audit the Run 1 corpus · docs/tickets/t-3458.md:1
 
 ## docs/tickets/t-376e.md
 > Make published content immutable and copies traceable.
@@ -170,6 +182,10 @@
 ## docs/tickets/t-5774.md
 > Pin migration, reset, repository and frontend board behaviour with fixtures and CDP.
 - t-5774 · ticket · done · Foundation fixtures and regression tests · docs/tickets/t-5774.md:1
+
+## docs/tickets/t-5b6e.md
+> Run the full RBC browser suite with an isolated database, mock providers, and test-owned processes.
+- t-5b6e · ticket · open · QA Engineer — Isolate the RBC browser release gate · docs/tickets/t-5b6e.md:1
 
 ## docs/tickets/t-5ede.md
 > Pin the study product end to end.
@@ -270,6 +286,10 @@
 ## docs/tickets/t-bf5d.md
 > Wire human moves, chat rules, reasoning toggles and clocks.
 - t-bf5d · ticket · done · Human vs AI casual and competitive · docs/tickets/t-bf5d.md:1
+
+## docs/tickets/t-c168.md
+> Cancel a stalled Assistant turn promptly and return the composer to a usable state.
+- t-c168 · ticket · open · Frontend Engineer — Make Stop responsive during a provider stall · docs/tickets/t-c168.md:1
 
 ## docs/tickets/t-c5a4.md
 > Measure 1M DB, long sessions, SSE and 16-model tournaments.
