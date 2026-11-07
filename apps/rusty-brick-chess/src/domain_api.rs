@@ -933,6 +933,8 @@ fn match_payload(id: &str, game: &Match) -> serde_json::Value {
     serde_json::json!({
         "id": id,
         "state": game.state(),
+        "white": &game.config().white,
+        "black": &game.config().black,
         "fen": game.fen(),
         "turn": if game.turn() == shakmaty::Color::White { "white" } else { "black" },
         "moves": game.moves(),
@@ -1382,28 +1384,22 @@ pub async fn model_match_move(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let settings = crate::api::effective(&state);
-    let url = settings
-        .model_url
-        .clone()
-        .ok_or(ApiError::Unavailable("model URL is not set"))?;
     let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
-    let policy = play_policy(&game);
+    let mut policy = play_policy(&game);
     let Some(seat) = rbc_ai::play::model_seat(game.config()) else {
         return Err(ApiError::BadRequest(
             "this match has no model seat".to_string(),
         ));
     };
 
+    if seat.provider == "local:LAMU" {
+        policy.request_reasoning = false;
+    }
+    let url = match_endpoint(settings.model_url.as_deref(), &seat)?;
     let playing = tokio::task::spawn_blocking(move || {
-        let config = rbc_ai::provider::ProviderConfig::openai_compatible(
-            &url,
-            "openai_compatible",
-            seat.model.clone(),
-        );
-        let provider = rbc_ai::provider::OpenAiProvider::new(config)
-            .map_err(|error| error.message)?;
+        let provider = provider_for(&url, &seat, true)?;
         let cancel = rbc_ai::provider::Cancellation::new();
         rbc_ai::play::request_move(&mut game, &provider, &seat, &policy, &cancel)
             .map(|played| (game, played))
@@ -1457,10 +1453,6 @@ pub async fn chat_match(
     Json(body): Json<MatchChatBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let settings = crate::api::effective(&state);
-    let url = settings
-        .model_url
-        .clone()
-        .ok_or(ApiError::Unavailable("model URL is not set"))?;
     let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let game = Match::from_snapshot(snapshot)?;
@@ -1473,15 +1465,10 @@ pub async fn chat_match(
             "this match has no model seat".to_string(),
         ));
     };
+    let url = match_endpoint(settings.model_url.as_deref(), &seat)?;
     let message = body.message;
     let reply = tokio::task::spawn_blocking(move || {
-        let config = rbc_ai::provider::ProviderConfig::openai_compatible(
-            &url,
-            "openai_compatible",
-            seat.model.clone(),
-        );
-        let provider = rbc_ai::provider::OpenAiProvider::new(config)
-            .map_err(|error| error.message)?;
+        let provider = provider_for(&url, &seat, false)?;
         let cancel = rbc_ai::provider::Cancellation::new();
         rbc_ai::play::request_chat(&game, &provider, &seat, &policy, &message, &cancel)
             .map_err(|error| error.message)
@@ -1508,16 +1495,38 @@ fn watch_seats_or_refuse(game: &Match) -> Result<rbc_ai::play::WatchSeats, ApiEr
         .ok_or_else(|| ApiError::BadRequest("this match is not two models".to_string()))
 }
 
+fn match_endpoint(
+    default: Option<&str>,
+    seat: &rbc_ai::protocol::ModelRef,
+) -> Result<String, ApiError> {
+    if let Some(label) = seat.provider.strip_prefix("local:") {
+        return crate::providers::LOCAL_CANDIDATES
+            .iter()
+            .find(|(candidate, _)| *candidate == label)
+            .map(|(_, base)| format!("{base}/chat/completions"))
+            .ok_or_else(|| ApiError::BadRequest("unknown local model provider".into()));
+    }
+    default
+        .map(str::to_owned)
+        .ok_or(ApiError::Unavailable("model URL is not set"))
+}
+
 fn provider_for(
     url: &str,
     seat: &rbc_ai::protocol::ModelRef,
+    move_only: bool,
 ) -> Result<rbc_ai::provider::OpenAiProvider, String> {
     let config = rbc_ai::provider::ProviderConfig::openai_compatible(
         url,
         "openai_compatible",
         seat.model.clone(),
     );
-    rbc_ai::provider::OpenAiProvider::new(config).map_err(|error| error.message)
+    let provider = rbc_ai::provider::OpenAiProvider::new(config).map_err(|error| error.message)?;
+    Ok(if move_only && seat.provider == "local:LAMU" {
+        provider.with_direct_answers(96)
+    } else {
+        provider
+    })
 }
 
 /// `POST /api/ai/matches/{id}/watch/step`
@@ -1529,14 +1538,12 @@ pub async fn watch_step(
     body: Option<Json<WatchRunBody>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let settings = crate::api::effective(&state);
-    let url = settings
-        .model_url
-        .clone()
-        .ok_or(ApiError::Unavailable("model URL is not set"))?;
     let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     let seats = watch_seats_or_refuse(&game)?;
+    let white_url = match_endpoint(settings.model_url.as_deref(), &seats.white)?;
+    let black_url = match_endpoint(settings.model_url.as_deref(), &seats.black)?;
     let plies = body.and_then(|Json(body)| body.plies).unwrap_or(1).clamp(1, 20);
 
     let played = tokio::task::spawn_blocking(move || {
@@ -1547,12 +1554,12 @@ pub async fn watch_step(
                 break;
             }
             // One provider per seat: the model name travels with the seat.
-            let seat = if game.turn() == shakmaty::Color::White {
-                seats.white.clone()
+            let (seat, url) = if game.turn() == shakmaty::Color::White {
+                (&seats.white, &white_url)
             } else {
-                seats.black.clone()
+                (&seats.black, &black_url)
             };
-            let provider = provider_for(&url, &seat)?;
+            let provider = provider_for(url, seat, true)?;
             match rbc_ai::play::watch_step(&mut game, &provider, &seats, &cancel) {
                 Ok(step) => steps.push(step),
                 // A model that cannot produce a legal move stops the run; the

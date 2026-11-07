@@ -109,6 +109,31 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     let detail = RwSignal::new(None::<serde_json::Value>);
     let busy = RwSignal::new(false);
     let message = RwSignal::new(String::new());
+    let local_models = RwSignal::new(Vec::<(String, String)>::new());
+    let opponent = RwSignal::new(0usize);
+    let scanning = RwSignal::new(false);
+    let scan_local = move || {
+        message.set(String::new());
+        scanning.set(true);
+        spawn_local(async move {
+            match db_api::scan_local_providers().await {
+                Ok(endpoints) => {
+                    let models = endpoints.into_iter().filter(|endpoint| endpoint.responding)
+                        .flat_map(|endpoint| {
+                            let label = endpoint.label;
+                            endpoint.models.into_iter().map(move |model| (label.clone(), model))
+                        }).collect::<Vec<_>>();
+                    if models.is_empty() {
+                        message.set(i18n::t(&language.get_untracked(), "play.no_local_models").to_string());
+                    }
+                    opponent.set(0);
+                    local_models.set(models);
+                }
+                Err(error) => message.set(error),
+            }
+            scanning.set(false);
+        });
+    };
     // The leaderboard and the tournaments live beside the matches: they are the
     // same question — who is playing well — asked over a longer window.
     let board_rows = RwSignal::new(Vec::<ai_api::LeaderboardRow>::new());
@@ -182,15 +207,22 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     });
 
     let start_match = move |white_model: bool, black_model: bool| {
+        let model_seat = local_models.with_untracked(|models| {
+            opponent.get_untracked().checked_sub(1).and_then(|index| models.get(index)).map_or_else(
+                || serde_json::json!({"kind": "model", "provider": "local", "model": "assistant"}),
+                |(label, model)| serde_json::json!({"kind": "model", "provider": format!("local:{label}"), "model": model}),
+            )
+        });
+        message.set(String::new());
         let config = serde_json::json!({
             "start_fen": START_FEN,
             "white": if white_model {
-                serde_json::json!({"kind": "model", "provider": "local", "model": "assistant"})
+                model_seat.clone()
             } else {
                 serde_json::json!({"kind": "human", "name": "You"})
             },
             "black": if black_model {
-                serde_json::json!({"kind": "model", "provider": "local", "model": "assistant"})
+                model_seat
             } else {
                 serde_json::json!({"kind": "human", "name": "You"})
             },
@@ -220,14 +252,31 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             return;
         };
         busy.set(true);
+        message.set(String::new());
         spawn_local(async move {
             match ai_api::match_action(&id, action, body).await {
                 Ok(value) => {
                     // A route may answer with the match itself or wrap it.
                     let next = value.get("match").cloned().unwrap_or(value);
                     if next.get("id").is_some() {
-                        detail.set(Some(next));
-                    } else {
+                        let local_reply = action == "move" && next["result"].is_null()
+                            && next["turn"].as_str().and_then(|turn| next[turn]["provider"].as_str())
+                                .is_some_and(|provider| provider.starts_with("local:"));
+                        if selected.get_untracked().as_deref() == Some(&id) {
+                            detail.set(Some(next));
+                        }
+                        if local_reply {
+                            match ai_api::match_action(&id, "model-move", serde_json::json!({})).await {
+                                Ok(reply) if selected.get_untracked().as_deref() == Some(&id) => {
+                                    detail.set(reply.get("match").cloned());
+                                }
+                                Err(error) if selected.get_untracked().as_deref() == Some(&id) => {
+                                    message.set(error);
+                                }
+                                _ => {}
+                            }
+                        }
+                    } else if selected.get_untracked().as_deref() == Some(&id) {
                         load_detail(id);
                     }
                     reload();
@@ -313,6 +362,19 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             <header class="play-head">
                 <h2>{move || i18n::t(&language.get(), "nav.play")}</h2>
                 <div class="play-new">
+                    <button class="play-scan-models" disabled=move || scanning.get() || busy.get() on:click=move |_| scan_local()>
+                        {move || i18n::t(&language.get(), "play.scan_models")}
+                    </button>
+                    <label>
+                        {move || i18n::t(&language.get(), "play.opponent")}
+                        <select class="play-opponent" disabled=move || scanning.get() || busy.get()
+                            on:change=move |event| opponent.set(event_target_value(&event).parse().unwrap_or(0))>
+                            <option value="0" selected=move || opponent.get() == 0>{move || i18n::t(&language.get(), "play.default_model")}</option>
+                            {move || local_models.get().into_iter().enumerate().map(|(index, (label, model))| view! {
+                                <option value=index + 1 selected=move || opponent.get() == index + 1>{format!("{label} · {model}")}</option>
+                            }).collect_view()}
+                        </select>
+                    </label>
                     <button
                         class="play-start"
                         disabled=move || busy.get()
@@ -678,7 +740,6 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 moves
                                     .iter()
                                     .filter_map(|mv| mv.as_str().map(str::to_string))
-                                    .take(16)
                                     .collect::<Vec<_>>()
                             })
                             .unwrap_or_default();
@@ -691,6 +752,11 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             .and_then(|turn| turn.as_str())
                             .unwrap_or("")
                             .to_string();
+                        let white = seat_label(&payload["white"]);
+                        let black = seat_label(&payload["black"]);
+                        let watching = payload["white"]["kind"] == "model" && payload["black"]["kind"] == "model";
+                        let human_turn = payload[turn.as_str()]["kind"] == "human";
+                        let human_color = ["white", "black"].into_iter().find(|color| payload[*color]["kind"] == "human");
                         let pgn = payload
                             .get("pgn")
                             .and_then(|pgn| pgn.as_str())
@@ -701,10 +767,12 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             <div class="match-cards">
                                 <div class="player-card">
                                     <span class="player-name">{move || i18n::t(&language.get(), "play.white")}</span>
+                                    <span>{white}</span>
                                     <span class="player-clock">{clock_text(white_clock)}</span>
                                 </div>
                                 <div class="player-card">
                                     <span class="player-name">{move || i18n::t(&language.get(), "play.black")}</span>
+                                    <span>{black}</span>
                                     <span class="player-clock">{clock_text(black_clock)}</span>
                                 </div>
                             </div>
@@ -728,6 +796,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             </ol>
 
                             <div class="match-actions">
+                                {watching.then(|| view! {
                                 <button
                                     class="match-step"
                                     disabled=move || busy.get() || finished
@@ -754,6 +823,19 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 >
                                     {move || i18n::t(&language.get(), "play.resume")}
                                 </button>
+                                })}
+                                {(!finished && !watching && !human_turn).then(|| view! {
+                                    <button class="match-model-move" disabled=move || busy.get()
+                                        on:click=move |_| act("model-move", serde_json::json!({}))>
+                                        {move || i18n::t(&language.get(), "play.model_move")}
+                                    </button>
+                                })}
+                                {human_color.filter(|_| !finished).map(|color| view! {
+                                    <button class="match-resign" disabled=move || busy.get()
+                                        on:click=move |_| act("resign", serde_json::json!({"color": color}))>
+                                        {move || i18n::t(&language.get(), "play.resign")}
+                                    </button>
+                                })}
                                 <button
                                     class="match-takeback"
                                     on:click=move |_| act("takeback", serde_json::json!({}))
@@ -775,13 +857,14 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 </button>
                             </div>
 
-                            {(!legal.is_empty()).then(|| view! {
+                            {(!finished && human_turn && !legal.is_empty()).then(|| view! {
                                 <div class="match-legal">
                                     {legal.into_iter().map(|mv| {
                                         let mv_click = mv.clone();
                                         view! {
                                             <button
                                                 class="legal-move"
+                                                disabled=move || busy.get()
                                                 on:click=move |_| act("move", serde_json::json!({"mv": mv_click.clone()}))
                                             >
                                                 {mv}

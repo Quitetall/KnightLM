@@ -27,6 +27,7 @@ use crate::provider::{
 pub struct OpenAiProvider {
     config: ProviderConfig,
     agent: ureq::Agent,
+    direct_answer_budget: Option<u32>,
 }
 
 impl OpenAiProvider {
@@ -40,7 +41,17 @@ impl OpenAiProvider {
             .timeout_connect(Some(config.connect_timeout))
             .timeout_recv_body(Some(config.idle_timeout));
         let agent = ureq::Agent::new_with_config(builder.build());
-        Ok(Self { config, agent })
+        Ok(Self {
+            config,
+            agent,
+            direct_answer_budget: None,
+        })
+    }
+
+    /// Limit move-only requests on endpoints that support `enable_thinking`.
+    pub fn with_direct_answers(mut self, max_tokens: u32) -> Self {
+        self.direct_answer_budget = Some(max_tokens);
+        self
     }
 
     /// The configuration this provider was built from.
@@ -61,7 +72,10 @@ impl OpenAiProvider {
             // ignore it.
             body["stream_options"] = json!({ "include_usage": true });
         }
-        if let Some(max_tokens) = request.max_tokens {
+        if self.direct_answer_budget.is_some() {
+            body["enable_thinking"] = json!(false);
+        }
+        if let Some(max_tokens) = request.max_tokens.or(self.direct_answer_budget) {
             body["max_tokens"] = json!(max_tokens);
         }
         if !request.tools.is_empty() {

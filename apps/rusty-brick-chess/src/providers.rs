@@ -140,6 +140,7 @@ pub fn resolve_secret(key_ref: &str) -> Result<Option<(String, SecretSource)>, S
 /// The local endpoints worth probing, in the order a person is likely to have
 /// them running.
 pub const LOCAL_CANDIDATES: &[(&str, &str)] = &[
+    ("LAMU", "http://127.0.0.1:8020/v1"),
     ("Ollama", "http://127.0.0.1:11434/v1"),
     ("LM Studio", "http://127.0.0.1:1234/v1"),
     ("vLLM", "http://127.0.0.1:8000/v1"),
