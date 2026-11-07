@@ -5,7 +5,7 @@ SQLite directly. Stockfish and model providers are optional.
 
 ## Linux
 
-Install the [Rust and frontend prerequisites](../README.md#start-rbc), then
+Install the [Rust and frontend prerequisites](../../README.md#start-rbc), then
 run these commands from the repository root:
 
 ```bash
@@ -22,7 +22,7 @@ that already has the server and frontend built.
 
 Use a Rust MSVC toolchain and the Visual Studio C++ build tools with a Windows
 SDK. The [Windows prerequisites](https://v2.tauri.app/start/prerequisites/#windows)
-describe the toolchain setup. Install the [same Rust WASM target and cargo-leptos](../README.md#start-rbc),
+describe the toolchain setup. Install the [same Rust WASM target and cargo-leptos](../../README.md#start-rbc),
 then run this from PowerShell at the repository root:
 
 ```powershell

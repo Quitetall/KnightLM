@@ -7,7 +7,7 @@ configured model provider.
 
 ## Run RBC
 
-Start with the [Linux install or Windows source quickstart](../../docs/running.md).
+Start with the [Linux install or Windows source quickstart](../../docs/app/running.md).
 The [roadmap](ROADMAP.md) tracks packaged releases, UI reliability, and the
 KnightLM player integration.
 
@@ -341,7 +341,7 @@ npx @tauri-apps/cli@2 build          # .deb/.rpm/.AppImage on Linux
 
 `.github/workflows/release.yml` is configured to build the frontend and package
 desktop bundles on Linux, macOS, and Windows. See the
-[running guide](../../docs/running.md) for the verified launch paths and
+[running guide](../../docs/app/running.md) for the verified launch paths and
 [roadmap](ROADMAP.md) for package testing and publication.
 
 ### Auto-update signing

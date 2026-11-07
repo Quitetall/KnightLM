@@ -32,7 +32,7 @@ server is running.
 
 **Windows**
 
-Use the [Windows source quickstart](docs/running.md#windows-from-source) to
+Use the [Windows source quickstart](docs/app/running.md#windows-from-source) to
 build and open RBC from PowerShell. The repository has a Tauri packaging workflow
 for Windows. An installable Windows release and native Windows QA are pending.
 
@@ -49,26 +49,15 @@ provider in **Settings** when you want those features.
   chess records, replay moves, and compile state. Stockfish connects over UCI.
 - [`crates/context`](crates/context) builds the Assistant's inspectable prompts.
   [`crates/ai`](crates/ai) handles providers, streaming, matches, and approval
-  policy. [MCP clients](docs/mcp.md) use the same tool and approval paths.
+  policy. [MCP clients](docs/app/mcp.md) use the same tool and approval paths.
 - [`ports`](ports/README.md) contains KnightLM's Lichess and SmolVLM training
   path. [`crates/model`](crates/model) contains the experimental Burn backend
-  contracts and CPU smoke test. The [model plan](docs/plan.md) explains the
-  fresh-state experiment and [contracts](docs/contracts.md) define its evidence.
+  contracts and CPU smoke test. The [model plan](docs/model/plan.md) explains the
+  fresh-state experiment and [contracts](docs/model/contracts.md) define its evidence.
 
-See the [running guide](docs/running.md), [release notes](docs/release-notes-1.0.md),
-and [roadmap](apps/rusty-brick-chess/ROADMAP.md).
+## Documentation and contributing
 
-## Contributing
-
-The [contributor guide](CONTRIBUTING.md) explains the PR workflow and lists
-starter orders by role.
-
-OpenWarrant is optional for repository contributors. This checkout uses
-[OpenWarrant 1.0.0-alpha.7](https://github.com/Quitetall/OpenWarrant/releases/tag/v1.0.0-alpha.7).
-Run its commands from the Git checkout that contains `openwarrant.toml`.
-
-```sh
-war --version
-war status
-war check --generated
-```
+- [Documentation index](docs/README.md) for the app, model, release evidence, and OpenWarrant records.
+- [Contributor onboarding](CONTRIBUTING.md) for setup, checks, and pull requests.
+- [Work orders by role](docs/contributors/work/README.md) for ready tasks and pickup commands.
+- [Roadmap](apps/rusty-brick-chess/ROADMAP.md) for upcoming app and model work.

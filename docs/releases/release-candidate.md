@@ -52,7 +52,7 @@ panel does not refresh. It is a frontend defect, not a queue defect.
 
 ## Known limits at this commit
 
-- The explorer takes 1.3 s against a million games (`docs/benchmarks.md`).
+- The explorer takes 1.3 s against a million games (`docs/releases/benchmarks.md`).
 - The approvals panel does not reload after a turn queues a request.
 - The Tauri desktop shell (`apps/rusty-brick-chess/src-tauri`, Tauri 2) is
   implemented and its release workflow builds `.deb`/`.AppImage`/`.dmg`/`.msi` on

@@ -47,7 +47,7 @@ it.
 
 ## Numbers
 
-`docs/benchmarks.md` has the measurements and the conditions they were taken
+`docs/releases/benchmarks.md` has the measurements and the conditions they were taken
 under, including a million-game database: position search 3 ms, an Elo-banded
 search 170 ms, the explorer 1.3 s. The explorer is the known slow spot.
 
