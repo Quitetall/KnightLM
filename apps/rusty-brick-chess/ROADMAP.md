@@ -1,76 +1,37 @@
 # RustyBrickChess roadmap
 
-Status against **En Croissant** (the reference desktop app): a database you can
-search, a board you can analyse and play from, engines you can configure, and
-the same sidebar surfaces, on Linux/macOS/Windows.
+RBC is the app. KnightLM is the chess model being trained for it. The app and
+model can advance in parallel through the same player interface.
 
-**The feature roadmap is complete.** Technical debt is closed (history at the
-end); what remains is operator setup for signed releases.
+## RBC app and release
 
-## Status
+| Priority | Work remaining | Done when |
+| --- | --- | --- |
+| 1 | Integrate the approval refresh fix from `agent/rbc-approvals` and rebuild the release bundle. | A clean run of all browser checks passes against the packaged build. The approval regression already passes on the UI branch. |
+| 2 | Package Windows and macOS and test on native hosts. | An installer launches RBC with its frontend, opens or creates the per-user database, and passes a PGN import and analysis smoke. Publish the tested packages. |
+| 3 | Make **Stop** responsive when a model provider stops sending data. | A browser check cancels a stalled provider within a bounded time and the composer becomes usable again. |
+| 4 | Improve opening-explorer latency. | The same million-game benchmark shows a faster query and the returned continuations match. The recorded reference is about 1.3 seconds. |
 
-| Surface | State | Notes |
-|---|---|---|
-| Database: import, search, filters, position search | **Done** | player/event/result/date/Elo/variant filters, exact position search, collections, multi-database, indexes |
-| Database at scale | **Done** | 1M-game Lichess slice: stats 38 ms, explorer 45 ms, position search 35 ms |
-| Analysis board | **Done** | drag/click, instant/slide, history last-move, board editor, clocks, arrows/circles, variants |
-| Engine analysis | **Done** | lines, MultiPV, all engines, report, eval graph, per-engine UCI options, engine dialog + test, UCI console |
-| Engine-vs-engine | **Done** | Practice → Engine match with per-engine options, pause/reset, result |
-| AI assistant | **Done** | chat dock with OpenAI-style tool calls: analyse, arrows/circles, play moves |
-| Analysis polish | **Done** | Lichess cloud eval, Markdown report export, annotate-game pass |
-| Tree editing | **Done** | variations, promote/delete, PGN rewrite, annotations |
-| Openings | **Done** | local/lichess/masters explorer, ECO names, first-12-ply aggregate index |
-| Puzzles | **Done** | Lichess CSV, themes, rating, play-out |
-| Repertoires | **Done** | import, training, SM-2 |
-| Practice | **Done** | guess-the-move, sparring, engine matches; strength via per-engine Skill Level / UCI_Elo |
-| Workspaces | **Done** | Analysis/Database/Openings/Puzzles tabs, rename, reorder, session restore |
-| Board customization | **Done** | custom colours, coordinates, 8 built-in sets, custom SVG set upload |
-| Files | **Done** | file picker + drag-and-drop import, recent files, Save PGN, desktop Open PGN |
-| Accounts | **Done** | Lichess (optional token) and Chess.com links, profile/rating, game import |
-| Settings | **Done** | engines, depth, threads/hash, syzygy, theme/pieces/colours, sounds, keybinds, animation, profile, language, vision |
-| Desktop shell | **Done** | Tauri window, native menus (Open PGN/database, New window, Reload), installer, CI bundles |
-| Packaging & release | **Done** | GitHub Actions matrix builds `.deb`/`.AppImage`/`.dmg`/`.msi` on tags |
-| i18n / accessibility | **Done** | English/Spanish UI, board ARIA labels, skip link, live regions, focus rings |
-| Auto-update | **Documented** | signing keypair is the release owner's to generate; walkthrough in README |
+The Linux browser app already has a source installer. The Windows source
+quickstart and desktop packaging status are in the [running guide](../../docs/running.md).
+See the [release candidate record](../../docs/release-candidate.md) for the
+previous build's evidence and [benchmarks](../../docs/benchmarks.md) for the
+opening-explorer measurement.
 
-Rough position: **~95% of the daily En Croissant surface**. The remaining gaps
-are not features: signed/notarized installers and the updater keypair belong to
-the release owner.
+## KnightLM model
 
-## Verification
+1. **Serve the pilot adapter.** Load the pinned SmolVLM base and LoRA adapter
+   from the run manifest. Register KnightLM as a player in RBC and
+   `knightlm-uci`, and surface invalid moves as failures.
+2. **Build the full Run 1 corpus.** Produce the 200,000-game training set and
+   10,000-game temporal holdout with source provenance and leakage audits.
+   Keep teacher labels separate from the packet a player receives.
+3. **Train and evaluate.** Compare game history, history plus state, and fresh
+   state on held-out games. Report legality, play strength and tokenizer cost
+   separately. The existing 1,000-game pilot used text packets with legal
+   choices and verified that the adapter reloads.
+4. **Extend the model.** Evaluate board vision, prove the Burn backend against
+   the reference, and qualify larger Qwen checkpoints separately.
 
-Every surface has a headless Chrome suite in the dev harness, all green:
-
-`app2`–`app20`, `puzzle`, `final`, `chat`, `enginetools`, `enginematch`,
-`files`, `accounts`, `pieces`, `i18n_a11y`, `boardcustom`, `workspaces2`,
-`analysispolish`, `drag`, `layout`, `historysound`, `fps`, `vision`, `anim`,
-`workspaces`, `session`, `keybinds`, `practice`, `filters`, `bigdb`,
-`desktop_event`.
-
-## Remaining (operator)
-
-1. **Update signing** — generate the keypair, add the two GitHub secrets, add
-   `tauri-plugin-updater`, set `plugins.updater` + `createUpdaterArtifacts`, and
-   bump `version` per release. Steps: README → Desktop bundles → Auto-update
-   signing.
-2. **Platform signing** — macOS notarization (Developer ID) and Windows code
-   signing certificates, when you have them; CI already produces unsigned
-   bundles.
-
-## Technical debt
-
-- **Schema migrations: done.** `schema_meta` tracks a version (`v1` legacy
-  columns, `v2` large-database indexes/catalogs, `v3` sessions); `/api/health`
-  reports it.
-- **Server-side sessions: done.** `/api/session` stores each browser's
-  workspaces keyed by a client id; `localStorage` remains the fast path.
-- **Archives: done.** `export-parquet` / `import-parquet` move collections out
-  of SQLite without the position index; round-trip tested.
-- **Frontend split: done.** Pure types/helpers live in `src/model.rs`; every
-  view (home, database, analysis, practice, openings, puzzles, stats, settings)
-  and the workspace tab strip live in `src/views/`, sharing a `Copy` `AppCtx`
-  of signals plus local `UnsyncCallback`s. `lib.rs` is down from ~6.3k to
-  ~3.2k lines and holds only state, effects and the app shell.
-- **Status messages: done.** Static and dynamic messages (counts, names,
-  engine/match/practice feedback, import and vision progress) are translated
-  through `i18n::t` / `i18n::tf`; server error text is passed through verbatim.
+[Training quickstart](../../ports/README.md#lichess-lora-pilot) ·
+[Research plan](../../docs/plan.md) · [Architecture spec](../../docs/sas/KnightLM_SAS.md#98-implementation-phases)

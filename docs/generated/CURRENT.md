@@ -12,7 +12,7 @@ This is the master document (OW-ADR-0022): what is authoritative in this reposit
 - **Current by construction.** A Warrant is current unless an authorized Warrant declares `supersedes` → it, or its resolution is annulled. Currency is derived from those relations, never written.
 - **Fully expanded.** Every current Warrant's atoms appear below verbatim, in role order. Nothing is paraphrased.
 - **Replaced subjects are one line.** 0 replaced subject(s) appear under *Replaced* as lineage and nothing else; their text is in the history, when this repository keeps one.
-- **Records as of 2026-11-04** — the latest recorded event. 21 current Warrant(s).
+- **Records as of 2026-11-07** — the latest recorded event. 21 current Warrant(s).
 
 ## In force
 
@@ -189,9 +189,9 @@ by kind, and `war sign` needs a terminal or an ssh agent loaded with `-c`.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | OpenWarrant adoption and the project's agent instructions | `AGENTS.md` | target_unreadable |
+| D-001 | OpenWarrant adoption and the project's agent instructions | `AGENTS.md` | verified |
 | D-002 | Warrant corpus root | `docs/warrants/KLM-WAR-0001/manifest.toml` | verified |
-| D-003 | The repository's own check entry point | `code/scripts/check_all.sh` | target_unreadable |
+| D-003 | The repository's own check entry point | `scripts/check_all.sh` | verified |
 
 ### No roadmap phase
 
@@ -396,9 +396,9 @@ could stress it; fixtures include one large excerpt.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | SAN engine | `code/crates/notation/src/san.rs` | target_unreadable |
-| D-002 | PGN reader (thin, Lichess-shaped) | `code/crates/notation/src/reader.rs` | target_unreadable |
-| D-003 | Reader and SAN tests | `code/crates/notation/tests/reader.rs` | target_unreadable |
+| D-001 | SAN engine | `crates/notation/src/san.rs` | verified |
+| D-002 | PGN reader (thin, Lichess-shaped) | `crates/notation/src/reader.rs` | verified |
+| D-003 | Reader and SAN tests | `crates/notation/tests/reader.rs` | verified |
 
 #### KLM-WAR-0003 — Universal state hub II: full PGN in and out, annotations preserved
 
@@ -585,8 +585,8 @@ limits on recursion are an interior choice the performer documents.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | PGN writer with annotations | `code/crates/notation/src/pgn.rs` | target_unreadable |
-| D-002 | Round-trip tests | `code/crates/notation/tests/pgn.rs` | target_unreadable |
+| D-001 | PGN writer with annotations | `crates/notation/src/pgn.rs` | verified |
+| D-002 | Round-trip tests | `crates/notation/tests/pgn.rs` | verified |
 
 #### KLM-WAR-0004 — Universal state hub III: every named format, FRC first-class, parity proven
 
@@ -795,8 +795,8 @@ consumer risk is zero.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Variant start positions and FRC support | `code/crates/core/src/state.rs` | target_unreadable |
-| D-002 | Format parity checker | `code/ports/parity/check_san.py` | target_unreadable |
+| D-001 | Variant start positions and FRC support | `crates/core/src/state.rs` | verified |
+| D-002 | Format parity checker | `ports/parity/check_san.py` | verified |
 
 #### KLM-WAR-0005 — Engine tooling: Stockfish 19 UCI client, label harness, and the boundary gate
 
@@ -1006,8 +1006,8 @@ detection claims are scoped to the mutations planted.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Stockfish UCI client | `code/crates/engine/src/lib.rs` | target_unreadable |
-| D-002 | Engine smoke test | `code/crates/engine/tests/smoke.rs` | target_unreadable |
+| D-001 | Stockfish UCI client | `crates/engine/src/lib.rs` | verified |
+| D-002 | Engine smoke test | `crates/engine/tests/smoke.rs` | verified |
 
 #### KLM-WAR-0006 — knightlm-uci: a compliant UCI engine with a random-legal baseline player
 
@@ -1194,8 +1194,8 @@ handling is kept simple: finite sweep plus stop-wakeups.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | UCI binary with a random-legal baseline player | `code/crates/brick-chess/src/bin/brick-chess.rs` | target_unreadable |
-| D-002 | UCI protocol tests | `code/crates/brick-chess/tests/protocol.rs` | target_unreadable |
+| D-001 | UCI binary with a random-legal baseline player | `crates/brick-chess/src/bin/brick-chess.rs` | verified |
+| D-002 | UCI protocol tests | `crates/brick-chess/tests/protocol.rs` | verified |
 
 #### KLM-WAR-0007 — The run-1 corpus: ingest, join, split, and audit
 
@@ -1412,8 +1412,8 @@ weekly ingest reports log refusal shapes.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Corpus ingest pipeline | `code/ports/corpus/pipeline.py` | target_unreadable |
-| D-002 | Corpus documentation | `code/README.md` | target_unreadable |
+| D-001 | Corpus ingest pipeline | `ports/corpus/pipeline.py` | verified |
+| D-002 | Corpus documentation | `README.md` | verified |
 
 #### KLM-WAR-0008 — Track A run 1: SmolVLM LoRA harness, execution within cap, per-axis eval
 
@@ -1627,8 +1627,8 @@ reporting risk: the report states the seed and the count, not vibes.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Track A training harness | `code/ports/train/harness.py` | target_unreadable |
-| D-002 | Model crate and its infrastructure test | `code/crates/model/tests/infrastructure.rs` | target_unreadable |
+| D-001 | Track A training harness | `ports/train/harness.py` | verified |
+| D-002 | Model crate and its infrastructure test | `crates/model/tests/infrastructure.rs` | verified |
 
 #### KLM-WAR-0009 — Serving: the model speaks, knightlm-uci plays, boundary intact
 
@@ -1844,7 +1844,7 @@ narrative, not a strength claim — the strength axis stays in W-0008.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Serving entry point | `code/ports/serve/server.py` | target_unreadable |
+| D-001 | Serving entry point | `ports/serve/server.py` | verified |
 
 #### KLM-WAR-0010 — The Leptos viewer: any notation in, board and facts out, all formats back out
 
@@ -2064,9 +2064,9 @@ matters more than any single board pixel.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | The Leptos viewer | `code/apps/viewer/src/app.rs` | target_unreadable |
-| D-002 | Viewer board component | `code/apps/viewer/src/board.rs` | target_unreadable |
-| D-003 | Unified app shell | `code/apps/rusty-brick-chess/src/lib.rs` | target_unreadable |
+| D-001 | The Leptos viewer | `apps/viewer/src/app.rs` | verified |
+| D-002 | Viewer board component | `apps/viewer/src/board.rs` | verified |
+| D-003 | Unified app shell | `apps/rusty-brick-chess/src/lib.rs` | verified |
 
 #### KLM-WAR-0011 — Track B seed: Burn environment, SmolVLM study, and an honest-red parity battery
 
@@ -2267,8 +2267,8 @@ not this Warrant.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Track B parity battery | `code/crates/model/tests/trackb_parity.rs` | target_unreadable |
-| D-002 | Track B study | `code/docs/trackb-smolvlm-study.md` | target_unreadable |
+| D-001 | Track B parity battery | `crates/model/tests/trackb_parity.rs` | verified |
+| D-002 | Track B study | `docs/trackb-smolvlm-study.md` | verified |
 
 #### KLM-WAR-0012 — Foundation: schema v4, multi-board workspaces, studies, stable IDs and reset
 
@@ -2455,10 +2455,10 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Schema v4 and the reset | `code/crates/rbc-db/src/lib.rs` | target_unreadable |
-| D-002 | Workspaces, boards and studies repository | `code/crates/rbc-db/src/domain.rs` | target_unreadable |
-| D-003 | Foundation fixtures | `code/crates/rbc-db/tests/foundation.rs` | target_unreadable |
-| D-004 | Migration notes | `code/docs/migrations.md` | target_unreadable |
+| D-001 | Schema v4 and the reset | `crates/rbc-db/src/lib.rs` | verified |
+| D-002 | Workspaces, boards and studies repository | `crates/rbc-db/src/domain.rs` | verified |
+| D-003 | Foundation fixtures | `crates/rbc-db/tests/foundation.rs` | verified |
+| D-004 | Migration notes | `docs/migrations.md` | verified |
 
 #### KLM-WAR-0013 — Deterministic context compiler and headless CLI
 
@@ -2608,10 +2608,10 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Context compiler | `code/crates/context/src/compile.rs` | target_unreadable |
-| D-002 | Canonical JSON and hashing | `code/crates/context/src/canonical.rs` | target_unreadable |
-| D-003 | Headless CLI | `code/crates/context/src/bin/rbc-context.rs` | target_unreadable |
-| D-004 | Compiler tests | `code/crates/context/tests/compile.rs` | target_unreadable |
+| D-001 | Context compiler | `crates/context/src/compile.rs` | verified |
+| D-002 | Canonical JSON and hashing | `crates/context/src/canonical.rs` | verified |
+| D-003 | Headless CLI | `crates/context/src/bin/rbc-context.rs` | verified |
+| D-004 | Compiler tests | `crates/context/tests/compile.rs` | verified |
 
 #### KLM-WAR-0014 — AI runtime: sessions, tools, providers, streaming and approvals
 
@@ -2775,11 +2775,11 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Provider trait and streaming adapter | `code/crates/ai/src/provider/mod.rs` | target_unreadable |
-| D-002 | Agent loop with tools, retries and cancellation | `code/crates/ai/src/agent.rs` | target_unreadable |
-| D-003 | Approval service | `code/crates/ai/src/approval.rs` | target_unreadable |
-| D-004 | Runtime tests | `code/crates/ai/tests/agent_loop.rs` | target_unreadable |
-| D-005 | Approval tests | `code/crates/ai/tests/approvals.rs` | target_unreadable |
+| D-001 | Provider trait and streaming adapter | `crates/ai/src/provider/mod.rs` | verified |
+| D-002 | Agent loop with tools, retries and cancellation | `crates/ai/src/agent.rs` | verified |
+| D-003 | Approval service | `crates/ai/src/approval.rs` | verified |
+| D-004 | Runtime tests | `crates/ai/tests/agent_loop.rs` | verified |
+| D-005 | Approval tests | `crates/ai/tests/approvals.rs` | verified |
 
 #### KLM-WAR-0015 — Assistant window: dedicated tab, board, chat, composer, context inspector
 
@@ -2933,9 +2933,9 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Assistant tab and session rail | `code/apps/rusty-brick-chess/frontend/src/views/assistant.rs` | target_unreadable |
-| D-002 | Streaming and context inspector UI | `code/apps/rusty-brick-chess/frontend/src/views/analysis.rs` | target_unreadable |
-| D-003 | Assistant CDP suites | `code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_ai_rail.js` | target_unreadable |
+| D-001 | Assistant tab and session rail | `apps/rusty-brick-chess/frontend/src/views/assistant.rs` | verified |
+| D-002 | Streaming and context inspector UI | `apps/rusty-brick-chess/frontend/src/views/analysis.rs` | verified |
+| D-003 | Assistant CDP suites | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_ai_rail.js` | verified |
 
 #### KLM-WAR-0016 — Play and arena: human vs AI, watch mode, match loop, PGN
 
@@ -3063,10 +3063,10 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Match state machine and PGN | `code/crates/ai/src/game.rs` | target_unreadable |
-| D-002 | Play policy and watch mode | `code/crates/ai/src/play.rs` | target_unreadable |
-| D-003 | Match UI | `code/apps/rusty-brick-chess/frontend/src/views/play.rs` | target_unreadable |
-| D-004 | Play and watch CDP suites | `code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_ai_play.js` | target_unreadable |
+| D-001 | Match state machine and PGN | `crates/ai/src/game.rs` | verified |
+| D-002 | Play policy and watch mode | `crates/ai/src/play.rs` | verified |
+| D-003 | Match UI | `apps/rusty-brick-chess/frontend/src/views/play.rs` | verified |
+| D-004 | Play and watch CDP suites | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_ai_play.js` | verified |
 
 #### KLM-WAR-0017 — Tournaments and ratings: Swiss, knockout, round robin, Glicko-2
 
@@ -3195,10 +3195,10 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Glicko-2 ratings | `code/crates/ai/src/glicko.rs` | target_unreadable |
-| D-002 | Tournament formats | `code/crates/ai/src/tournament.rs` | target_unreadable |
-| D-003 | Tournament UI and leaderboard | `code/apps/rusty-brick-chess/frontend/src/views/play.rs` | target_unreadable |
-| D-004 | Leaderboard CDP suite | `code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_leaderboard.js` | target_unreadable |
+| D-001 | Glicko-2 ratings | `crates/ai/src/glicko.rs` | verified |
+| D-002 | Tournament formats | `crates/ai/src/tournament.rs` | verified |
+| D-003 | Tournament UI and leaderboard | `apps/rusty-brick-chess/frontend/src/views/play.rs` | verified |
+| D-004 | Leaderboard CDP suite | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_leaderboard.js` | verified |
 
 #### KLM-WAR-0018 — Structured studies: editor, chapters, boards, versions, progress, import/export
 
@@ -3406,11 +3406,11 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Study tools and their locks | `code/crates/ai/src/board.rs` | target_unreadable |
-| D-002 | Study editor | `code/apps/rusty-brick-chess/frontend/src/views/study.rs` | target_unreadable |
-| D-003 | Study bundle import/export | `code/crates/ai/src/study_bundle.rs` | target_unreadable |
-| D-004 | Study suites | `code/scripts/check_studies.sh` | target_unreadable |
-| D-005 | Study editor CDP suite | `code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_study.js` | target_unreadable |
+| D-001 | Study tools and their locks | `crates/ai/src/board.rs` | verified |
+| D-002 | Study editor | `apps/rusty-brick-chess/frontend/src/views/study.rs` | verified |
+| D-003 | Study bundle import/export | `crates/ai/src/study_bundle.rs` | verified |
+| D-004 | Study suites | `scripts/check_studies.sh` | verified |
+| D-005 | Study editor CDP suite | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_study.js` | verified |
 
 #### KLM-WAR-0019 — Compare workspace and structural diff engine
 
@@ -3541,10 +3541,10 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Structural diff engine | `code/crates/ai/src/diff.rs` | target_unreadable |
-| D-002 | Diff tests | `code/crates/ai/tests/diff.rs` | target_unreadable |
-| D-003 | Compare UI | `code/apps/rusty-brick-chess/frontend/src/views/compare.rs` | target_unreadable |
-| D-004 | Compare CDP suite | `code/apps/rusty-brick-chess/frontend/tests/cdp/cdp_compare.js` | target_unreadable |
+| D-001 | Structural diff engine | `crates/ai/src/diff.rs` | verified |
+| D-002 | Diff tests | `crates/ai/tests/diff.rs` | verified |
+| D-003 | Compare UI | `apps/rusty-brick-chess/frontend/src/views/compare.rs` | verified |
+| D-004 | Compare CDP suite | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_compare.js` | verified |
 
 #### KLM-WAR-0020 — Core MCP server: stdio, localhost HTTP, tools, resources, prompts, approvals
 
@@ -3680,11 +3680,11 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | MCP protocol core | `code/crates/ai/src/mcp.rs` | target_unreadable |
-| D-002 | MCP transports, token and rate limit | `code/apps/rusty-brick-chess/src/mcp.rs` | target_unreadable |
-| D-003 | MCP setup documentation | `code/docs/mcp.md` | target_unreadable |
-| D-004 | MCP protocol tests | `code/crates/ai/tests/mcp.rs` | target_unreadable |
-| D-005 | MCP end-to-end suite | `code/scripts/check_mcp.sh` | target_unreadable |
+| D-001 | MCP protocol core | `crates/ai/src/mcp.rs` | verified |
+| D-002 | MCP transports, token and rate limit | `apps/rusty-brick-chess/src/mcp.rs` | verified |
+| D-003 | MCP setup documentation | `docs/mcp.md` | verified |
+| D-004 | MCP protocol tests | `crates/ai/tests/mcp.rs` | verified |
+| D-005 | MCP end-to-end suite | `scripts/check_mcp.sh` | verified |
 
 #### KLM-WAR-0021 — Release 1 hardening: performance, security, full suite, docs and RC
 
@@ -3814,10 +3814,10 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Security review | `code/docs/security.md` | target_unreadable |
-| D-002 | Security tests | `code/crates/ai/tests/security.rs` | target_unreadable |
-| D-003 | The full check suite | `code/scripts/check_all.sh` | target_unreadable |
-| D-004 | Running and packaging documentation | `code/docs/running.md` | target_unreadable |
+| D-001 | Security review | `docs/security.md` | verified |
+| D-002 | Security tests | `crates/ai/tests/security.rs` | verified |
+| D-003 | The full check suite | `scripts/check_all.sh` | verified |
+| D-004 | Running and packaging documentation | `docs/running.md` | verified |
 
 ## Replaced
 

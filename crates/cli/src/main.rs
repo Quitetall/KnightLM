@@ -4,6 +4,8 @@ use knightlm_core::{data::*, experiment::*, state::*};
 use knightlm_model::{ModelProfile, smoke, verify_model};
 use std::{fs::File, io::BufReader, path::PathBuf};
 
+mod corpus;
+
 #[derive(Parser)]
 #[command(
     version,
@@ -46,6 +48,13 @@ enum Command {
     AuditSplits { file: PathBuf },
     /// Validate a corpus provenance manifest array.
     ValidateCorpora { file: PathBuf },
+    /// Stream one compiled decision per eligible Lichess game from PGN on stdin.
+    CorpusCandidates {
+        #[arg(long)]
+        source: String,
+        #[arg(long)]
+        limit: usize,
+    },
     /// Check observed board placement against the authoritative ledger.
     VerifyObservation { game: PathBuf, observation: PathBuf },
     /// Apply a bounded sequence of single-ply hypothetical moves.
@@ -180,6 +189,12 @@ fn main() -> Result<()> {
             validate_manifests(&items)?;
             emit(&serde_json::json!({"validated":items.len()}), false)?;
         }
+        Command::CorpusCandidates { source, limit } => corpus::write_candidates(
+            std::io::stdin().lock(),
+            std::io::BufWriter::new(std::io::stdout().lock()),
+            &source,
+            limit,
+        )?,
         Command::VerifyObservation {
             game: path,
             observation,

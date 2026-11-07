@@ -1,1 +1,1 @@
-{"schema_version":1,"name":"small-integration-gate","repository":"HuggingFaceTB/SmolVLM-500M-Instruct","revision":null,"role":"integration-only","architecture":"idefics3-siglip-smollm2"}
+{"schema_version":1,"name":"small-integration-gate","repository":"HuggingFaceTB/SmolVLM-500M-Instruct","revision":"a7da5b986cb59b408707209984f360a5f4ad7e47","role":"integration-only","architecture":"idefics3-siglip-smollm2"}

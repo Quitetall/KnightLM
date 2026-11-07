@@ -3,8 +3,10 @@
   "gate_definition_digest": "sha256:719636ad60f447d590f1e3962849fd3c7ac7e9fe048519f5240a95450584cd1a",
   "gate_binding_digest": "unbound:software.repo.war-check@1.0.0",
   "subject_digests": [
-    "contract:sha256:b88b8448d9d28193b1a2dab4a3f34de2297cf046887d2a9b8fed0f08385e0ded",
-    "deliverables:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    "contract:sha256:417eaa4b37442fa18e77a2fcd2dffd3eafd0d1cb6eafc645f12eaa7859bf9d05",
+    "deliverables:sha256:06f03c3afafaccc75346337d0a6bd6f2ad3f3eeed73a9c4d817788278f6012c4",
+    "tree:f8e9acd179a2c486d019144243a72f324cfce162",
+    "worktree:dirty"
   ],
   "fixture_digests": [],
   "runner": "war gate --run",
@@ -14,16 +16,16 @@
     "check",
     "--generated"
   ],
-  "working_directory": "/home/brianklam/Projects/KnightLM",
-  "started_at": "2026-11-04T12:15:42Z",
-  "completed_at": "2026-11-04T12:15:42Z",
-  "exit_result": "fail",
+  "working_directory": "/mnt/4tb/KnightLM",
+  "started_at": "2026-11-07T20:44:19Z",
+  "completed_at": "2026-11-07T20:44:21Z",
+  "exit_result": "pass",
   "selected_test_count": 0,
   "selected_test_manifest": [],
   "raw_evidence_refs": [],
   "stdout_ref": "docs/warrants/KLM-WAR-0018/gate-runs/software_repo_war-check_1_0_0.stdout.txt",
   "stderr_ref": "docs/warrants/KLM-WAR-0018/gate-runs/software_repo_war-check_1_0_0.stderr.txt",
   "resource_usage": "wall-clock only; 3 argv item(s)",
-  "verdict": "fail",
-  "receipt_digest": "sha256:2bf1535c92502baa6d0144c65a9296493c0c8d9b966ceff312ff1740ad673cdf"
+  "verdict": "pass",
+  "receipt_digest": "sha256:8b78fcd742d0e647b8e542139e4de6d343541953110a656a0cc595bfe8f8084a"
 }

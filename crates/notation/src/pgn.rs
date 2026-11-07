@@ -193,16 +193,19 @@ pub fn parse(input: &str) -> Result<PgnGame, PgnError> {
 
 /// Parse every game in a potentially multi-game PGN stream.
 pub fn parse_all(input: &[u8]) -> Result<Vec<PgnGame>, PgnError> {
+    read_games(input).collect()
+}
+
+/// Read one game at a time without retaining the input or previous games.
+pub fn read_games(input: impl std::io::Read) -> impl Iterator<Item = Result<PgnGame, PgnError>> {
     let mut reader = Reader::new(input);
     let mut collector = Collector::default();
-    let mut games = Vec::new();
-    for game in reader.read_games(&mut collector) {
-        match game {
-            Ok(g) => games.push(g),
-            Err(e) => return Err(PgnError(format!("PGN parse error: {e}"))),
-        }
-    }
-    Ok(games)
+    std::iter::from_fn(move || {
+        reader
+            .read_game(&mut collector)
+            .transpose()
+            .map(|game| game.map_err(|e| PgnError(format!("PGN parse error: {e}"))))
+    })
 }
 
 pub fn write(game: &PgnGame) -> String {
