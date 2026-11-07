@@ -423,6 +423,20 @@ pub async fn get_ai_match(id: &str) -> Result<serde_json::Value, String> {
     serde_json::from_str(&body).map_err(|_| body)
 }
 
+pub async fn manage_lamu_model(action: &str, model: &str) -> Result<(), String> {
+    let response = Request::post(&format!("/api/providers/lamu/{action}"))
+        .json(&serde_json::json!({ "model": model }))
+        .map_err(|error| error.to_string())?
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if response.ok() {
+        return Ok(());
+    }
+    let body: serde_json::Value = response.json().await.map_err(|error| error.to_string())?;
+    Err(body["error"].as_str().unwrap_or("LAMU refused the request").to_owned())
+}
+
 /// Create a match from a config.
 pub async fn create_ai_match(config: serde_json::Value) -> Result<serde_json::Value, String> {
     let resp = Request::post("/api/ai/matches")

@@ -613,7 +613,10 @@ pub async fn send_ai_turn(
     let knightlm = model.model == crate::lamu_runtime::KNIGHTLM_MODEL;
     let url = if knightlm {
         model.provider = "local:LAMU".into();
-        crate::lamu_runtime::knightlm_endpoint(&state.lamu_child).await?
+        format!(
+            "{}/chat/completions",
+            crate::lamu_runtime::ensure_runtime(&state.lamu_child).await?
+        )
     } else {
         settings
             .model_url
@@ -1393,6 +1396,12 @@ pub async fn list_matches(
     Ok(Json(state.db.ai_matches(50)?))
 }
 
+#[derive(serde::Deserialize)]
+pub struct ModelMoveOptions {
+    #[serde(default)]
+    thinking: bool,
+}
+
 /// `POST /api/ai/matches/{id}/model-move`
 ///
 /// Asks the seat a model holds for one move. The move is validated against the
@@ -1401,6 +1410,7 @@ pub async fn list_matches(
 pub async fn model_match_move(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    options: Option<Json<ModelMoveOptions>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let settings = crate::api::effective(&state);
     let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
@@ -1413,17 +1423,24 @@ pub async fn model_match_move(
         ));
     };
 
+    let thinking = options.is_some_and(|Json(options)| options.thinking)
+        && policy.request_reasoning
+        && seat.provider == "local:LAMU"
+        && seat.model != crate::lamu_runtime::KNIGHTLM_MODEL;
     if seat.provider == "local:LAMU" {
-        policy.request_reasoning = false;
+        policy.request_reasoning = thinking;
     }
     let url = if seat.provider == "local:LAMU" && seat.model == crate::lamu_runtime::KNIGHTLM_MODEL
     {
-        crate::lamu_runtime::knightlm_endpoint(&state.lamu_child).await?
+        format!(
+            "{}/chat/completions",
+            crate::lamu_runtime::ensure_runtime(&state.lamu_child).await?
+        )
     } else {
         match_endpoint(settings.model_url.as_deref(), &seat)?
     };
     let playing = tokio::task::spawn_blocking(move || {
-        let provider = provider_for(&url, &seat, true)?;
+        let provider = provider_for(&url, &seat, true, thinking)?;
         let cancel = rbc_ai::provider::Cancellation::new();
         rbc_ai::play::request_move(&mut game, &provider, &seat, &policy, &cancel)
             .map(|played| (game, played))
@@ -1492,7 +1509,7 @@ pub async fn chat_match(
     let url = match_endpoint(settings.model_url.as_deref(), &seat)?;
     let message = body.message;
     let reply = tokio::task::spawn_blocking(move || {
-        let provider = provider_for(&url, &seat, false)?;
+        let provider = provider_for(&url, &seat, false, false)?;
         let cancel = rbc_ai::provider::Cancellation::new();
         rbc_ai::play::request_chat(&game, &provider, &seat, &policy, &message, &cancel)
             .map_err(|error| error.message)
@@ -1522,6 +1539,12 @@ fn match_endpoint(
     default: Option<&str>,
     seat: &rbc_ai::protocol::ModelRef,
 ) -> Result<String, ApiError> {
+    if seat.provider == "local:LAMU" {
+        return Ok(format!(
+            "{}/chat/completions",
+            crate::lamu_runtime::base_url()?
+        ));
+    }
     if let Some(label) = seat.provider.strip_prefix("local:") {
         return crate::providers::LOCAL_CANDIDATES
             .iter()
@@ -1538,17 +1561,29 @@ fn provider_for(
     url: &str,
     seat: &rbc_ai::protocol::ModelRef,
     move_only: bool,
+    thinking: bool,
 ) -> Result<rbc_ai::provider::OpenAiProvider, String> {
+    let local_move = move_only && seat.provider == "local:LAMU";
     let config = rbc_ai::provider::ProviderConfig::openai_compatible(
         url,
         "openai_compatible",
         seat.model.clone(),
     );
-    let provider = rbc_ai::provider::OpenAiProvider::new(config).map_err(|error| error.message)?;
-    Ok(if move_only && seat.provider == "local:LAMU" {
-        provider.with_direct_answers(96)
+    let config = if local_move && thinking {
+        use std::time::Duration;
+        config.with_timeouts(
+            Duration::from_secs(5),
+            Duration::from_secs(180),
+            Duration::from_secs(180),
+        )
     } else {
-        provider
+        config
+    };
+    let provider = rbc_ai::provider::OpenAiProvider::new(config).map_err(|error| error.message)?;
+    Ok(match (local_move, thinking) {
+        (true, true) => provider.with_thinking(2048),
+        (true, false) => provider.with_direct_answers(96),
+        _ => provider,
     })
 }
 
@@ -1585,7 +1620,7 @@ pub async fn watch_step(
             } else {
                 (&seats.black, &black_url)
             };
-            let provider = provider_for(url, seat, true)?;
+            let provider = provider_for(url, seat, true, false)?;
             match rbc_ai::play::watch_step(&mut game, &provider, &seats, &cancel) {
                 Ok(step) => steps.push(step),
                 // A model that cannot produce a legal move stops the run; the

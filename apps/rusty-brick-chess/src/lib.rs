@@ -316,6 +316,10 @@ pub fn router(state: api::AppState) -> Router {
             post(provider_api::refresh_models),
         )
         .route("/api/providers/scan", get(provider_api::scan_local))
+        .route(
+            "/api/providers/lamu/{action}",
+            post(lamu_runtime::manage_model),
+        )
         .route("/api/vision/download", post(api::download_vision))
         .route("/api/vision/recognize", post(api::recognize_image))
         .route(
@@ -468,7 +472,11 @@ pub async fn serve_on(addr: &str) -> anyhow::Result<()> {
         std::env::var("STOCKFISH_PATH").ok()
     );
     println!("  MODEL_URL: {:?}", std::env::var("MODEL_URL").ok());
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
