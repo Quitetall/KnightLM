@@ -3065,7 +3065,7 @@ until the release gate records otherwise.
 |---|---|---|---|
 | D-001 | Match state machine and PGN | `crates/ai/src/game.rs` | verified |
 | D-002 | Play policy and watch mode | `crates/ai/src/play.rs` | verified |
-| D-003 | Match UI | `apps/rusty-brick-chess/frontend/src/views/play.rs` | drift |
+| D-003 | Match UI | `apps/rusty-brick-chess/frontend/src/views/play.rs` | verified |
 | D-004 | Play and watch CDP suites | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_ai_play.js` | verified |
 
 #### KLM-WAR-0017 — Tournaments and ratings: Swiss, knockout, round robin, Glicko-2
@@ -3197,7 +3197,7 @@ until the release gate records otherwise.
 |---|---|---|---|
 | D-001 | Glicko-2 ratings | `crates/ai/src/glicko.rs` | verified |
 | D-002 | Tournament formats | `crates/ai/src/tournament.rs` | verified |
-| D-003 | Tournament UI and leaderboard | `apps/rusty-brick-chess/frontend/src/views/play.rs` | drift |
+| D-003 | Tournament UI and leaderboard | `apps/rusty-brick-chess/frontend/src/views/play.rs` | verified |
 | D-004 | Leaderboard CDP suite | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_leaderboard.js` | verified |
 
 #### KLM-WAR-0018 — Structured studies: editor, chapters, boards, versions, progress, import/export
