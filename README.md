@@ -28,6 +28,10 @@ When RBC is running, open [localhost:8090](http://127.0.0.1:8090/). Go to
 **Database** to import a PGN or **Analysis** to explore a position. Configure
 Stockfish or a model provider in **Settings** when you want those features.
 
+![RBC Analysis view with a Ruy Lopez position, move list, and Stockfish evaluation](docs/assets/rbc-analysis.png)
+
+*RBC’s Analysis view after importing a sample Ruy Lopez PGN and running Stockfish at depth 15.*
+
 ## How it works
 
 ```mermaid
@@ -61,9 +65,14 @@ Lichess sample. [Research plan](docs/model/plan.md) · [Training quickstart](mod
   also uses the UCI interface.
 - **Model.** Python and PEFT run the LoRA pilot. Rust and Burn provide the
   backend experiments, and Python and Mojo check packet parity. [Model tooling](model/README.md)
-- **Verification.** Fixture checks exercise the chess and packet contracts.
-  Browser tests cover RBC workflows. The [benchmark notes](docs/releases/benchmarks.md)
-  record measurements and the conditions they were taken under.
+
+### Verification
+
+Fixture checks exercise the chess and packet contracts. Browser tests cover RBC workflows.
+
+![Million-game query latencies on a logarithmic scale, from 3 ms for exact position search to 1,312 ms for the opening explorer](docs/assets/rbc-million-game-latency.svg)
+
+*Recorded release-build query timings from one 3.6 GB SQLite database on tmpfs, populated with 1,000,000 seeded synthetic games of 8–67 plies. Position search and the opening explorer were measured after 1.e4. The horizontal axis is logarithmic.* [Benchmark notes](docs/releases/benchmarks.md#the-database)
 
 ## Documentation and contributing
 
