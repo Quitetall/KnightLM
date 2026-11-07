@@ -45,6 +45,15 @@ function startProvider() {
         return;
       }
 
+      if (user === "stream please") {
+        // Continue streaming until Stop so the browser has time to observe a
+        // partial response. The provider checks cancellation between reads.
+        chunk({ content: "the position is " });
+        const interval = setInterval(() => chunk({ content: "quiet " }), CHUNK_DELAY_MS);
+        res.on("close", () => clearInterval(interval));
+        return;
+      }
+
       const words = (sawTool ? "there are boards here" : "the position is equal and quiet").split(" ");
       let index = 0;
       const tick = () => {
@@ -100,7 +109,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await type("stream please");
   await sleep(200);
   const started = await clickText(".chat-input button", "Send");
-  const partial = await waitFor(streamingText, 6000);
+  const partial = await waitFor(streamingText, 12000);
   const labelWhileSending = await ev(`document.querySelector(".chat-input button")?.textContent.trim()`);
 
   // --- stop: the turn ends by request ------------------------------------

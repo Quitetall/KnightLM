@@ -1,13 +1,50 @@
 # Running RustyBrickChess
 
-The app is one binary plus the static frontend it serves. There is no separate
-server process, no Node runtime at run time, and no database server: SQLite is
-opened directly.
+RBC runs as one local server with a static browser frontend. The server opens
+SQLite directly. Stockfish and model providers are optional.
+
+## Linux
+
+Install the [Rust and frontend prerequisites](../README.md#start-rbc), then
+run these commands from the repository root:
+
+```bash
+./packaging/install.sh
+~/.local/bin/rusty-brick-chess --open
+```
+
+The installer builds both parts, copies them to `~/.local`, and adds a
+**RustyBrickChess** launcher. Use `--prefix` to choose a different install
+location, `--no-desktop` to skip the launcher, or `--skip-build` for a checkout
+that already has the server and frontend built.
+
+## Windows from source
+
+Use a Rust MSVC toolchain and the Visual Studio C++ build tools with a Windows
+SDK. The [Windows prerequisites](https://v2.tauri.app/start/prerequisites/#windows)
+describe the toolchain setup. Install the [same Rust WASM target and cargo-leptos](../README.md#start-rbc),
+then run this from PowerShell at the repository root:
+
+```powershell
+.\packaging\run-rbc.ps1
+```
+
+This builds the frontend and server, opens the default browser, and uses
+`%LOCALAPPDATA%\RustyBrickChess\rusty-brick-chess.db` by default. Set `RBC_DB`
+before launching to select an existing database. The Tauri Windows packaging
+workflow is configured for a desktop installer. A published installer and
+native Windows QA are still pending.
+
+A 64-bit Windows GNU server build was smoke-tested under Wine. It served the
+browser assets, created a SQLite database, and imported a PGN. The native
+MSVC build and PowerShell launch still need verification on a Windows host.
+
+## Run from a Unix checkout
 
 ```bash
 cd apps/rusty-brick-chess
 frontend/deploy.sh                 # cargo leptos build, then copy into public/
-cargo build --release
+cargo build --release --locked
 ./target/release/rusty-brick-chess --open
 ```
 
@@ -21,33 +58,19 @@ so a launcher or a second invocation is harmless.
 |---|---|
 | binary | `apps/rusty-brick-chess/target/release/rusty-brick-chess` |
 | frontend | `apps/rusty-brick-chess/frontend/public` (`index.html`, `pkg/`, `sounds/`) |
-| database | `${RBC_DB:-$XDG_DATA_HOME/rustybrickchess/rusty-brick-chess.db}` |
+| database | `RBC_DB` when set. Linux defaults to `$XDG_DATA_HOME/rustybrickchess/rusty-brick-chess.db` or `~/.local/share/rustybrickchess/rusty-brick-chess.db`. The Windows quickstart uses the Local AppData path above. |
 
 The frontend is **not** embedded in the binary. `static_dir()` looks, in order,
 at `RBC_STATIC`, `<exe>/../share/rustybrickchess/frontend`,
 `<exe>/frontend/public`, then the source tree. A binary copied somewhere on its
 own will serve the API and no UI.
 
-## Install for a user
-
-```bash
-packaging/install.sh                     # ~/.local
-packaging/install.sh --prefix /usr/local # system-wide
-packaging/install.sh --no-desktop        # skip the .desktop entry
-```
-
-It builds the release binary, places the frontend where `static_dir()` expects
-it (`<prefix>/share/rustybrickchess/frontend`), and writes a desktop entry whose
-`Exec` is `<prefix>/bin/rusty-brick-chess --open`. It warns if the binary is
-older than the newest source file, because a stale binary installs a working app
-that silently lacks newer migrations and routes.
-
 ## Optional at run time
 
 | variable | effect when unset |
 |---|---|
 | `STOCKFISH_PATH` | analysis and engine features report unavailability; the rest of the app works |
-| `MODEL_URL` | the Assistant tab answers `model URL is not set` |
+| `MODEL_URL` | optional default model endpoint. A provider configured in Settings can also supply the Assistant model. |
 | `RBC_ADDR` | binds `127.0.0.1:8090` |
 | `RBC_DB` | uses the per-user default above |
 | `RBC_DATA` | data directory for models and sounds |

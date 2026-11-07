@@ -1,70 +1,15 @@
 # RustyBrickChess
 
-The full KnightLM chess app: a **Leptos/BrickChess** frontend, an
-**En-Croissant-shaped Rust backend**, and **AI chess**.
+RBC is the local chess app. KnightLM is the chess model being trained for it.
+The Leptos frontend runs in your browser, served by a local Axum process that
+opens SQLite directly. Stockfish connects over UCI and the Assistant uses a
+configured model provider.
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Leptos frontend (WASM)  — served at /                        │
-│  BrickChess board + panels + (planned) game list / analysis   │
-└───────────────┬──────────────────────────────────────────────┘
-                │ HTTP/JSON
-┌───────────────▼──────────────────────────────────────────────┐
-│  axum backend                                                 │
-│   /api/games      SQLite game store + PGN import              │
-│   /api/analyze    Stockfish (STOCKFISH_PATH), typed Analysis  │
-│   /api/report     brick-chess-analysis (labels + accuracy)    │
-│   /api/chat       AI model proxy (MODEL_URL)                  │
-└──────────────────────────────────────────────────────────────┘
-```
+## Run RBC
 
-## Run
-
-```bash
-# Stockfish is optional for the DB/board, required for /api/analyze.
-STOCKFISH_PATH="$HOME/.local/bin/stockfish" \
-MODEL_URL="http://127.0.0.1:8000/v1/chat" \   # optional; /api/chat returns 503 without it
-RBC_DB="rusty-brick-chess.db" \
-RBC_ADDR="127.0.0.1:8090" \
-cargo run --release
-```
-
-Then open <http://127.0.0.1:8090/>.
-
-## Install (desktop launcher)
-
-```bash
-./install.sh
-```
-
-The wizard builds the release binary, installs `rustybrickchess` under
-`~/.local/bin`, copies the icon and writes a **RustyBrickChess** entry to your
-application menu. Clicking it (or running `rustybrickchess --open`) starts the
-server if needed and opens the app in your default browser; a second click
-reuses the running instance.
-
-```bash
-./install.sh --yes                 # accept defaults, no prompts
-./install.sh --prefix /usr/local   # install elsewhere
-./install.sh --port 8095           # different default port
-./install.sh --no-desktop          # binary only
-./install.sh --uninstall           # remove launcher, keep your games
-./install.sh --uninstall --purge   # remove launcher and data
-```
-
-By default the database lives in `$XDG_DATA_HOME/rustybrickchess`
-(`~/.local/share/rustybrickchess`), so the launcher works from any directory.
-
-Environment:
-
-| var | meaning |
-|---|---|
-| `STOCKFISH_PATH` | UCI engine binary; no auto-download |
-| `MODEL_URL` | AI chat endpoint (the fine-tuned model server) |
-| `RBC_DB` | SQLite path (default `$XDG_DATA_HOME/rustybrickchess/rusty-brick-chess.db`) |
-| `RBC_ADDR` | bind address (default `127.0.0.1:8090`) |
-| `RBC_DEPTH` | default analysis depth (15) |
-| `RBC_DATA` | data directory for the vision model and uploaded sounds (default `db_dir/data`) |
+Start with the [Linux install or Windows source quickstart](../../docs/running.md).
+The [roadmap](ROADMAP.md) tracks packaged releases, UI reliability, and the
+KnightLM player integration.
 
 ## API
 
@@ -394,10 +339,10 @@ cd src-tauri
 npx @tauri-apps/cli@2 build          # .deb/.rpm/.AppImage on Linux
 ```
 
-`.github/workflows/release.yml` builds on `v*` tags (or manually) for Linux,
-macOS and Windows with `tauri-action`, producing `.deb`/`.AppImage`, `.dmg` and
-`.msi`/`.exe` in a draft GitHub release. It builds the frontend first
-(`cargo-leptos` + wasm-bindgen pinned to `frontend/Cargo.lock`).
+`.github/workflows/release.yml` is configured to build the frontend and package
+desktop bundles on Linux, macOS, and Windows. See the
+[running guide](../../docs/running.md) for the verified launch paths and
+[roadmap](ROADMAP.md) for package testing and publication.
 
 ### Auto-update signing
 

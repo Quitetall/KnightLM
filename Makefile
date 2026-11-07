@@ -6,6 +6,7 @@ check:
 	cargo test --workspace --all-features --locked -j 2
 	cargo build --locked -j 2
 	python3 -m unittest discover -s ports/python
+	python3 -m unittest ports.corpus.test_pipeline
 	python3 scripts/check_cli.py
 	python3 scripts/check_ports.py
 

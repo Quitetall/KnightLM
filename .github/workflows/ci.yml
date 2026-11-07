@@ -9,7 +9,13 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: rustup update stable && rustup default stable
       - run: rustup component add rustfmt clippy
+      - name: Install Stockfish for the UCI smoke test
+        run: |
+          timeout 120 sudo apt-get update
+          timeout 120 sudo apt-get install -y --no-install-recommends stockfish
       - run: make check
+        env:
+          STOCKFISH_PATH: /usr/games/stockfish
   mojo-parity:
     runs-on: ubuntu-latest
     steps:

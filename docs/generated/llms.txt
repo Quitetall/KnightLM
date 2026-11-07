@@ -2,9 +2,21 @@
 
 > OpenWarrant index (openwarrant/1.0). Generated; do not edit. Read any line's record with `war context <id>`.
 
+## AGENTS.md
+> -
+- md:AGENTS.md#tracking-work-with-tickets-optional · instruction · - · Tracking work with tickets (optional) · AGENTS.md:18
+- md:AGENTS.md#loading-context · instruction · - · Loading context · AGENTS.md:41
+- md:AGENTS.md#planning-a-larger-piece-of-work-optional · instruction · - · Planning a larger piece of work (optional) · AGENTS.md:58
+- md:AGENTS.md#when-a-warrants-type-requires-sign-off · instruction · - · When a Warrant's type requires sign-off · AGENTS.md:108
+- md:AGENTS.md#tools · instruction · - · Tools · AGENTS.md:168
+
 ## README.md
 > -
-- doc:README.md · document · - · KnightLM · README.md:1
+- doc:README.md · document · - · RustyBrickChess (RBC) · README.md:1
+
+## docs/benchmarks.md
+> -
+- doc:docs/benchmarks.md · document · - · Benchmarks · docs/benchmarks.md:1
 
 ## docs/contracts.md
 > -
@@ -21,6 +33,14 @@
 ## docs/plan.md
 > -
 - doc:docs/plan.md · document · - · KnightLM implementation contract · docs/plan.md:1
+
+## docs/release-candidate.md
+> -
+- doc:docs/release-candidate.md · document · - · Release candidate — 1.0.0 · docs/release-candidate.md:1
+
+## docs/release-notes-1.0.md
+> -
+- doc:docs/release-notes-1.0.md · document · - · RustyBrickChess 1.0.0 — release notes · docs/release-notes-1.0.md:1
 
 ## docs/running.md
 > -

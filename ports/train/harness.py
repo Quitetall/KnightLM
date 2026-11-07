@@ -1,120 +1,212 @@
-"""KnightLM training port (Track A, HuggingFace). Run 1 harness.
+"""Fine-tune the pinned SmolVLM with decoder-only LoRA on the Lichess pilot."""
 
-Seams consumed (see KLM-WAR-0008):
-  - model-io: chat-template packet format (state packet in -> move out)
-  - run-manifest: manifest schema (run id, MLflow ref, adapter+base hashes,
-    chat template, packet format version, corpus manifest ref, config)
-  - cost-cap: $40/run hard input
-"""
+import argparse
+from datetime import datetime, timezone
+import json
+import math
+from pathlib import Path
+import random
+import time
 
-from dataclasses import dataclass, field
-from typing import Iterable, Iterator, Protocol
-import json, hashlib, os
+from ports.corpus.pipeline import read_corpus, sha256_file
 
-
-@dataclass
-class Packet:
-    """The model-facing text contract. One decision point -> one packet."""
-    prompt: str
-    target: str  # the played move (primary signal)
-    label: dict | None = None  # joined eval label, LABEL ONLY
+PROFILE = Path(__file__).resolve().parents[2] / "configs/models/smolvlm-500m.json"
+WEIGHTS_SHA256 = "d05b567eeaf534e83d375551f068ed57b5f52d37c657197f644af5ef9db091a2"
+LORA_TARGETS = r"model\.text_model\.layers\.\d+\.self_attn\.[qv]_proj"
 
 
-def format_packet(state_fen: str, legal_moves: list[str], facts: dict) -> str:
-    """Chat-template packet formatting. Exact template is the seam (model-io)."""
-    return (
-        "<|system|>You are a chess engine. Reply with one legal UCI move.\n"
-        f"<|user|>FEN: {state_fen}\nLegal: {','.join(legal_moves)}\nFacts: {json.dumps(facts)}\n"
-        "<|assistant|>"
-    )
+def encode(row, processor):
+    tokenizer = processor.tokenizer
+    packet = json.dumps(row["packet"], sort_keys=True, separators=(",", ":"))
+    chat = [{"role": "user", "content": [{"type": "text", "text": (
+        "Choose a legal chess move. Reply with just the UCI move.\n" + packet
+    )}]}]
+    prompt = processor.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
+    chat.append({"role": "assistant", "content": [{"type": "text", "text": row["target"]}]})
+    answer = processor.apply_chat_template(chat, tokenize=False)
+    prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)
+    ids = tokenizer.encode(answer, add_special_tokens=False)
+    if ids[:len(prompt_ids)] != prompt_ids:
+        raise ValueError("SmolVLM prompt and completion tokenize to different prefixes")
+    end = ids.index(tokenizer.eos_token_id, len(prompt_ids)) + 1
+    return prompt_ids, ids[:end]
 
 
-class Logger(Protocol):
-    def log(self, key: str, value): ...
-    def log_artifact(self, path: str): ...
+def train(args, train_rows, holdout_rows):
+    import peft
+    import torch
+    import transformers
+    from transformers import AutoModelForImageTextToText, AutoProcessor
+
+    started = datetime.now(timezone.utc).isoformat()
+    clock = time.monotonic()
+    if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
+        raise RuntimeError("this pilot requires CUDA with bfloat16 support")
+    torch.manual_seed(args.seed)
+    torch.cuda.reset_peak_memory_stats()
+    profile = json.loads(PROFILE.read_text())
+    if sha256_file(args.model_dir / "model.safetensors") != WEIGHTS_SHA256:
+        raise ValueError(f"base weights do not match {profile['repository']}@{profile['revision']}")
+    processor = AutoProcessor.from_pretrained(args.model_dir, local_files_only=True)
+    tokenizer = processor.tokenizer
+    train_examples = [encode(row, processor) for row in train_rows]
+    holdout_examples = [encode(row, processor) for row in holdout_rows]
+    random.Random(args.seed).shuffle(train_examples)
+
+    def load_base():
+        return AutoModelForImageTextToText.from_pretrained(
+            args.model_dir, local_files_only=True, dtype=torch.bfloat16,
+        ).to("cuda")
+
+    def batches(examples):
+        for start in range(0, len(examples), args.batch_size):
+            yield examples[start:start + args.batch_size]
+
+    def tensors(batch, *, generate=False):
+        sequences = [prefix if generate else ids for prefix, ids in batch]
+        width = max(map(len, sequences))
+        input_ids, attention_mask, labels = [], [], []
+        for (prefix, _), ids in zip(batch, sequences, strict=True):
+            pad = [tokenizer.pad_token_id] * (width - len(ids))
+            if generate:
+                input_ids.append(pad + ids)
+                attention_mask.append([0] * len(pad) + [1] * len(ids))
+            else:
+                input_ids.append(ids + pad)
+                attention_mask.append([1] * len(ids) + [0] * len(pad))
+                labels.append([-100] * len(prefix) + ids[len(prefix):] + [-100] * len(pad))
+        values = {"input_ids": input_ids, "attention_mask": attention_mask}
+        if not generate:
+            values["labels"] = labels
+        return {key: torch.tensor(value, device="cuda") for key, value in values.items()}
+
+    @torch.inference_mode()
+    def holdout_loss(model):
+        loss_sum, tokens = 0.0, 0
+        for batch in batches(holdout_examples):
+            inputs = tensors(batch)
+            count = int(inputs["labels"].ne(-100).sum())
+            loss_sum += float(model(**inputs, use_cache=False).loss) * count
+            tokens += count
+        loss = loss_sum / tokens
+        if not math.isfinite(loss):
+            raise RuntimeError("non-finite holdout loss")
+        return loss
+
+    args.output.mkdir()
+    config = peft.LoraConfig(r=8, lora_alpha=16, target_modules=LORA_TARGETS, bias="none")
+    model = peft.get_peft_model(load_base(), config)
+    parameters = [param for param in model.parameters() if param.requires_grad]
+    initial = [param.detach().cpu().clone() for param in parameters]
+    trainable = sum(param.numel() for param in parameters)
+    optimizer = torch.optim.AdamW(parameters, lr=args.learning_rate)
+    before_loss = holdout_loss(model.eval())
+    print(f"Before training: holdout loss={before_loss:.4f}, LoRA parameters={trainable}", flush=True)
+
+    model.train()
+    max_gradient = 0.0
+    losses = []
+    for step, batch in enumerate(batches(train_examples), 1):
+        optimizer.zero_grad(set_to_none=True)
+        loss = model(**tensors(batch), use_cache=False).loss
+        loss_value = float(loss.detach())
+        if not math.isfinite(loss_value):
+            raise RuntimeError(f"non-finite training loss at step {step}")
+        loss.backward()
+        norm = torch.nn.utils.clip_grad_norm_(parameters, max_norm=1.0, error_if_nonfinite=True)
+        max_gradient = max(max_gradient, float(norm))
+        optimizer.step()
+        losses.append(loss_value)
+        if step == 1 or step % 25 == 0 or step * args.batch_size >= len(train_examples):
+            print(f"step {step}, games {min(step * args.batch_size, len(train_examples))}: loss={loss_value:.4f}", flush=True)
+    changed = any(not torch.equal(old, new.detach().cpu()) for old, new in zip(initial, parameters, strict=True))
+    if max_gradient <= 0 or not changed:
+        raise RuntimeError("LoRA training did not update adapter weights")
+
+    model.eval()
+    probe = tensors(holdout_examples[:1], generate=True)
+    with torch.inference_mode():
+        expected = model(**probe, use_cache=False).logits[:, -1, :].float().cpu()
+    adapter = args.output / "adapter"
+    config.base_model_name_or_path = profile["repository"]
+    config.revision = profile["revision"]
+    model.save_pretrained(adapter)
+    del model, optimizer, parameters
+    reloaded = peft.PeftModel.from_pretrained(load_base(), adapter).eval()
+    with torch.inference_mode():
+        actual = reloaded(**probe, use_cache=False).logits[:, -1, :].float().cpu()
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    after_loss = holdout_loss(reloaded)
+
+    predictions = []
+    with torch.inference_mode():
+        for batch in batches(holdout_examples):
+            inputs = tensors(batch, generate=True)
+            generated = reloaded.generate(
+                **inputs, do_sample=False, max_new_tokens=10,
+                eos_token_id=tokenizer.eos_token_id, pad_token_id=tokenizer.pad_token_id,
+            )
+            predictions.extend(tokenizer.batch_decode(
+                generated[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True,
+            ))
+    legal, exact = 0, 0
+    with (args.output / "holdout-predictions.jsonl").open("x") as stream:
+        for row, reply in zip(holdout_rows, predictions, strict=True):
+            move = reply.strip()
+            is_legal = move in row["packet"]["legal_moves"]
+            legal += is_legal
+            exact += move == row["target"]
+            stream.write(json.dumps({"game_id": row["game_id"], "reply": reply,
+                                     "legal": is_legal, "target": row["target"]}) + "\n")
+
+    receipt = {
+        "evidence": "local_text_only_lora_pilot",
+        "started_utc": started,
+        "elapsed_seconds": round(time.monotonic() - clock, 2),
+        "model": {"repository": profile["repository"], "revision": profile["revision"],
+                  "base_sha256": WEIGHTS_SHA256,
+                  "chat_template_sha256": sha256_file(args.model_dir / "chat_template.json"),
+                  "tokenizer_sha256": sha256_file(args.model_dir / "tokenizer.json")},
+        "corpus_manifest_sha256": sha256_file(args.corpus / "manifest.json"),
+        "trainer_sha256": sha256_file(Path(__file__)),
+        "adapter_sha256": sha256_file(adapter / "adapter_model.safetensors"),
+        "adapter_config_sha256": sha256_file(adapter / "adapter_config.json"),
+        "holdout_predictions_sha256": sha256_file(args.output / "holdout-predictions.jsonl"),
+        "environment": {"gpu": torch.cuda.get_device_name(), "cuda": torch.version.cuda,
+                        "torch": torch.__version__, "transformers": transformers.__version__,
+                        "peft": peft.__version__},
+        "config": {"batch_size": args.batch_size, "learning_rate": args.learning_rate,
+                   "seed": args.seed, "epochs": 1, "rank": config.r, "alpha": config.lora_alpha,
+                   "lora_targets": LORA_TARGETS},
+        "train_games": len(train_rows), "holdout_games": len(holdout_rows),
+        "optimizer_steps": len(losses), "trainable_parameters": trainable,
+        "max_gradient_norm": max_gradient, "adapter_updated": changed,
+        "mean_step_loss": sum(losses) / len(losses),
+        "adapter_reload_max_logit_error": float((actual - expected).abs().max()),
+        "holdout_loss_before": before_loss, "holdout_loss_after": after_loss,
+        "unmasked_legal_with_legal_list": legal, "played_move_matches": exact,
+        "peak_gpu_allocated_bytes": torch.cuda.max_memory_allocated(),
+    }
+    (args.output / "run-manifest.json").write_text(json.dumps(receipt, indent=2) + "\n")
+    print(json.dumps(receipt, indent=2), flush=True)
 
 
-class MLflowLogger:
-    """System of record (sponsor decision 2026-10-20)."""
-
-    def __init__(self, tracking_uri: str, experiment: str):
-        self.tracking_uri = tracking_uri
-        self.experiment = experiment
-        self.run_id = None
-
-    def log(self, key, value):
-        # mlflow.log_metric / log_param in the real impl
-        print(f"[mlflow] {key}={value}")
-
-    def log_artifact(self, path):
-        print(f"[mlflow] artifact {path}")
-
-
-class WandbLogger:
-    """Optional, behind the same seam."""
-
-    def log(self, key, value):
-        print(f"[wandb] {key}={value}")
-
-    def log_artifact(self, path):
-        print(f"[wandb] artifact {path}")
-
-
-def cost_guard(spent_usd: float, cap_usd: float = 40.0) -> None:
-    if spent_usd > cap_usd:
-        raise RuntimeError(f"cost cap exceeded: {spent_usd:.2f} > {cap_usd:.2f}")
-
-
-@dataclass
-class RunManifest:
-    run_id: str
-    mlflow_ref: str
-    adapter_hash: str
-    base_hash: str
-    chat_template: str
-    packet_format_version: int
-    corpus_manifest_ref: str
-    config: dict = field(default_factory=dict)
-
-    def to_json(self) -> str:
-        return json.dumps(self.__dict__, indent=2)
-
-
-def sha256_file(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-# ---------------------------------------------------------------------------
-# Eval report: per-axis only. The generator refuses composites.
-# ---------------------------------------------------------------------------
-
-AXES = ["raw_legality", "masked_legality", "token_cost", "assisted_legality", "strength_proxy_sf19"]
-
-
-def build_report(results: dict[str, float]) -> dict:
-    missing = [a for a in AXES if a not in results]
-    if missing:
-        raise ValueError(f"missing axes: {missing}")
-    extra = [k for k in results if k not in AXES]
-    if extra:
-        raise ValueError(f"unknown/composite axes refused: {extra}")
-    # refuse any key that looks like a composite
-    for k in results:
-        if any(tok in k for tok in ("total", "score", "winner", "composite", "overall")):
-            raise ValueError(f"composite axis refused: {k}")
-    return {"axes": {k: results[k] for k in AXES}, "composite": None}
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--corpus", type=Path, required=True)
+    parser.add_argument("--model-dir", type=Path, required=True, help="local pinned SmolVLM snapshot")
+    parser.add_argument("--output", type=Path, required=True, help="new run directory")
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--learning-rate", type=float, default=2e-4)
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+    if args.batch_size < 1 or not math.isfinite(args.learning_rate) or args.learning_rate <= 0:
+        parser.error("batch size and learning rate must be positive")
+    if args.output.exists():
+        parser.error("output must be a new directory")
+    train_rows, holdout_rows = read_corpus(args.corpus)
+    train(args, train_rows, holdout_rows)
 
 
 if __name__ == "__main__":
-    r = build_report({
-        "raw_legality": 0.91,
-        "masked_legality": 1.0,
-        "token_cost": 12.3,
-        "assisted_legality": 0.97,
-        "strength_proxy_sf19": 0.42,
-    })
-    print(json.dumps(r, indent=2))
+    main()

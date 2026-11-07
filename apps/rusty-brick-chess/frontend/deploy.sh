@@ -4,7 +4,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 echo "[1/2] cargo leptos build..."
-cargo leptos build >/tmp/rbc_frontend_build.log 2>&1 || { echo "BUILD FAILED"; tail -25 /tmp/rbc_frontend_build.log; exit 1; }
+cargo leptos build --frontend-only --cargo-locked
 echo "[2/2] deploying..."
 # cargo-leptos owns public/ and may remove the entrypoint, so copy it last
 # and verify every file the browser needs before declaring success.

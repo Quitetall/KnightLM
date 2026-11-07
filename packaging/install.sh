@@ -29,7 +29,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ "$SKIP_BUILD" = 1 ] || { echo "[1/4] cargo build --release"; (cd "$APPDIR" && cargo build --release --locked); }
+if [ "$SKIP_BUILD" != 1 ]; then
+  echo "[1/4] build the server and browser frontend"
+  (cd "$APPDIR" && cargo build --release --locked)
+  "$APPDIR/frontend/deploy.sh"
+fi
 test -x "$BIN" || { echo "missing $BIN (run without --skip-build)" >&2; exit 1; }
 
 # A stale binary installs a working app that is missing schema migrations and
@@ -39,7 +43,7 @@ if [ -n "$(find "$APPDIR/src" "$APPDIR/frontend/src" "$APPDIR/../../crates" -nam
   echo "         it may lack migrations or routes. Rebuild without --skip-build." >&2
 fi
 
-# The frontend has to exist before installing; deploy.sh builds it.
+# Also validate the prebuilt bundle when --skip-build is used.
 if [ ! -s "$APPDIR/frontend/public/index.html" ]; then
   echo "missing frontend/public/index.html - run frontend/deploy.sh first" >&2
   exit 1

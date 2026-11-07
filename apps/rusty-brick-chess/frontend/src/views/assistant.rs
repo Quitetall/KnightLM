@@ -344,6 +344,8 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     let approvals_open = RwSignal::new(false);
     let approvals = RwSignal::new(Vec::<ai_api::ApprovalInfo>::new());
     let approvals_msg = RwSignal::new(String::new());
+    let approvals_load_error = RwSignal::new(None::<String>);
+    let refresh_approvals = RwSignal::new(0u64);
     // Scopes this session may take without asking, per origin.
     let in_app_grants = RwSignal::new(Vec::<String>::new());
     let source = StoredValue::new(None::<web_sys::EventSource>);
@@ -543,6 +545,8 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
             )
             .await;
             sending.set(false);
+            // The turn may have queued a write while the panel stayed open.
+            refresh_approvals.update(|revision| *revision += 1);
             source.with_value(|held| {
                 if let Some(stream) = held {
                     stream.close();
@@ -630,18 +634,23 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
         });
     });
 
-    // Load the queue whenever the panel is opened.
+    // Load on open and after requests that can change the pending queue.
     Effect::new(move |_| {
-        if !approvals_open.get() {
+        let revision = refresh_approvals.get();
+        if !approvals_open.get_untracked() {
             return;
         }
         spawn_local(async move {
-            match ai_api::list_approvals().await {
+            let result = ai_api::list_approvals().await;
+            if refresh_approvals.try_get_untracked() != Some(revision) {
+                return;
+            }
+            match result {
                 Ok(list) => {
                     approvals.set(list);
-                    approvals_msg.set(String::new());
+                    approvals_load_error.set(None);
                 }
-                Err(error) => approvals_msg.set(error),
+                Err(error) => approvals_load_error.set(Some(error)),
             }
         });
     });
@@ -1022,7 +1031,17 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                     {move || i18n::t(&language.get(), "assistant.expand_reasoning")}
                 </label>
                 <div style="display:flex;gap:.4rem;align-items:center;">
-                    <button on:click=move |_| approvals_open.update(|open| *open = !*open)>
+                    <button
+                        aria-expanded=move || if approvals_open.get() { "true" } else { "false" }
+                        on:click=move |_| {
+                            approvals_open.update(|open| *open = !*open);
+                            if approvals_open.get_untracked() {
+                                approvals_msg.set(String::new());
+                                approvals_load_error.set(None);
+                            }
+                            refresh_approvals.update(|revision| *revision += 1);
+                        }
+                    >
                         {move || {
                             // The count is only known once the queue has been
                             // read; the label stays useful before that.
@@ -1103,6 +1122,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                                     match ai_api::resolve_approval(&id, true).await {
                                                         Ok(report) => {
                                                             approve.update(|list| list.retain(|a| a.id != id));
+                                                            refresh_approvals.update(|revision| *revision += 1);
                                                             let applied = report
                                                                 .get("result")
                                                                 .filter(|result| !result.is_null())
@@ -1124,7 +1144,10 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                                 let id = id_deny.clone();
                                                 spawn_local(async move {
                                                     match ai_api::resolve_approval(&id, false).await {
-                                                        Ok(_) => deny.update(|list| list.retain(|a| a.id != id)),
+                                                        Ok(_) => {
+                                                            deny.update(|list| list.retain(|a| a.id != id));
+                                                            refresh_approvals.update(|revision| *revision += 1);
+                                                        }
                                                         Err(error) => msg.set(error),
                                                     }
                                                 });
@@ -1149,10 +1172,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                                 failed += 1;
                                             }
                                         }
-                                        match ai_api::list_approvals().await {
-                                            Ok(list) => approvals.set(list),
-                                            Err(error) => msg.set(error),
-                                        }
+                                        refresh_approvals.update(|revision| *revision += 1);
                                         if failed > 0 {
                                             msg.set(format!("{failed} approval(s) could not be answered"));
                                         }
@@ -1201,7 +1221,9 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                 })
                                 .collect_view()}
                         </div>
-                        <div class="muted">{move || approvals_msg.get()}</div>
+                        <div class="muted" role="status">
+                            {move || approvals_load_error.get().unwrap_or_else(|| approvals_msg.get())}
+                        </div>
                     </div>
                 })}
                 {move || inspector_open.get().then(|| {

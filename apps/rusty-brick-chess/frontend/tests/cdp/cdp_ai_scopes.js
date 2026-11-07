@@ -139,20 +139,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   await type("please play e4");
   await sleep(200);
-  await clickText(".chat-input button", "Send");
-  await waitFor(async () => await ev(`!document.querySelector(".chat-msg.streaming")`), 15000);
-  await sleep(1200);
+  const sent = await clickText(".chat-input button", "Send");
 
-  const pending = await ev(`fetch('/api/ai/approvals').then(r=>r.json()).then(v=>v.pending.length)`);
-  const board_state = await ev(`(async()=>{
-    const boardId = ${JSON.stringify("%BOARD%")};
+  const readBoard = () => ev(`(async()=>{
+    const boardId = ${JSON.stringify(board)};
     const b = await fetch('/api/boards/' + boardId).then(r=>r.json());
     return { revision: b.revision, content: b.content_json };
-  })()`.replace('%BOARD%', board));
+  })()`);
+  const board_state = await waitFor(async () => {
+    const state = await readBoard();
+    return state?.revision === 2 ? state : null;
+  }, 15000) || await readBoard();
+  const pending = await ev(`fetch('/api/ai/approvals').then(r=>r.json()).then(v=>v.pending.length)`);
 
   console.log(JSON.stringify({ board, openedPanel, granted, stored, pending, board_state }));
   const applied = board_state && board_state.revision === 2 && /"moves":\["e4"\]/.test(board_state.content || "");
-  const ok = !!board && openedPanel && granted && String(stored || "").includes("board-write")
+  const ok = !!board && openedPanel && granted && sent && String(stored || "").includes("board-write")
     && pending === 0 && applied;
   console.log(ok ? "AI_SCOPES_PASS" : "AI_SCOPES_FAIL");
   ws.close();
