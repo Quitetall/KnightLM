@@ -13,9 +13,9 @@ model can advance in parallel through the same player interface.
 | 4 | Improve opening-explorer latency. | The same million-game benchmark shows a faster query and the returned continuations match. The recorded reference is about 1.3 seconds. |
 
 The Linux browser app already has a source installer. The Windows source
-quickstart and desktop packaging status are in the [running guide](../../docs/running.md).
-See the [release candidate record](../../docs/release-candidate.md) for the
-previous build's evidence and [benchmarks](../../docs/benchmarks.md) for the
+quickstart and desktop packaging status are in the [running guide](../../docs/app/running.md).
+See the [release candidate record](../../docs/releases/release-candidate.md) for the
+previous build's evidence and [benchmarks](../../docs/releases/benchmarks.md) for the
 opening-explorer measurement.
 
 ## KnightLM model
@@ -34,4 +34,4 @@ opening-explorer measurement.
    the reference, and qualify larger Qwen checkpoints separately.
 
 [Training quickstart](../../ports/README.md#lichess-lora-pilot) ·
-[Research plan](../../docs/plan.md) · [Architecture spec](../../docs/sas/KnightLM_SAS.md#98-implementation-phases)
+[Research plan](../../docs/model/plan.md) · [Architecture spec](../../docs/sas/KnightLM_SAS.md#98-implementation-phases)

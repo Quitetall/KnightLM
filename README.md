@@ -32,7 +32,7 @@ server is running.
 
 **Windows**
 
-Use the [Windows source quickstart](docs/running.md#windows-from-source) to
+Use the [Windows source quickstart](docs/app/running.md#windows-from-source) to
 build and open RBC from PowerShell. The repository has a Tauri packaging workflow
 for Windows. An installable Windows release and native Windows QA are pending.
 
@@ -49,11 +49,11 @@ provider in **Settings** when you want those features.
   chess records, replay moves, and compile state. Stockfish connects over UCI.
 - [`crates/context`](crates/context) builds the Assistant's inspectable prompts.
   [`crates/ai`](crates/ai) handles providers, streaming, matches, and approval
-  policy. [MCP clients](docs/mcp.md) use the same tool and approval paths.
+  policy. [MCP clients](docs/app/mcp.md) use the same tool and approval paths.
 - [`ports`](ports/README.md) contains KnightLM's Lichess and SmolVLM training
   path. [`crates/model`](crates/model) contains the experimental Burn backend
-  contracts and CPU smoke test. The [model plan](docs/plan.md) explains the
-  fresh-state experiment and [contracts](docs/contracts.md) define its evidence.
+  contracts and CPU smoke test. The [model plan](docs/model/plan.md) explains the
+  fresh-state experiment and [contracts](docs/model/contracts.md) define its evidence.
 
 ## Documentation and contributing
 

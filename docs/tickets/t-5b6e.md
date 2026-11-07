@@ -18,6 +18,12 @@ paths:
 
 Start from `scripts/check_all.sh` and the CDP suite README. Reproduce the approvals regression against the built frontend as the first smoke. Make process and port ownership explicit for each run so contributors can test alongside a running RBC app.
 
+## Done when
+
+- Document one command that runs every registered browser suite against the packaged frontend. It provisions its own database, mock provider, ports, and browser profiles.
+- Demonstrate that an unrelated RBC instance and Chrome process survive the run. Verify the runner cleans up its own resources on both success and a forced failure.
+- Attach one uninterrupted run with a passing result for every registered suite and the tested build identity.
+
 ## Checklist
 
 

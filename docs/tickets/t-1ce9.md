@@ -13,11 +13,17 @@ paths:
   - "packaging/run-rbc.ps1"
   - ".github/workflows/release.yml"
   - "apps/rusty-brick-chess/src-tauri/**"
-  - "docs/running.md"
+  - "docs/app/running.md"
 ---
 # Release Engineer — Qualify RBC on native Windows
 
-Start with the Windows quickstart in `docs/running.md` and the Windows job in `.github/workflows/release.yml`. Keep source-build and installer results separate. Attach OS version, build identity, and artifact hashes to the PR.
+Start with the Windows quickstart in `docs/app/running.md` and the Windows job in `.github/workflows/release.yml`. Keep source-build and installer results separate. Attach OS version, build identity, and artifact hashes to the PR.
+
+## Done when
+
+- On a native Windows host, run the PowerShell quickstart with the MSVC toolchain. Verify the browser opens and RBC creates a fresh database under Local AppData.
+- Independently install and launch the candidate desktop package. Verify the bundled frontend loads, import a PGN, and run one Stockfish analysis.
+- Record separate source and installer results with Windows version, architecture, source commit, and installer SHA-256. Link the results in the PR and update the run guide with the verified path.
 
 ## Checklist
 

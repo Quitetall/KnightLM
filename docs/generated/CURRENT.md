@@ -2268,7 +2268,7 @@ not this Warrant.
 | id | title | target | digest |
 |---|---|---|---|
 | D-001 | Track B parity battery | `crates/model/tests/trackb_parity.rs` | verified |
-| D-002 | Track B study | `docs/trackb-smolvlm-study.md` | verified |
+| D-002 | Track B study | `docs/model/trackb-smolvlm-study.md` | verified |
 
 #### KLM-WAR-0012 — Foundation: schema v4, multi-board workspaces, studies, stable IDs and reset
 
@@ -2458,7 +2458,7 @@ until the release gate records otherwise.
 | D-001 | Schema v4 and the reset | `crates/rbc-db/src/lib.rs` | verified |
 | D-002 | Workspaces, boards and studies repository | `crates/rbc-db/src/domain.rs` | verified |
 | D-003 | Foundation fixtures | `crates/rbc-db/tests/foundation.rs` | verified |
-| D-004 | Migration notes | `docs/migrations.md` | verified |
+| D-004 | Migration notes | `docs/app/migrations.md` | verified |
 
 #### KLM-WAR-0013 — Deterministic context compiler and headless CLI
 
@@ -3682,7 +3682,7 @@ until the release gate records otherwise.
 |---|---|---|---|
 | D-001 | MCP protocol core | `crates/ai/src/mcp.rs` | verified |
 | D-002 | MCP transports, token and rate limit | `apps/rusty-brick-chess/src/mcp.rs` | verified |
-| D-003 | MCP setup documentation | `docs/mcp.md` | verified |
+| D-003 | MCP setup documentation | `docs/app/mcp.md` | verified |
 | D-004 | MCP protocol tests | `crates/ai/tests/mcp.rs` | verified |
 | D-005 | MCP end-to-end suite | `scripts/check_mcp.sh` | verified |
 
@@ -3814,10 +3814,10 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Security review | `docs/security.md` | verified |
+| D-001 | Security review | `docs/app/security.md` | verified |
 | D-002 | Security tests | `crates/ai/tests/security.rs` | verified |
 | D-003 | The full check suite | `scripts/check_all.sh` | verified |
-| D-004 | Running and packaging documentation | `docs/running.md` | verified |
+| D-004 | Running and packaging documentation | `docs/app/running.md` | verified |
 
 ## Replaced
 

@@ -75,5 +75,5 @@ cargo run --locked -p knightlm-cli --bin knightlm -- verify-model configs/models
 Fixture evaluation exercises the experiment arms with scripted moves and
 example scores. The CPU smoke fits a two-weight regression and verifies
 finite gradients, an update, and checkpoint reload. The Burn admission command
-exits nonzero until the reference parity gates pass. See the [model plan](../docs/plan.md)
-and [contracts](../docs/contracts.md) for the experiment and its evidence limits.
+exits nonzero until the reference parity gates pass. See the [model plan](../docs/model/plan.md)
+and [contracts](../docs/model/contracts.md) for the experiment and its evidence limits.

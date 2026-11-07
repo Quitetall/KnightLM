@@ -22,45 +22,61 @@
 > -
 - doc:docs/README.md · document · - · Documentation · docs/README.md:1
 
-## docs/benchmarks.md
+## docs/app/mcp.md
 > -
-- doc:docs/benchmarks.md · document · - · Benchmarks · docs/benchmarks.md:1
+- doc:docs/app/mcp.md · document · - · Using RustyBrickChess over MCP · docs/app/mcp.md:1
 
-## docs/contracts.md
+## docs/app/migrations.md
 > -
-- doc:docs/contracts.md · document · - · Version 1 contracts · docs/contracts.md:1
+- doc:docs/app/migrations.md · document · - · Database migrations, and the one reset · docs/app/migrations.md:1
+
+## docs/app/running.md
+> -
+- doc:docs/app/running.md · document · - · Running RustyBrickChess · docs/app/running.md:1
+
+## docs/app/security.md
+> -
+- doc:docs/app/security.md · document · - · Security review · docs/app/security.md:1
 
 ## docs/contributors/README.md
 > -
 - doc:docs/contributors/README.md · document · - · Contributor onboarding · docs/contributors/README.md:1
 
+## docs/contributors/signing.md
+> -
+- doc:docs/contributors/signing.md · document · - · Operator checklist: closing a delivery Warrant · docs/contributors/signing.md:1
+
 ## docs/contributors/work/README.md
 > -
 - doc:docs/contributors/work/README.md · document · - · Work orders · docs/contributors/work/README.md:1
 
-## docs/mcp.md
+## docs/model/contracts.md
 > -
-- doc:docs/mcp.md · document · - · Using RustyBrickChess over MCP · docs/mcp.md:1
+- doc:docs/model/contracts.md · document · - · Version 1 contracts · docs/model/contracts.md:1
 
-## docs/migrations.md
+## docs/model/history/verification.md
 > -
-- doc:docs/migrations.md · document · - · Database migrations, and the one reset · docs/migrations.md:1
+- doc:docs/model/history/verification.md · document · - · Scaffold verification · docs/model/history/verification.md:1
 
-## docs/plan.md
+## docs/model/plan.md
 > -
-- doc:docs/plan.md · document · - · KnightLM implementation contract · docs/plan.md:1
+- doc:docs/model/plan.md · document · - · KnightLM implementation contract · docs/model/plan.md:1
 
-## docs/release-candidate.md
+## docs/model/trackb-smolvlm-study.md
 > -
-- doc:docs/release-candidate.md · document · - · Release candidate — 1.0.0 · docs/release-candidate.md:1
+- doc:docs/model/trackb-smolvlm-study.md · document · - · Track B — SmolVLM architecture study (Burn-native admission) · docs/model/trackb-smolvlm-study.md:1
 
-## docs/release-notes-1.0.md
+## docs/releases/benchmarks.md
 > -
-- doc:docs/release-notes-1.0.md · document · - · RustyBrickChess 1.0.0 — release notes · docs/release-notes-1.0.md:1
+- doc:docs/releases/benchmarks.md · document · - · Benchmarks · docs/releases/benchmarks.md:1
 
-## docs/running.md
+## docs/releases/release-candidate.md
 > -
-- doc:docs/running.md · document · - · Running RustyBrickChess · docs/running.md:1
+- doc:docs/releases/release-candidate.md · document · - · Release candidate — 1.0.0 · docs/releases/release-candidate.md:1
+
+## docs/releases/release-notes-1.0.md
+> -
+- doc:docs/releases/release-notes-1.0.md · document · - · RustyBrickChess 1.0.0 — release notes · docs/releases/release-notes-1.0.md:1
 
 ## docs/sas/KnightLM_SAS.md
 > -
@@ -90,14 +106,6 @@
 - KLM-SAS-130 · section · - · Disciplines · docs/sas/KnightLM_SAS.md:168
 - KLM-SAS-140 · section · - · Technology pins · docs/sas/KnightLM_SAS.md:179
 - KLM-SAS-150 · section · - · Scope and non-goals · docs/sas/KnightLM_SAS.md:187
-
-## docs/security.md
-> -
-- doc:docs/security.md · document · - · Security review · docs/security.md:1
-
-## docs/signing.md
-> -
-- doc:docs/signing.md · document · - · Operator checklist: closing a delivery Warrant · docs/signing.md:1
 
 ## docs/tickets/t-0aaf.md
 > Tag, run all gates, record evidence and hand off signing.
@@ -350,14 +358,6 @@
 ## docs/tickets/t-f44e.md
 > Pin legal/illegal/timeout/provider-error/resign/checkmate flows.
 - t-f44e · ticket · done · Match tests with scripted mock models · docs/tickets/t-f44e.md:1
-
-## docs/trackb-smolvlm-study.md
-> -
-- doc:docs/trackb-smolvlm-study.md · document · - · Track B — SmolVLM architecture study (Burn-native admission) · docs/trackb-smolvlm-study.md:1
-
-## docs/verification.md
-> -
-- doc:docs/verification.md · document · - · Scaffold verification · docs/verification.md:1
 
 ## docs/warrants/KLM-WAR-0001/manifest.toml
 > Adopt OpenWarrant in KnightLM
