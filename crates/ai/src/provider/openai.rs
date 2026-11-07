@@ -27,7 +27,7 @@ use crate::provider::{
 pub struct OpenAiProvider {
     config: ProviderConfig,
     agent: ureq::Agent,
-    direct_answer_budget: Option<u32>,
+    thinking_budget: Option<(bool, u32)>,
 }
 
 impl OpenAiProvider {
@@ -44,13 +44,19 @@ impl OpenAiProvider {
         Ok(Self {
             config,
             agent,
-            direct_answer_budget: None,
+            thinking_budget: None,
         })
     }
 
     /// Limit move-only requests on endpoints that support `enable_thinking`.
     pub fn with_direct_answers(mut self, max_tokens: u32) -> Self {
-        self.direct_answer_budget = Some(max_tokens);
+        self.thinking_budget = Some((false, max_tokens));
+        self
+    }
+
+    /// Give a compatible model more room to reason before answering.
+    pub fn with_thinking(mut self, max_tokens: u32) -> Self {
+        self.thinking_budget = Some((true, max_tokens));
         self
     }
 
@@ -72,10 +78,13 @@ impl OpenAiProvider {
             // ignore it.
             body["stream_options"] = json!({ "include_usage": true });
         }
-        if self.direct_answer_budget.is_some() {
-            body["enable_thinking"] = json!(false);
+        if let Some((enabled, _)) = self.thinking_budget {
+            body["enable_thinking"] = json!(enabled);
         }
-        if let Some(max_tokens) = request.max_tokens.or(self.direct_answer_budget) {
+        if let Some(max_tokens) = request
+            .max_tokens
+            .or(self.thinking_budget.map(|(_, budget)| budget))
+        {
             body["max_tokens"] = json!(max_tokens);
         }
         if !request.tools.is_empty() {
@@ -1046,6 +1055,25 @@ mod tests {
         assert_eq!(body["tools"][0]["type"], json!("function"));
         assert_eq!(body["tools"][0]["function"]["name"], json!("get_board"));
         assert!(body["tools"][0]["function"]["parameters"].is_object());
+    }
+
+    #[test]
+    fn lamu_thinking_mode_changes_the_wire_flag_and_budget() {
+        let provider = || {
+            OpenAiProvider::new(ProviderConfig::openai_compatible(
+                "http://localhost:1/v1",
+                "mock",
+                "m1",
+            ))
+            .expect("valid config")
+        };
+        let request = CompletionRequest::new("m1", vec![ChatMessage::user("Your move")]);
+        let direct = provider().with_direct_answers(96).request_body(&request);
+        assert_eq!(direct["enable_thinking"], json!(false));
+        assert_eq!(direct["max_tokens"], json!(96));
+        let thinking = provider().with_thinking(2048).request_body(&request);
+        assert_eq!(thinking["enable_thinking"], json!(true));
+        assert_eq!(thinking["max_tokens"], json!(2048));
     }
 
     #[test]

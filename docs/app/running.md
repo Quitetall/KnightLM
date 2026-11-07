@@ -83,15 +83,25 @@ RBC serves the chess UI with the AI runtime offline. Open **Play**, choose an
 click its source and destination squares. RBC asks the model for a reply and
 checks it against the current position before adding it to the game.
 
-KnightLM is available in the picker immediately. Its first reply starts LAMU
-if needed. Play discovers other local models when it opens. **Play a game**
-in Assistant opens this same screen.
+KnightLM is available in the picker immediately. Play discovers other local
+models when it opens. **Play a game** in Assistant opens this same screen.
+
+For LAMU opponents, **Start game** loads the selected model and waits until
+it is ready. You can also use **Load model** and **Unload model** directly from
+Play on the machine running RBC. An explicit load may evict other models
+from the same LAMU service to make room. RBC asks for an 8,192-token context
+for new loads to reduce GPU memory use during chess. GPU memory held by other
+services, such as Ollama, can still prevent a large model from fitting.
+
+**Longer thinking** gives compatible LAMU opponents more time and up to 2,048
+tokens to reason and answer on each turn. KnightLM's pilot uses the one-move
+format it was trained on.
 
 For Assistant chat, select **KnightLM (LAMU)** in the composer and send a
 message. RBC uses the local LAMU service if it is healthy. Otherwise it
 starts `lamu serve` on loopback, and LAMU loads the registered model when the
 request arrives. Set `RBC_LAMU_BIN` if `lamu` is outside the app's `PATH`, and
-`RBC_LAMU_PORT` to override the Assistant's default port of `8020`. KnightLM
+`RBC_LAMU_PORT` to override the default LAMU port of `8020`. KnightLM
 uses text replies in the Assistant. Other model IDs use the endpoint from
 **Settings**. Model discovery in Play reads the runtime's catalog.
 

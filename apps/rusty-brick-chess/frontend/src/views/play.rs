@@ -112,6 +112,8 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     let selected = RwSignal::new(None::<String>);
     let detail = RwSignal::new(None::<serde_json::Value>);
     let busy = RwSignal::new(false);
+    let thinking = RwSignal::new(false);
+    let model_status = RwSignal::new(String::new());
     let message = RwSignal::new(String::new());
     let local_models = RwSignal::new(Vec::<(String, String)>::new());
     let opponent = RwSignal::new(1usize);
@@ -224,6 +226,72 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
         }
     });
 
+    let lamu_model = move || {
+        match opponent.get() {
+            1 => Some(KNIGHTLM_MODEL.to_owned()),
+            index => index.checked_sub(2).and_then(|index| {
+                local_models.with(|models| models.get(index)
+                    .filter(|(label, _)| label == "LAMU")
+                    .map(|(_, model)| model.clone()))
+            }),
+        }
+    };
+
+    let manage_model = move |action: &'static str| {
+        let Some(model) = lamu_model() else { return };
+        busy.set(true);
+        message.set(String::new());
+        model_status.set(if action == "load" { format!("Loading {model}…") } else { format!("Unloading {model}…") });
+        spawn_local(async move {
+            match ai_api::manage_lamu_model(action, &model).await {
+                Ok(()) if action == "load" => {
+                    model_status.set(format!("{model} is loaded"));
+                    scan_local();
+                }
+                Ok(()) => model_status.set(format!("{model} is unloaded")),
+                Err(error) => {
+                    model_status.set(String::new());
+                    message.set(error);
+                }
+            }
+            busy.set(false);
+        });
+    };
+
+    let create_game = move |config: serde_json::Value| {
+        busy.set(true);
+        message.set(String::new());
+        model_status.set(String::new());
+        spawn_local(async move {
+            let result = async {
+                if let Some(model) = ["white", "black"].into_iter().find_map(|color| {
+                    let seat = &config[color];
+                    (seat["provider"] == "local:LAMU").then(|| seat["model"].as_str()).flatten()
+                }) {
+                    model_status.set(format!("Preparing {model}…"));
+                    ai_api::manage_lamu_model("load", model).await?;
+                    if local_models.with_untracked(|models| !models.iter().any(|(label, _)| label == "LAMU")) {
+                        scan_local();
+                    }
+                }
+                ai_api::create_ai_match(config).await
+            }.await;
+            model_status.set(String::new());
+            match result {
+                Ok(value) => {
+                    if let Some(id) = value.get("id").and_then(|id| id.as_str()) {
+                        let id = id.to_owned();
+                        detail.set(Some(value));
+                        selected.set(Some(id));
+                    }
+                    reload();
+                }
+                Err(error) => message.set(error),
+            }
+            busy.set(false);
+        });
+    };
+
     let start_match = move |white_model: bool, black_model: bool| {
         let model_seat = match opponent.get_untracked() {
             0 if !settings_model.get_untracked().trim().is_empty() => {
@@ -256,21 +324,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             "rated": false,
             "watch": {"white_reasoning": true, "black_reasoning": true},
         });
-        busy.set(true);
-        spawn_local(async move {
-            match ai_api::create_ai_match(config).await {
-                Ok(value) => {
-                    if let Some(id) = value.get("id").and_then(|id| id.as_str()) {
-                        let id = id.to_owned();
-                        detail.set(Some(value));
-                        selected.set(Some(id));
-                    }
-                    reload();
-                }
-                Err(error) => message.set(error),
-            }
-            busy.set(false);
-        });
+        create_game(config);
     };
 
     // An action that changes the match, then refreshes the list and the detail.
@@ -281,6 +335,8 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
         };
         busy.set(true);
         message.set(String::new());
+        let thinking = thinking.get_untracked();
+        let body = if action == "model-move" { serde_json::json!({ "thinking": thinking }) } else { body };
         spawn_local(async move {
             match ai_api::match_action(&id, action, body).await {
                 Ok(value) => {
@@ -293,7 +349,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             detail.set(Some(next));
                         }
                         if model_reply {
-                            match ai_api::match_action(&id, "model-move", serde_json::json!({})).await {
+                            match ai_api::match_action(&id, "model-move", serde_json::json!({ "thinking": thinking })).await {
                                 Ok(reply) if selected.get_untracked().as_deref() == Some(&id) => {
                                     detail.set(reply.get("match").cloned());
                                 }
@@ -340,21 +396,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             message.set("this match has no stored config".to_string());
             return;
         };
-        busy.set(true);
-        spawn_local(async move {
-            match ai_api::create_ai_match(config).await {
-                Ok(value) => {
-                    if let Some(id) = value.get("id").and_then(|id| id.as_str()) {
-                        let id = id.to_owned();
-                        detail.set(Some(value));
-                        selected.set(Some(id));
-                    }
-                    reload();
-                }
-                Err(error) => message.set(error),
-            }
-            busy.set(false);
-        });
+        create_game(config);
     };
 
     let save_to_db = move |open: bool| {
@@ -399,7 +441,10 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         {move || i18n::t(&language.get(), "play.opponent")}
                         <select class="play-opponent" disabled=move || busy.get()
                             prop:value=move || opponent.get().to_string()
-                            on:change=move |event| opponent.set(event_target_value(&event).parse().unwrap_or(1))>
+                            on:change=move |event| {
+                                opponent.set(event_target_value(&event).parse().unwrap_or(1));
+                                model_status.set(String::new());
+                            }>
                             <option value="1">"KnightLM (LAMU)"</option>
                             {move || (!settings_model.get().trim().is_empty()).then(|| view! {
                                 <option value="0">{move || i18n::t(&language.get(), "play.default_model")}</option>
@@ -417,6 +462,23 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         {move || i18n::t(&language.get(), "play.new_casual")}
                     </button>
                 </div>
+                <div class="play-new">
+                    <label title=move || i18n::t(&language.get(), "play.thinking_hint")>
+                        <input type="checkbox"
+                            prop:checked=move || thinking.get() && lamu_model().is_some_and(|model| model != KNIGHTLM_MODEL)
+                            disabled=move || busy.get() || lamu_model().is_none_or(|model| model == KNIGHTLM_MODEL)
+                            on:change=move |event| thinking.set(event_target_checked(&event)) />
+                        {move || i18n::t(&language.get(), "play.longer_thinking")}
+                    </label>
+                    <button type="button" disabled=move || busy.get() || lamu_model().is_none()
+                        on:click=move |_| manage_model("load")>{move || i18n::t(&language.get(), "play.load_model")}</button>
+                    <button type="button" disabled=move || busy.get() || lamu_model().is_none()
+                        on:click=move |_| manage_model("unload")>{move || i18n::t(&language.get(), "play.unload_model")}</button>
+                </div>
+                {move || lamu_model().is_some().then(|| view! {
+                    <small class="muted">{move || i18n::t(&language.get(), "play.model_load_hint")}</small>
+                })}
+                <div role="status">{move || model_status.get()}</div>
             </header>
 
             <div class="play-body">

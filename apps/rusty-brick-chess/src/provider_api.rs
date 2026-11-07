@@ -209,10 +209,20 @@ pub async fn test_provider(
 pub async fn scan_local(_state: State<AppState>) -> Json<Value> {
     let mut found = Vec::new();
     for (label, base_url) in LOCAL_CANDIDATES {
-        let (models, detail) = fetch_models(base_url, None).await;
+        let override_url = (*label == "LAMU")
+            .then(crate::lamu_runtime::base_url)
+            .transpose();
+        let (base_url, models, detail) = match override_url {
+            Ok(url) => {
+                let base_url = url.unwrap_or_else(|| (*base_url).to_owned());
+                let (models, detail) = fetch_models(&base_url, None).await;
+                (base_url, models, detail)
+            }
+            Err(error) => ((*base_url).to_owned(), Vec::new(), Some(error.to_string())),
+        };
         found.push(LocalEndpoint {
             label: (*label).to_string(),
-            base_url: (*base_url).to_string(),
+            base_url,
             responding: detail.is_none(),
             models,
         });
