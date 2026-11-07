@@ -349,6 +349,8 @@ pub fn Board(
     /// Ignore pointer input (engine-vs-engine boards).
     #[prop(optional)]
     read_only: bool,
+    #[prop(optional)] board_only: bool,
+    #[prop(optional)] interaction_disabled: Option<Signal<bool>>,
     #[prop(optional)] shapes: Option<Signal<Vec<Shape>>>,
     #[prop(optional)] on_shape: Option<Callback<Shape>>,
     #[prop(optional, into)] theme: Option<Signal<String>>,
@@ -391,6 +393,7 @@ pub fn Board(
         }
     };
     let move_cb = on_move;
+    let input_disabled = move || read_only || interaction_disabled.is_some_and(|signal| signal.get_untracked());
 
     // Load a PGN pushed by the parent (e.g. a game picked in the database).
     Effect::new(move |_| {
@@ -496,6 +499,7 @@ pub fn Board(
     };
 
     let attempt = move |from: usize, to: usize| {
+        if input_disabled() { return; }
         let cands = widget.with(|w| candidates(w, from, to));
         if cands.is_empty() {
             return;
@@ -627,7 +631,7 @@ pub fn Board(
     };
 
     let on_board_down = move |ev: leptos::ev::PointerEvent| {
-        if read_only {
+        if input_disabled() {
             return;
         }
         let Some(idx) = square_at(&ev) else { return };
@@ -1370,18 +1374,16 @@ pub fn Board(
     };
 
     view! {
-        <div class="layout">
+        <div class="layout" style=if board_only { "grid-template-columns: minmax(0, 1fr); max-width: 600px" } else { "" }>
             <div class="board-col">
                 <div
                     class="board-wrap"
                     style=move || {
-                        format!(
-                            "width: min({}%, calc(100vh - 240px)); margin-inline: auto;",
-                            board_pct.get()
-                        )
+                        let viewport_limit = if board_only { "max(240px, 100dvh - 300px)" } else { "calc(100vh - 240px)" };
+                        format!("width: min({}%, {viewport_limit}); margin-inline: auto;", board_pct.get())
                     }
                     tabindex="0"
-                    on:keydown=on_key
+                    on:keydown=move |ev| { if !board_only { on_key(ev); } }
                     on:contextmenu=move |ev| ev.prevent_default()
                 >
                     <div class="pockets pockets-black">{move || pocket_row(Color::Black)}</div>
@@ -1425,6 +1427,7 @@ pub fn Board(
                 </div>
             </div>
 
+            {(!board_only).then(|| view! {
             <aside class="panel">
                 <div class="panel-title">
                     {move || {
@@ -1532,6 +1535,7 @@ pub fn Board(
                 </div>
                 <div class="status">{move || status.get()}</div>
             </aside>
+            })}
         </div>
     }
 }

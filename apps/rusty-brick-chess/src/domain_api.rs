@@ -600,10 +600,27 @@ pub async fn send_ai_turn(
         )));
     }
     let settings = crate::api::effective(&state);
-    let url = settings
-        .model_url
-        .clone()
-        .ok_or(ApiError::Unavailable("model URL is not set"))?;
+    let mut model: ModelRef = serde_json::from_str(&session.model_json)
+        .unwrap_or_else(|_| ModelRef::new("openai_compatible", "knightlm"));
+    if let Some(id) = body
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        model.model = id.to_owned();
+    }
+    let knightlm = model.model == crate::lamu_runtime::KNIGHTLM_MODEL;
+    let url = if knightlm {
+        model.provider = "local:LAMU".into();
+        crate::lamu_runtime::knightlm_endpoint(&state.lamu_child).await?
+    } else {
+        settings
+            .model_url
+            .clone()
+            .ok_or(ApiError::Unavailable("model URL is not set"))?
+    };
+    let model_json = serde_json::to_string(&model)?;
     let fen = match body.fen.filter(|value| !value.trim().is_empty()) {
         Some(fen) => fen,
         None => {
@@ -644,13 +661,11 @@ pub async fn send_ai_turn(
             spec_version: format!("{}@{}", compiled.spec_id, compiled.spec_version),
             template_version: "rbc-prompt-v1".into(),
             tool_schema_version: "1".into(),
-            model_json: session.model_json.clone(),
+            model_json: model_json.clone(),
             ..Default::default()
         },
     )?;
 
-    let model: ModelRef = serde_json::from_str(&session.model_json)
-        .unwrap_or_else(|_| ModelRef::new("openai_compatible", "knightlm"));
     let permissions: PermissionProfile =
         serde_json::from_str(&session.permissions_json).unwrap_or_default();
 
@@ -675,16 +690,6 @@ pub async fn send_ai_turn(
     // answer 400 and others answer nonsense.
     if let Some(temperature) = body.temperature {
         plan.temperature = temperature.clamp(0.0, 2.0);
-    }
-    // A per-turn model override. The provider stays the session's: switching to
-    // a model at another provider is a settings change, not a turn option.
-    if let Some(model) = body
-        .model
-        .as_deref()
-        .map(str::trim)
-        .filter(|m| !m.is_empty())
-    {
-        plan.model.model = model.to_string();
     }
     plan.mode = match session.mode.as_str() {
         "play" => SessionMode::Play,
@@ -715,6 +720,11 @@ pub async fn send_ai_turn(
             );
             let provider =
                 rbc_ai::provider::OpenAiProvider::new(config).map_err(|error| error.message)?;
+            let provider = if knightlm {
+                provider.with_direct_answers(96)
+            } else {
+                provider
+            };
             let engine = engine_path.and_then(|path| {
                 crate::ai_host::LocalEngine::spawn(&path, Default::default()).ok()
             });
@@ -728,7 +738,12 @@ pub async fn send_ai_turn(
                 plan_for_turn.session_id.clone(),
                 rbc_ai::policy::Origin::InApp,
             );
-            let registry = rbc_ai::tools::ToolRegistry::builtin();
+            // The text-only pilot checkpoint has no tool-calling qualification.
+            let registry = if knightlm {
+                rbc_ai::tools::ToolRegistry::default()
+            } else {
+                rbc_ai::tools::ToolRegistry::builtin()
+            };
             let cancel = cancel_for_turn;
             // Each event is stored as it happens, so a client watching the
             // stream sees a turn as it runs rather than all at once when it
@@ -773,7 +788,7 @@ pub async fn send_ai_turn(
                     template_version: "rbc-prompt-v1".into(),
                     tool_schema_version: "1".into(),
                     engine_fingerprint: None,
-                    model_json: session.model_json.clone(),
+                    model_json: model_json.clone(),
                     error_json: Some(error_json),
                     ..Default::default()
                 },
@@ -813,7 +828,7 @@ pub async fn send_ai_turn(
             template_version: "rbc-prompt-v1".into(),
             tool_schema_version: "1".into(),
             engine_fingerprint: None,
-            model_json: session.model_json.clone(),
+            model_json: model_json.clone(),
             tokens_in: outcome.usage.tokens_in as i64,
             tokens_out: outcome.usage.tokens_out as i64,
             latency_ms: outcome.usage.latency_ms as i64,
@@ -1401,7 +1416,12 @@ pub async fn model_match_move(
     if seat.provider == "local:LAMU" {
         policy.request_reasoning = false;
     }
-    let url = match_endpoint(settings.model_url.as_deref(), &seat)?;
+    let url = if seat.provider == "local:LAMU" && seat.model == crate::lamu_runtime::KNIGHTLM_MODEL
+    {
+        crate::lamu_runtime::knightlm_endpoint(&state.lamu_child).await?
+    } else {
+        match_endpoint(settings.model_url.as_deref(), &seat)?
+    };
     let playing = tokio::task::spawn_blocking(move || {
         let provider = provider_for(&url, &seat, true)?;
         let cancel = rbc_ai::provider::Cancellation::new();

@@ -29,6 +29,7 @@ fn state() -> rusty_brick_chess::api::AppState {
         default_depth: 12,
         console: Default::default(),
         turn_cancels: Default::default(),
+        lamu_child: Default::default(),
     }
 }
 
