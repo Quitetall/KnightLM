@@ -10,25 +10,6 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const SCHEMA: &str = "rbc-provider/1";
-
-/// A configured provider.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Provider {
-    pub id: String,
-    pub label: String,
-    /// Wire shape. Only `openai_compatible` is spoken today; the field exists so
-    /// a second shape is a new value rather than a new column.
-    pub kind: String,
-    pub base_url: String,
-    /// The *name* of the secret: an env var, or `keyring:<service>/<account>`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub key_ref: Option<String>,
-    /// Models last seen at this endpoint, most recently fetched first.
-    #[serde(default)]
-    pub models: Vec<ModelCard>,
-}
-
 /// What a model can do, as far as this build cares.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ModelCard {
@@ -42,16 +23,6 @@ pub struct ModelCard {
     /// Whether the model can be asked to think before answering.
     #[serde(default)]
     pub reasoning: bool,
-}
-
-/// A provider answers a small request: it is reachable and the key works.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderTest {
-    pub ok: bool,
-    pub models: usize,
-    /// Set when the test failed: what the endpoint said, trimmed.
-    pub detail: String,
-    pub latency_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,13 +141,18 @@ mod tests {
     #[test]
     fn a_key_reference_names_a_secret_and_never_holds_one() {
         // The invariant the whole ticket rests on: what a row stores is a name.
-        let provider = Provider {
+        // Asserted against the row type the routes actually read, so it cannot
+        // drift away from what is stored.
+        let provider = rbc_db::ProviderRow {
             id: "p1".into(),
             label: "Local".into(),
             kind: "openai_compatible".into(),
             base_url: "http://127.0.0.1:11434/v1".into(),
             key_ref: Some("RBC_TEST_KEY_NAME".into()),
-            models: vec![],
+            models_json: "[]".into(),
+            caps_json: "{}".into(),
+            created: 0,
+            updated: 0,
         };
         let json = serde_json::to_string(&provider).expect("json");
         assert!(json.contains("RBC_TEST_KEY_NAME"));

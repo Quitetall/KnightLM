@@ -178,7 +178,7 @@ fn candidates(w: &Widget, from: usize, to: usize) -> Vec<String> {
     w.current()
         .legal_moves()
         .into_iter()
-        .filter(|m| m.len() >= 4 && &m[0..2] == f && &m[2..4] == t)
+        .filter(|m| m.len() >= 4 && m[0..2] == f && m[2..4] == t)
         .collect()
 }
 
@@ -479,10 +479,10 @@ pub fn Board(
     // Keep the current move visible as the game advances.
     Effect::new(move |_| {
         let _ = widget.with(|w| w.history_index());
-        if let Some(el) = moves_ref.get() {
-            if let Ok(Some(cur)) = el.query_selector(".move.current") {
-                cur.scroll_into_view_with_bool(false);
-            }
+        if let Some(el) = moves_ref.get()
+            && let Ok(Some(cur)) = el.query_selector(".move.current")
+        {
+            cur.scroll_into_view_with_bool(false);
         }
     });
 
@@ -639,30 +639,30 @@ pub fn Board(
             return;
         }
         let sc = widget.with(|w| w.scene());
-        let turn = widget.with(|w| turn_color(w));
-        if let Some(p) = sc.board[idx] {
-            if p.color == turn {
-                let size = square_center(idx).map(|(_, _, s)| s).unwrap_or(40.0);
-                let x = ev.client_x() as f64;
-                let y = ev.client_y() as f64;
-                let html = piece_html(p.kind, p.color);
-                show_ghost(&ghost_ref, &html, size, x, y);
-                select_square(idx);
-                drag_from.set(Some(idx));
-                dragged.set(false);
-                if let Some(target) = ev.current_target() {
-                    if let Ok(el) = target.dyn_into::<web_sys::Element>() {
-                        let _ = el.set_pointer_capture(ev.pointer_id());
-                    }
-                }
-                drag.set(Some(Drag {
-                    from: idx,
-                    pointer_id: ev.pointer_id(),
-                    size,
-                    start_x: x,
-                    start_y: y,
-                }));
+        let turn = widget.with(turn_color);
+        if let Some(p) = sc.board[idx]
+            && p.color == turn
+        {
+            let size = square_center(idx).map(|(_, _, s)| s).unwrap_or(40.0);
+            let x = ev.client_x() as f64;
+            let y = ev.client_y() as f64;
+            let html = piece_html(p.kind, p.color);
+            show_ghost(&ghost_ref, &html, size, x, y);
+            select_square(idx);
+            drag_from.set(Some(idx));
+            dragged.set(false);
+            if let Some(target) = ev.current_target()
+                && let Ok(el) = target.dyn_into::<web_sys::Element>()
+            {
+                let _ = el.set_pointer_capture(ev.pointer_id());
             }
+            drag.set(Some(Drag {
+                from: idx,
+                pointer_id: ev.pointer_id(),
+                size,
+                start_x: x,
+                start_y: y,
+            }));
         }
     };
 
@@ -693,12 +693,12 @@ pub fn Board(
         let callback = Rc::clone(&frame_cb);
         move |x: f64, y: f64| {
             pending.set(Some((x, y)));
-            if !scheduled.replace(true) {
-                if let Some(window) = web_sys::window() {
-                    let function: &wasm_bindgen::JsValue = (*callback).as_ref();
-                    let function: &js_sys::Function = function.unchecked_ref();
-                    let _ = window.request_animation_frame(function);
-                }
+            if !scheduled.replace(true)
+                && let Some(window) = web_sys::window()
+            {
+                let function: &wasm_bindgen::JsValue = (*callback).as_ref();
+                let function: &js_sys::Function = function.unchecked_ref();
+                let _ = window.request_animation_frame(function);
             }
         }
     };
@@ -811,10 +811,10 @@ pub fn Board(
     };
 
     let on_pointer_cancel = move |_| {
-        if let Some(d) = drag.get() {
-            if let Some(board) = board_ref.get() {
-                let _ = board.release_pointer_capture(d.pointer_id);
-            }
+        if let Some(d) = drag.get()
+            && let Some(board) = board_ref.get()
+        {
+            let _ = board.release_pointer_capture(d.pointer_id);
         }
         drag.set(None);
         dragged.set(false);
@@ -832,42 +832,41 @@ pub fn Board(
             } else {
                 None
             };
-            if anim_ms() > 0 {
-                if let Some((from, to)) = squares {
-                    if let (Some((fx, fy, size)), Some((tx, ty, _)), Some(piece)) = (
-                        square_center(from),
-                        square_center(to),
-                        widget.with_untracked(|w| w.scene().board[from]),
-                    ) {
-                        let html = piece_html(piece.kind, piece.color);
-                        show_ghost(&ghost_ref, &html, size, fx, fy);
-                        drag_from.set(Some(from));
-                        let ms = anim_ms();
-                        Timeout::new(10, move || slide_ghost(&ghost_ref, size, tx, ty)).forget();
-                        Timeout::new(ms + 15, move || {
-                            let mut next = widget.get_untracked();
-                            let events = next.apply(Command::Play {
-                                san: None,
-                                uci: Some(uci),
-                            });
-                            widget.set(next);
-                            if let Some(sound) = sound_for(&events) {
-                                sound::play(sound);
-                            }
-                            hide_ghost(&ghost_ref);
-                            drag_from.set(None);
-                            if let Some(cb) = on_play {
-                                for event in &events {
-                                    if let brick_chess::Event::Move { uci, san, fen, .. } = event {
-                                        cb.run((uci.clone(), san.clone(), fen.clone()));
-                                    }
-                                }
-                            }
-                        })
-                        .forget();
-                        return;
+            if anim_ms() > 0
+                && let Some((from, to)) = squares
+                && let (Some((fx, fy, size)), Some((tx, ty, _)), Some(piece)) = (
+                    square_center(from),
+                    square_center(to),
+                    widget.with_untracked(|w| w.scene().board[from]),
+                )
+            {
+                let html = piece_html(piece.kind, piece.color);
+                show_ghost(&ghost_ref, &html, size, fx, fy);
+                drag_from.set(Some(from));
+                let ms = anim_ms();
+                Timeout::new(10, move || slide_ghost(&ghost_ref, size, tx, ty)).forget();
+                Timeout::new(ms + 15, move || {
+                    let mut next = widget.get_untracked();
+                    let events = next.apply(Command::Play {
+                        san: None,
+                        uci: Some(uci),
+                    });
+                    widget.set(next);
+                    if let Some(sound) = sound_for(&events) {
+                        sound::play(sound);
                     }
-                }
+                    hide_ghost(&ghost_ref);
+                    drag_from.set(None);
+                    if let Some(cb) = on_play {
+                        for event in &events {
+                            if let brick_chess::Event::Move { uci, san, fen, .. } = event {
+                                cb.run((uci.clone(), san.clone(), fen.clone()));
+                            }
+                        }
+                    }
+                })
+                .forget();
+                return;
             }
             let mut next = widget.get_untracked();
             let events = next.apply(Command::Play {
@@ -1011,35 +1010,32 @@ pub fn Board(
             if let Some((_, index)) = goto.get() {
                 let current = widget.with_untracked(|w| w.history_index());
                 let ms = anim_ms();
-                if ms > 0 && index == current + 1 {
-                    if let Some(uci) = widget.with_untracked(|w| w.move_uci_at(index)) {
-                        if uci.len() >= 4 && !uci.contains('@') {
-                            if let (Some(from), Some(to)) =
-                                (name_to_index(&uci[0..2]), name_to_index(&uci[2..4]))
-                            {
-                                if let (Some((fx, fy, size)), Some((tx, ty, _)), Some(piece)) = (
-                                    square_center(from),
-                                    square_center(to),
-                                    widget.with_untracked(|w| w.scene().board[from]),
-                                ) {
-                                    let html = piece_html(piece.kind, piece.color);
-                                    show_ghost(&ghost_ref, &html, size, fx, fy);
-                                    drag_from.set(Some(from));
-                                    Timeout::new(10, move || slide_ghost(&ghost_ref, size, tx, ty))
-                                        .forget();
-                                    Timeout::new(ms + 15, move || {
-                                        widget.update(|w| {
-                                            w.apply(Command::Goto { index });
-                                        });
-                                        hide_ghost(&ghost_ref);
-                                        drag_from.set(None);
-                                    })
-                                    .forget();
-                                    return;
-                                }
-                            }
-                        }
-                    }
+                if ms > 0
+                    && index == current + 1
+                    && let Some(uci) = widget.with_untracked(|w| w.move_uci_at(index))
+                    && uci.len() >= 4
+                    && !uci.contains('@')
+                    && let (Some(from), Some(to)) =
+                        (name_to_index(&uci[0..2]), name_to_index(&uci[2..4]))
+                    && let (Some((fx, fy, size)), Some((tx, ty, _)), Some(piece)) = (
+                        square_center(from),
+                        square_center(to),
+                        widget.with_untracked(|w| w.scene().board[from]),
+                    )
+                {
+                    let html = piece_html(piece.kind, piece.color);
+                    show_ghost(&ghost_ref, &html, size, fx, fy);
+                    drag_from.set(Some(from));
+                    Timeout::new(10, move || slide_ghost(&ghost_ref, size, tx, ty)).forget();
+                    Timeout::new(ms + 15, move || {
+                        widget.update(|w| {
+                            w.apply(Command::Goto { index });
+                        });
+                        hide_ghost(&ghost_ref);
+                        drag_from.set(None);
+                    })
+                    .forget();
+                    return;
                 }
                 widget.update(|w| {
                     w.apply(Command::Goto { index });
@@ -1058,8 +1054,8 @@ pub fn Board(
                 let is_light = sc.is_light(display);
                 let selected = sc.selected == Some(idx);
                 let target = sc.targets.contains(&idx);
-                let last = sc.last_move.map_or(false, |(f, t)| f == idx || t == idx);
-                let dest = sc.last_move.map_or(false, |(_, t)| t == idx);
+                let last = sc.last_move.is_some_and(|(f, t)| f == idx || t == idx);
+                let dest = sc.last_move.is_some_and(|(_, t)| t == idx);
                 let check = sc.check == Some(idx);
                 let mut class = String::from(if is_light { "sq light" } else { "sq dark" });
                 if selected {
@@ -1127,7 +1123,7 @@ pub fn Board(
         promo.get().map(|(from, to)| {
             let from_name = index_to_name(from);
             let to_name = index_to_name(to);
-            let color = widget.with(|w| turn_color(w));
+            let color = widget.with(turn_color);
             let set = widget.with(|w| w.pieces());
             let opts = [(Kind::Queen, 'q'), (Kind::Rook, 'r'), (Kind::Bishop, 'b'), (Kind::Knight, 'n')];
             view! {
@@ -1261,10 +1257,11 @@ pub fn Board(
             (Kind::Pawn, 'P'),
         ];
         let sc = widget.with(|w| w.scene());
-        let turn = widget.with(|w| turn_color(w));
+        let turn = widget.with(turn_color);
         let active = turn == color;
         let set = sc.pieces;
-        let items = roles
+
+        roles
             .into_iter()
             .filter_map(|(kind, letter)| {
                 let count = sc.pocket(color, kind);
@@ -1284,8 +1281,7 @@ pub fn Board(
                     }
                 })
             })
-            .collect_view();
-        items
+            .collect_view()
     };
 
     let shapes_layer = move || {

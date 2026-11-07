@@ -884,15 +884,14 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                 <div class="row-btns">
                     <button
                         on:click=move |_| {
-                            if !edit_moves_open.get_untracked() {
-                                if let Some(id) = selected_game_id.get_untracked() {
+                            if !edit_moves_open.get_untracked()
+                                && let Some(id) = selected_game_id.get_untracked() {
                                     spawn_local(async move {
                                         if let Ok(text) = api::game_pgn_text(id).await {
                                             moves_text.set(text);
                                         }
                                     });
                                 }
-                            }
                             edit_moves_open.update(|v| *v = !*v);
                         }
                     >

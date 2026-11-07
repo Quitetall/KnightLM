@@ -53,10 +53,7 @@ pub fn status(data_dir: &Path) -> ModelStatus {
 
 pub fn download(data_dir: &Path) -> Result<ModelStatus> {
     let agent = ureq::Agent::new_with_defaults();
-    let mut response = agent
-        .get(URL)
-        .call()
-        .context("download vision model")?;
+    let mut response = agent.get(URL).call().context("download vision model")?;
     let bytes = response
         .body_mut()
         .with_config()
@@ -105,10 +102,8 @@ pub fn recognize(model: &Path, image_bytes: &[u8]) -> Result<Recognition> {
         .model_for_path(model)?
         .into_optimized()?
         .into_runnable()?;
-    let tensor = tract_onnx::prelude::tract_ndarray::Array4::from_shape_vec(
-        (1, 3, INPUT, INPUT),
-        input,
-    )?;
+    let tensor =
+        tract_onnx::prelude::tract_ndarray::Array4::from_shape_vec((1, 3, INPUT, INPUT), input)?;
     let outputs = model.run(tvec!(tensor.into_tvalue()))?;
     let output = outputs[0]
         .to_plain_array_view::<f32>()
@@ -185,8 +180,18 @@ pub fn recognize(model: &Path, image_bytes: &[u8]) -> Result<Recognition> {
             (0.8..1.25).contains(&aspect) && d.w > 80.0
         })
         .max_by(|a, b| (a.w * a.h).total_cmp(&(b.w * b.h)))
-        .or_else(|| boards.iter().copied().max_by(|a, b| a.score.total_cmp(&b.score)))
-        .or_else(|| boards.iter().copied().max_by(|a, b| (a.w * a.h).total_cmp(&(b.w * b.h))))
+        .or_else(|| {
+            boards
+                .iter()
+                .copied()
+                .max_by(|a, b| a.score.total_cmp(&b.score))
+        })
+        .or_else(|| {
+            boards
+                .iter()
+                .copied()
+                .max_by(|a, b| (a.w * a.h).total_cmp(&(b.w * b.h)))
+        })
         .map(|d| {
             [
                 (d.cx - d.w / 2.0 - pad_x) / scale,

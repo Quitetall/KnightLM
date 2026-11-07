@@ -11,7 +11,7 @@ classification: internal
 
 ## Deliverables
 
-1. `code/ports/train/` (python, uv-managed): dataset loader over
+1. `code/model/train/` (python, uv-managed): dataset loader over
    `corpus-shards`; SmolVLM-500M chat-template packet formatting (the
    model-facing text contract); LoRA config and the training loop; logging
    through one interface with an MLflow implementation (system of record)

@@ -425,15 +425,14 @@ fn download_markdown(markdown: &str) {
     let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) else {
         return;
     };
-    if let Some(document) = window.document() {
-        if let Ok(element) = document.create_element("a") {
-            let _ = element.set_attribute("href", &url);
-            let _ = element.set_attribute("download", "diff.md");
-            if let Some(anchor) =
-                wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlAnchorElement>(&element)
-            {
-                anchor.click();
-            }
+    if let Some(document) = window.document()
+        && let Ok(element) = document.create_element("a")
+    {
+        let _ = element.set_attribute("href", &url);
+        let _ = element.set_attribute("download", "diff.md");
+        if let Some(anchor) = wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlAnchorElement>(&element)
+        {
+            anchor.click();
         }
     }
     web_sys::Url::revoke_object_url(&url).ok();

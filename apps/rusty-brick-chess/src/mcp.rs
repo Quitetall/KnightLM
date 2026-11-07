@@ -54,7 +54,8 @@ fn rate_limit(state: &AppState) -> &'static RateLimiter {
     use std::sync::OnceLock;
     let _ = state;
     static LIMITER: OnceLock<RateLimiter> = OnceLock::new();
-    LIMITER.get_or_init(|| RateLimiter::new(REQUESTS_PER_MINUTE, std::time::Duration::from_secs(60)))
+    LIMITER
+        .get_or_init(|| RateLimiter::new(REQUESTS_PER_MINUTE, std::time::Duration::from_secs(60)))
 }
 
 fn token_of(state: &AppState) -> Result<String, ApiError> {
@@ -196,7 +197,8 @@ pub async fn mcp_http(
     let id = request.get("id").cloned();
     let resources = BoardResources { db: &state.db };
     let profile = mcp_profile(&state);
-    let dispatched = rbc_ai::mcp::dispatch(&request, &registry, &mut host, &resources, &profile, &info);
+    let dispatched =
+        rbc_ai::mcp::dispatch(&request, &registry, &mut host, &resources, &profile, &info);
     match rbc_ai::mcp::response(id.as_ref(), dispatched) {
         Some(reply) => Ok((StatusCode::OK, Json(reply))),
         // A notification: accepted, nothing to say.
@@ -205,9 +207,7 @@ pub async fn mcp_http(
 }
 
 /// `GET /api/mcp/config` — what a client needs to connect, never more.
-pub async fn mcp_config(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn mcp_config(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let token = ensure_token(&state)?;
     let addr = std::env::var("RBC_ADDR").unwrap_or_else(|_| "127.0.0.1:8090".into());
     Ok(Json(json!({
@@ -222,9 +222,7 @@ pub async fn mcp_config(
 }
 
 /// `POST /api/mcp/rotate` — a new token, invalidating the old one.
-pub async fn mcp_rotate(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn mcp_rotate(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let token = new_token();
     state.db.set_setting(TOKEN_KEY, &token)?;
     Ok(Json(json!({ "token": token })))
@@ -268,13 +266,8 @@ pub fn serve_stdio(db: &rbc_db::Db) -> anyhow::Result<()> {
                 continue;
             }
         };
-        let mut host = crate::ai_host::SessionHost::new(
-            db,
-            "mcp",
-            None,
-            "mcp",
-            rbc_ai::policy::Origin::Mcp,
-        );
+        let mut host =
+            crate::ai_host::SessionHost::new(db, "mcp", None, "mcp", rbc_ai::policy::Origin::Mcp);
         let id = request.get("id").cloned();
         let resources = BoardResources { db };
         // stdio inherits process trust, so it may take the scopes a person
@@ -291,14 +284,8 @@ pub fn serve_stdio(db: &rbc_db::Db) -> anyhow::Result<()> {
                 profile.grant(rbc_ai::policy::Origin::Mcp, scope);
             }
         }
-        let dispatched = rbc_ai::mcp::dispatch(
-            &request,
-            &registry,
-            &mut host,
-            &resources,
-            &profile,
-            &info,
-        );
+        let dispatched =
+            rbc_ai::mcp::dispatch(&request, &registry, &mut host, &resources, &profile, &info);
         if let Some(reply) = rbc_ai::mcp::response(id.as_ref(), dispatched) {
             writeln!(stdout, "{reply}")?;
             stdout.flush()?;
@@ -494,7 +481,10 @@ mod tests {
     fn a_token_must_match_exactly() {
         let token = "mcp-abc";
         assert!(token_matches(Some("Bearer mcp-abc"), token));
-        assert!(token_matches(Some("mcp-abc"), token), "the scheme is optional");
+        assert!(
+            token_matches(Some("mcp-abc"), token),
+            "the scheme is optional"
+        );
         assert!(!token_matches(Some("Bearer mcp-abd"), token));
         assert!(!token_matches(Some("Bearer mcp-ab"), token), "short");
         assert!(!token_matches(Some("Bearer mcp-abcd"), token), "long");
@@ -552,7 +542,11 @@ mod tests {
         assert!(resources.read("rbc://board/no-such-board").is_none());
         assert!(resources.read("rbc://study/no-such-study").is_none());
         assert!(resources.read("rbc://match/no-such-match").is_none());
-        assert!(resources.read("rbc://workspace/no-such-workspace").is_none());
+        assert!(
+            resources
+                .read("rbc://workspace/no-such-workspace")
+                .is_none()
+        );
     }
 
     #[test]

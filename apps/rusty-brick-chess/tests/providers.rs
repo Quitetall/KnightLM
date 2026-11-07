@@ -51,7 +51,12 @@ async fn call(
         .await
         .expect("response");
     let status = response.status();
-    let bytes = response.into_body().collect().await.expect("body").to_bytes();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
     (status, String::from_utf8_lossy(&bytes).to_string())
 }
 
@@ -74,7 +79,10 @@ async fn a_key_reference_is_stored_but_the_key_it_names_never_is() {
     let (status, body) = call(state, "GET", "/api/providers", None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains(KEY_REF), "the reference is returned: {body}");
-    assert!(!body.contains(SECRET), "the response carries the secret: {body}");
+    assert!(
+        !body.contains(SECRET),
+        "the response carries the secret: {body}"
+    );
     assert!(
         body.contains("\"key_resolves\":true"),
         "and it reports that the reference resolves: {body}"
@@ -109,7 +117,10 @@ async fn the_secret_reaches_no_row_of_the_database() {
     let rows = state.db.list_providers().expect("providers");
     let serialised = serde_json::to_string(&rows).expect("json");
     assert!(serialised.contains(OTHER_KEY_REF));
-    assert!(!serialised.contains(SECRET), "a provider row holds the secret");
+    assert!(
+        !serialised.contains(SECRET),
+        "a provider row holds the secret"
+    );
     let audit = serde_json::to_string(&state.db.audit_log(100).expect("audit")).expect("json");
     assert!(!audit.contains(SECRET), "the audit log holds the secret");
     unsafe { std::env::remove_var(OTHER_KEY_REF) };
@@ -117,19 +128,38 @@ async fn the_secret_reaches_no_row_of_the_database() {
 
 #[tokio::test]
 async fn a_base_url_that_is_not_http_is_refused() {
-    let (status, body) = add(state(), r#"{"label":"Bad","base_url":"file:///etc/passwd"}"#).await;
+    let (status, body) = add(
+        state(),
+        r#"{"label":"Bad","base_url":"file:///etc/passwd"}"#,
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(body.contains("http://"), "and it says what is allowed: {body}");
+    assert!(
+        body.contains("http://"),
+        "and it says what is allowed: {body}"
+    );
 }
 
 #[tokio::test]
 async fn a_label_is_required_and_a_duplicate_is_refused() {
     let state = state();
-    let (status, _) = add(state.clone(), r#"{"label":"  ","base_url":"http://127.0.0.1:9/v1"}"#).await;
+    let (status, _) = add(
+        state.clone(),
+        r#"{"label":"  ","base_url":"http://127.0.0.1:9/v1"}"#,
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (first, _) = add(state.clone(), r#"{"label":"One","base_url":"http://127.0.0.1:9/v1"}"#).await;
+    let (first, _) = add(
+        state.clone(),
+        r#"{"label":"One","base_url":"http://127.0.0.1:9/v1"}"#,
+    )
+    .await;
     assert_eq!(first, StatusCode::OK);
-    let (second, _) = add(state, r#"{"label":"One","base_url":"http://127.0.0.1:9/v2"}"#).await;
+    let (second, _) = add(
+        state,
+        r#"{"label":"One","base_url":"http://127.0.0.1:9/v2"}"#,
+    )
+    .await;
     assert_ne!(second, StatusCode::OK, "two providers cannot share a label");
 }
 
@@ -151,7 +181,11 @@ async fn the_local_scan_answers_even_when_nothing_is_running() {
 #[tokio::test]
 async fn deleting_a_provider_removes_it_and_answers_once() {
     let state = state();
-    let (status, body) = add(state.clone(), r#"{"label":"Gone","base_url":"http://127.0.0.1:9/v1"}"#).await;
+    let (status, body) = add(
+        state.clone(),
+        r#"{"label":"Gone","base_url":"http://127.0.0.1:9/v1"}"#,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     let id = serde_json::from_str::<serde_json::Value>(&body)
         .expect("json")
@@ -159,8 +193,18 @@ async fn deleting_a_provider_removes_it_and_answers_once() {
         .and_then(|id| id.as_str())
         .expect("id")
         .to_string();
-    let (first, _) = call(state.clone(), "DELETE", &format!("/api/providers/{id}"), None).await;
+    let (first, _) = call(
+        state.clone(),
+        "DELETE",
+        &format!("/api/providers/{id}"),
+        None,
+    )
+    .await;
     assert_eq!(first, StatusCode::OK);
     let (second, _) = call(state, "DELETE", &format!("/api/providers/{id}"), None).await;
-    assert_eq!(second, StatusCode::NOT_FOUND, "the second delete has nothing to do");
+    assert_eq!(
+        second,
+        StatusCode::NOT_FOUND,
+        "the second delete has nothing to do"
+    );
 }

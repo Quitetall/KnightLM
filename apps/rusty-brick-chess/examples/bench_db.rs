@@ -29,7 +29,11 @@ impl Lcg {
         self.0 >> 33
     }
     fn pick(&mut self, len: usize) -> usize {
-        if len == 0 { 0 } else { (self.next() as usize) % len }
+        if len == 0 {
+            0
+        } else {
+            (self.next() as usize) % len
+        }
     }
 }
 
@@ -42,8 +46,8 @@ fn game_pgn(rng: &mut Lcg, index: usize, max_plies: usize) -> String {
         if moves.is_empty() {
             break;
         }
-        let mv = moves[rng.pick(moves.len())].clone();
-        sans.push(San::from_move(&position, mv.clone()).to_string());
+        let mv = moves[rng.pick(moves.len())];
+        sans.push(San::from_move(&position, mv).to_string());
         position = position.play(mv).expect("legal");
     }
     let result = match index % 3 {
@@ -138,20 +142,42 @@ fn main() -> anyhow::Result<()> {
         Ok(db.query(&GameQuery::default())?.games.len())
     })?;
     time("by result", &|| {
-        Ok(db.query(&GameQuery { result: Some("1-0".into()), ..Default::default() })?.games.len())
+        Ok(db
+            .query(&GameQuery {
+                result: Some("1-0".into()),
+                ..Default::default()
+            })?
+            .games
+            .len())
     })?;
     time("by player", &|| {
-        Ok(db.query(&GameQuery { player: Some("Player7".into()), ..Default::default() })?.games.len())
+        Ok(db
+            .query(&GameQuery {
+                player: Some("Player7".into()),
+                ..Default::default()
+            })?
+            .games
+            .len())
     })?;
     time("by elo band", &|| {
-        Ok(db.query(&GameQuery { elo_min: Some(2000), elo_max: Some(2200), ..Default::default() })?.games.len())
+        Ok(db
+            .query(&GameQuery {
+                elo_min: Some(2000),
+                elo_max: Some(2200),
+                ..Default::default()
+            })?
+            .games
+            .len())
     })?;
     time("by date range", &|| {
-        Ok(db.query(&GameQuery {
-            date_from: Some("2000.01.01".into()),
-            date_to: Some("2005.12.31".into()),
-            ..Default::default()
-        })?.games.len())
+        Ok(db
+            .query(&GameQuery {
+                date_from: Some("2000.01.01".into()),
+                date_to: Some("2005.12.31".into()),
+                ..Default::default()
+            })?
+            .games
+            .len())
     })?;
 
     let after_e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1";
@@ -236,19 +262,26 @@ fn main() -> anyhow::Result<()> {
     } else {
         println!(
             "imported {} games in {:.0} ms ({:.0}/s)",
-            imported, import_ms, report["games_per_second"].as_f64().unwrap_or(0.0)
+            imported,
+            import_ms,
+            report["games_per_second"].as_f64().unwrap_or(0.0)
         );
         for (label, ms, found) in &queries {
             println!("  query {label}: {ms:.1} ms, {found} row(s)");
         }
         println!("  position search: {search_ms:.1} ms, {hits} hit(s)");
-        println!("  explore: {explore_ms:.1} ms, {} continuation(s)", explorer.continuations.len());
+        println!(
+            "  explore: {explore_ms:.1} ms, {} continuation(s)",
+            explorer.continuations.len()
+        );
         println!("  database: {} bytes", report["database_bytes"]);
         if let Some(transcript) = report.get("transcript").filter(|t| !t.is_null()) {
             println!(
                 "  transcript: {} turns written at {}/s, full read {} ms, newest {} ms",
-                transcript["turns"], transcript["write_per_second"],
-                transcript["full_read_ms"], transcript["newest_read_ms"]
+                transcript["turns"],
+                transcript["write_per_second"],
+                transcript["full_read_ms"],
+                transcript["newest_read_ms"]
             );
         }
     }

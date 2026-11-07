@@ -290,7 +290,7 @@ pub fn download_text(name: &str, text: &str) {
     if let Ok(anchor) = document.create_element("a") {
         let _ = anchor.set_attribute("href", &href);
         let _ = anchor.set_attribute("download", name);
-        if let Some(element) = anchor.dyn_into::<web_sys::HtmlElement>().ok() {
+        if let Ok(element) = anchor.dyn_into::<web_sys::HtmlElement>() {
             element.click();
         }
     }
@@ -319,8 +319,8 @@ pub fn flatten_nodes(
     line: &mut Vec<String>,
     out: &mut Vec<TreeItem>,
 ) {
-    let mut ply = ply0;
     for (i, node) in nodes.iter().enumerate() {
+        let ply = ply0 + i;
         let path = format!("{prefix}{i}");
         // A variation replaces this move, so it branches from the position
         // *before* it, not from the line that already contains it.
@@ -345,7 +345,6 @@ pub fn flatten_nodes(
                 out,
             );
         }
-        ply += 1;
     }
 }
 

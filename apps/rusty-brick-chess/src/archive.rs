@@ -37,14 +37,15 @@ fn schema() -> Arc<Schema> {
 }
 
 fn opt_strings(values: Vec<Option<String>>) -> ArrayRef {
-    Arc::new(StringArray::from_iter(values.iter().map(|value| value.as_deref())))
+    Arc::new(StringArray::from_iter(
+        values.iter().map(|value| value.as_deref()),
+    ))
 }
 
 pub fn export(db_path: &str, out: &Path) -> Result<usize> {
     let db = Db::open(db_path).context("open database")?;
     let schema = schema();
-    let file = std::fs::File::create(out)
-        .with_context(|| format!("create {}", out.display()))?;
+    let file = std::fs::File::create(out).with_context(|| format!("create {}", out.display()))?;
     let mut writer = ArrowWriter::try_new(file, schema.clone(), None)?;
     let mut offset = 0u32;
     let mut total = 0usize;
@@ -128,8 +129,7 @@ fn int_at(batch: &RecordBatch, column: usize, row: usize) -> Option<i32> {
 
 pub fn import(db_path: &str, file: &Path, index_positions: bool) -> Result<usize> {
     let db = Db::open(db_path).context("open database")?;
-    let input =
-        std::fs::File::open(file).with_context(|| format!("open {}", file.display()))?;
+    let input = std::fs::File::open(file).with_context(|| format!("open {}", file.display()))?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(input)?;
     let reader = builder.build()?;
     let mut imported = 0usize;
@@ -194,7 +194,11 @@ mod tests {
         let target_db = Db::open(&target.display().to_string()).unwrap();
         let all = target_db.query(&GameQuery::default()).unwrap();
         assert_eq!(all.total, 2);
-        assert!(all.games.iter().any(|g| g.white == "W1" && g.moves.starts_with("e4")));
+        assert!(
+            all.games
+                .iter()
+                .any(|g| g.white == "W1" && g.moves.starts_with("e4"))
+        );
         assert_eq!(target_db.schema_version().unwrap(), rbc_db::SCHEMA_VERSION);
     }
 }

@@ -95,6 +95,12 @@ if [ "$DO_RUST" = 1 ]; then
 
   step "cargo test --workspace --all-features"
   (cd "$ROOT" && cargo test --workspace --all-features --locked -j 2) || fail "cargo test --all-features"
+
+  # `apps/*` is excluded from the workspace, so nothing above touches the two
+  # crates the application is actually made of. They were carrying 21 and 41
+  # warnings when this step was added, and neither could fail a gate.
+  step "the application crates (outside the workspace)"
+  (cd "$ROOT" && ./scripts/check_apps.sh) || fail "check_apps.sh"
 fi
 
 # --- browser ---------------------------------------------------------------

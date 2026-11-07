@@ -37,9 +37,8 @@ async fn main() -> anyhow::Result<()> {
     match arguments.first().map(String::as_str) {
         Some("mcp") => {
             // stdio MCP server: inherits process trust, so no token.
-            let path = std::env::var("RBC_DB").unwrap_or_else(|_| {
-                rusty_brick_chess::default_db_path().display().to_string()
-            });
+            let path = std::env::var("RBC_DB")
+                .unwrap_or_else(|_| rusty_brick_chess::default_db_path().display().to_string());
             let db = rbc_db::Db::open(&path)?;
             return rusty_brick_chess::serve_mcp_stdio(&db);
         }
@@ -136,20 +135,21 @@ fn import_dump(arguments: &[String]) -> anyhow::Result<()> {
             }
             "--db" => {
                 let db = value(&mut index)?;
-                let file = options
-                    .as_ref()
-                    .map(|o| o.file.clone())
-                    .unwrap_or_default();
+                let file = options.as_ref().map(|o| o.file.clone()).unwrap_or_default();
                 options = Some(DumpOptions::new(file, db));
             }
-            "--max" => options
-                .as_mut()
-                .ok_or_else(|| anyhow::anyhow!("put --file before --max"))?
-                .max_games = value(&mut index)?.parse()?,
-            "--batch" => options
-                .as_mut()
-                .ok_or_else(|| anyhow::anyhow!("put --file before --batch"))?
-                .batch = value(&mut index)?.parse()?,
+            "--max" => {
+                options
+                    .as_mut()
+                    .ok_or_else(|| anyhow::anyhow!("put --file before --max"))?
+                    .max_games = value(&mut index)?.parse()?
+            }
+            "--batch" => {
+                options
+                    .as_mut()
+                    .ok_or_else(|| anyhow::anyhow!("put --file before --batch"))?
+                    .batch = value(&mut index)?.parse()?
+            }
             "--index-positions" => {
                 if let Some(options) = options.as_mut() {
                     options.index_positions = true;

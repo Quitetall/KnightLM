@@ -560,11 +560,11 @@ pub fn App() -> impl IntoView {
         let ply = tree_ply.get_untracked();
         let pgn = selected_pgn.get_untracked();
         workspaces.update(|list| {
-            if let Some(ws) = list.iter_mut().find(|w| w.key == key) {
-                if ws.kind == "analysis" {
-                    ws.ply = ply;
-                    ws.pgn = pgn;
-                }
+            if let Some(ws) = list.iter_mut().find(|w| w.key == key)
+                && ws.kind == "analysis"
+            {
+                ws.ply = ply;
+                ws.pgn = pgn;
             }
         });
     };
@@ -1203,16 +1203,16 @@ pub fn App() -> impl IntoView {
                     .find(|w| w.key == active_ws.get_untracked())
                     .map(|w| w.kind.clone())
             });
-            if active_kind.as_deref() != Some("analysis") {
-                if let Some(key) = workspaces.with_untracked(|list| {
+            if active_kind.as_deref() != Some("analysis")
+                && let Some(key) = workspaces.with_untracked(|list| {
                     list.iter()
                         .rev()
                         .find(|w| w.kind == "analysis")
                         .map(|w| w.key)
-                }) {
-                    activate_workspace(key);
-                    return;
-                }
+                })
+            {
+                activate_workspace(key);
+                return;
             }
             if tree_ply.get_untracked() > 0 {
                 goto_sig.set(Some((
@@ -1353,10 +1353,10 @@ pub fn App() -> impl IntoView {
         }
         let client = client_for_restore.clone();
         spawn_local(async move {
-            if let Ok(Some(raw)) = api::load_session(&client).await {
-                if let Ok(session) = serde_json::from_str::<Session>(&raw) {
-                    apply_session(session);
-                }
+            if let Ok(Some(raw)) = api::load_session(&client).await
+                && let Ok(session) = serde_json::from_str::<Session>(&raw)
+            {
+                apply_session(session);
             }
         });
     });
@@ -1698,7 +1698,7 @@ pub fn App() -> impl IntoView {
                 .trim()
                 .parse::<i32>()
                 .ok()
-                .map(|v| serde_json::Value::from(v))
+                .map(serde_json::Value::from)
                 .unwrap_or(serde_json::Value::Null)
         };
         let payload = serde_json::json!({
@@ -2471,10 +2471,10 @@ pub fn App() -> impl IntoView {
             let name = name.clone();
             let code = code.clone();
             let onload = Closure::<dyn FnMut()>::new(move || {
-                if let Ok(result) = reader_for_load.result() {
-                    if let Some(text) = result.as_string() {
-                        collected.borrow_mut().insert(code.clone(), text);
-                    }
+                if let Ok(result) = reader_for_load.result()
+                    && let Some(text) = result.as_string()
+                {
+                    collected.borrow_mut().insert(code.clone(), text);
                 }
                 let ready = {
                     let mut left = pending.borrow_mut();
@@ -2754,13 +2754,13 @@ pub fn App() -> impl IntoView {
             let inc = clock_inc.get_untracked();
             let now_black = fen_after.split_whitespace().nth(1) == Some("b");
             clock.update(|c| {
-                if let Some((white, black)) = c {
-                    if inc > 0 {
-                        if now_black {
-                            *white += inc;
-                        } else {
-                            *black += inc;
-                        }
+                if let Some((white, black)) = c
+                    && inc > 0
+                {
+                    if now_black {
+                        *white += inc;
+                    } else {
+                        *black += inc;
                     }
                 }
             });
