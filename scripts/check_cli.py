@@ -36,7 +36,7 @@ def main():
     assert [r["branch"] for r in replies] == [1, 2]
     run("simulate", "fixtures/start.json", "e2e4", "e7e5", "--budget", "1", succeeds=False)
     for profile in ("smolvlm-500m", "qwen35-4b", "qwen35-9b"):
-        admission = json.loads(run("verify-model", f"configs/models/{profile}.json", succeeds=False))
+        admission = json.loads(run("verify-model", f"model/configs/models/{profile}.json", succeeds=False))
         assert admission["admitted"] is False and admission["missing"]
     with tempfile.TemporaryDirectory(prefix="knightlm-cli-") as folder:
         checkpoint = Path(folder) / "smoke.json"

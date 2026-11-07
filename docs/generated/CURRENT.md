@@ -796,7 +796,7 @@ consumer risk is zero.
 | id | title | target | digest |
 |---|---|---|---|
 | D-001 | Variant start positions and FRC support | `crates/core/src/state.rs` | verified |
-| D-002 | Format parity checker | `ports/parity/check_san.py` | verified |
+| D-002 | Format parity checker | `model/parity/check_san.py` | verified |
 
 #### KLM-WAR-0005 — Engine tooling: Stockfish 19 UCI client, label harness, and the boundary gate
 
@@ -1412,7 +1412,7 @@ weekly ingest reports log refusal shapes.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Corpus ingest pipeline | `ports/corpus/pipeline.py` | verified |
+| D-001 | Corpus ingest pipeline | `model/corpus/pipeline.py` | verified |
 | D-002 | Corpus documentation | `README.md` | verified |
 
 #### KLM-WAR-0008 — Track A run 1: SmolVLM LoRA harness, execution within cap, per-axis eval
@@ -1627,7 +1627,7 @@ reporting risk: the report states the seed and the count, not vibes.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Track A training harness | `ports/train/harness.py` | verified |
+| D-001 | Track A training harness | `model/train/harness.py` | verified |
 | D-002 | Model crate and its infrastructure test | `crates/model/tests/infrastructure.rs` | verified |
 
 #### KLM-WAR-0009 — Serving: the model speaks, knightlm-uci plays, boundary intact
@@ -1844,7 +1844,7 @@ narrative, not a strength claim — the strength axis stays in W-0008.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Serving entry point | `ports/serve/server.py` | verified |
+| D-001 | Serving entry point | `model/serve/server.py` | verified |
 
 #### KLM-WAR-0010 — The Leptos viewer: any notation in, board and facts out, all formats back out
 

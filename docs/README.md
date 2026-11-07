@@ -8,7 +8,7 @@ RustyBrickChess (RBC) is the app. KnightLM is the chess model being trained for 
 | Make my first contribution | [Contributor onboarding](contributors/README.md) |
 | Find or claim work | [Work orders by role](contributors/work/README.md) |
 | See what comes next | [App and model roadmap](../apps/rusty-brick-chess/ROADMAP.md) |
-| Train or evaluate KnightLM | [Training quickstart](../ports/README.md), [experiment plan](model/plan.md), [data and evidence contracts](model/contracts.md) |
+| Train or evaluate KnightLM | [Training quickstart](../model/README.md), [experiment plan](model/plan.md), [data and evidence contracts](model/contracts.md) |
 
 ## App reference
 
