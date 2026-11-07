@@ -1460,7 +1460,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                         }.into_any()
                     })}
                 </div>
-                {move || (!has_provider.get()).then(|| view! {
+                {move || (!has_provider.get() && model_override.get() != "knightlm-smolvlm-500m").then(|| view! {
                     <div class="provider-missing" role="status">
                         {move || i18n::t(&language.get(), "assistant.no_provider")}
                     </div>
@@ -1557,6 +1557,12 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                             on:input=move |ev| model_override.set(event_target_value(&ev))
                         />
                     </label>
+                    <button type="button" class="composer-knightlm"
+                        aria-pressed=move || if model_override.get() == "knightlm-smolvlm-500m" { "true" } else { "false" }
+                        disabled=move || sending.get()
+                        on:click=move |_| model_override.set("knightlm-smolvlm-500m".into())>
+                        "KnightLM (LAMU)"
+                    </button>
                     <label class="composer-temperature">
                         {move || i18n::t(&language.get(), "assistant.temperature")}
                         <input

@@ -10,6 +10,7 @@ pub mod archive;
 pub mod console;
 pub mod domain_api;
 pub mod importer;
+mod lamu_runtime;
 mod mcp;
 pub mod pieces;
 mod provider_api;
@@ -445,6 +446,7 @@ pub fn state_from_env() -> anyhow::Result<(api::AppState, String)> {
             .unwrap_or(15),
         console: std::sync::Arc::new(std::sync::Mutex::new(None)),
         turn_cancels: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        lamu_child: Default::default(),
     };
     Ok((state, db_path))
 }

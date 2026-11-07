@@ -80,18 +80,23 @@ own will serve the API and no UI.
 
 RBC starts and serves the chess UI with the AI runtime offline. When you want
 a model opponent, run LAMU on `127.0.0.1:8020`, open **Play**, click **Find local
-models**, choose a **LAMU** opponent, and start a casual game. RBC asks that
-endpoint for a reply after you make a move. LAMU manages model loading when
+models**, choose a **LAMU** opponent, and start a casual game. Move a piece on
+the board and RBC asks that endpoint for a reply. LAMU manages model loading when
 the request arrives. RBC checks the reply against the position before adding
 it to the game.
 
-For Assistant chat, set the model endpoint in **Settings** to
-`http://127.0.0.1:8020/v1/chat/completions` and select a LAMU model ID in the
-composer's model override. Model discovery reads the runtime's catalog.
+For Assistant chat, select **KnightLM (LAMU)** in the composer and send a
+message. RBC uses the local LAMU service if it is healthy. Otherwise it
+starts `lamu serve` on loopback, and LAMU loads the registered model when the
+request arrives. Set `RBC_LAMU_BIN` if `lamu` is outside the app's `PATH`, and
+`RBC_LAMU_PORT` to override the Assistant's default port of `8020`. KnightLM
+uses text replies in the Assistant. Other model IDs use the endpoint from
+**Settings**. Model discovery in Play reads the runtime's catalog.
 
-KnightLM's pilot is a PEFT adapter for a pinned SmolVLM checkpoint. It will
-appear as a selectable player once a compatible base and adapter are served
-under a model ID in the LAMU catalog. [KnightLM model tooling](../../model/README.md)
+The verified LAMU build of the KnightLM pilot merges the PEFT adapter into its
+pinned SmolVLM base and serves the resulting GGUF under the model ID
+`knightlm-smolvlm-500m`. Register that ID in LAMU before using the Assistant
+shortcut or selecting KnightLM in Play. [KnightLM model tooling](../../model/README.md)
 
 ## The tabs
 

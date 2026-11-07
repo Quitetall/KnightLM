@@ -1168,8 +1168,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     (
         "assistant.no_provider",
-        "No provider is configured, so nothing can answer yet. Add one in Settings, or start the app with MODEL_URL.",
-        "No hay ningún proveedor configurado, así que nada puede responder todavía. Añade uno en Ajustes o inicia la aplicación con MODEL_URL.",
+        "Choose KnightLM (LAMU), or configure another provider in Settings.",
+        "Elige KnightLM (LAMU) o configura otro proveedor en Ajustes.",
     ),
     (
         "assistant.context_too_large",

@@ -12,6 +12,7 @@ use wasm_bindgen::JsCast;
 
 use crate::ai_api;
 use crate::api as db_api;
+use crate::board::Board;
 use crate::i18n;
 use crate::views::AppCtx;
 
@@ -248,6 +249,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
 
     // An action that changes the match, then refreshes the list and the detail.
     let act = move |action: &'static str, body: serde_json::Value| {
+        if busy.get_untracked() { return; }
         let Some(id) = selected.get_untracked() else {
             return;
         };
@@ -281,7 +283,12 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                     }
                     reload();
                 }
-                Err(error) => message.set(error),
+                Err(error) => {
+                    message.set(error);
+                    if action == "move" && selected.get_untracked().as_deref() == Some(&id) {
+                        load_detail(id);
+                    }
+                }
             }
             busy.set(false);
         });
@@ -396,6 +403,169 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             </header>
 
             <div class="play-body">
+                <div class="active-match">
+                    {move || {
+                        let Some(payload) = detail.get() else {
+                            return view! {
+                                <p class="muted">{move || i18n::t(&language.get(), "play.choose")}</p>
+                            }.into_any();
+                        };
+                        let (white_clock, black_clock) = clocks(&payload);
+                        let moves = payload
+                            .get("moves")
+                            .and_then(|moves| moves.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        let result = result_text(&payload);
+                        let finished = result.is_some();
+                        let result_for_line = result.clone();
+                        let state = state_text(&payload);
+                        let turn = payload
+                            .get("turn")
+                            .and_then(|turn| turn.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let white = seat_label(&payload["white"]);
+                        let black = seat_label(&payload["black"]);
+                        let watching = payload["white"]["kind"] == "model" && payload["black"]["kind"] == "model";
+                        let human_turn = payload[turn.as_str()]["kind"] == "human";
+                        let human_color = ["white", "black"].into_iter().find(|color| payload[*color]["kind"] == "human");
+                        let pgn = payload
+                            .get("pgn")
+                            .and_then(|pgn| pgn.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let pgn_for_download = pgn.clone();
+                        let fen = payload["fen"].as_str().unwrap_or(START_FEN).to_owned();
+                        let orientation = human_color.unwrap_or("white").to_owned();
+                        view! {
+                            <div class="match-cards">
+                                <div class="player-card">
+                                    <span class="player-name">{move || i18n::t(&language.get(), "play.white")}</span>
+                                    <span>{white}</span>
+                                    <span class="player-clock">{clock_text(white_clock)}</span>
+                                </div>
+                                <div class="player-card">
+                                    <span class="player-name">{move || i18n::t(&language.get(), "play.black")}</span>
+                                    <span>{black}</span>
+                                    <span class="player-clock">{clock_text(black_clock)}</span>
+                                </div>
+                            </div>
+
+                            <div class="match-status">
+                                <span class="match-state">{state.clone()}</span>
+                                <span class="muted">{format!("{} to move", turn)}</span>
+                                {result_for_line.map(|result| view! {
+                                    <span class="match-result">{result}</span>
+                                })}
+                            </div>
+
+                            <Board
+                                pgn=Signal::derive(String::new)
+                                load_fen=Signal::derive(move || Some((0, fen.clone(), "standard".into())))
+                                orientation=Signal::derive(move || orientation.clone())
+                                board_only=true
+                                read_only=finished || !human_turn
+                                interaction_disabled=busy.into()
+                                lang=language.into()
+                                on_move=Callback::new(move |(uci, _, _): (String, String, String)| {
+                                    act("move", serde_json::json!({"mv": uci}));
+                                })
+                            />
+
+                            <ol class="match-moves">
+                                {moves.iter().enumerate().map(|(index, mv)| {
+                                    let san = mv.get("san").and_then(|san| san.as_str()).unwrap_or("").to_string();
+                                    let color = mv.get("color").and_then(|c| c.as_str()).unwrap_or("").to_string();
+                                    let number = index / 2 + 1;
+                                    let prefix = if color == "white" { format!("{number}.") } else { String::new() };
+                                    view! { <li class=format!("ply {color}")>{format!("{prefix} {san}")}</li> }
+                                }).collect_view()}
+                            </ol>
+
+                            <div class="match-actions">
+                                {watching.then(|| view! {
+                                <button
+                                    class="match-step"
+                                    disabled=move || busy.get() || finished
+                                    on:click=move |_| act("watch/step", serde_json::json!({"plies": 1}))
+                                >
+                                    {move || i18n::t(&language.get(), "play.step")}
+                                </button>
+                                <button
+                                    class="match-step-5"
+                                    disabled=move || busy.get() || finished
+                                    on:click=move |_| act("watch/step", serde_json::json!({"plies": 5}))
+                                >
+                                    {move || i18n::t(&language.get(), "play.step5")}
+                                </button>
+                                <button
+                                    class="match-pause"
+                                    on:click=move |_| act("watch/pause", serde_json::json!({}))
+                                >
+                                    {move || i18n::t(&language.get(), "play.pause")}
+                                </button>
+                                <button
+                                    class="match-resume"
+                                    on:click=move |_| act("watch/resume", serde_json::json!({}))
+                                >
+                                    {move || i18n::t(&language.get(), "play.resume")}
+                                </button>
+                                })}
+                                {(!finished && !watching && !human_turn).then(|| view! {
+                                    <button class="match-model-move" disabled=move || busy.get()
+                                        on:click=move |_| act("model-move", serde_json::json!({}))>
+                                        {move || i18n::t(&language.get(), "play.model_move")}
+                                    </button>
+                                })}
+                                {human_color.filter(|_| !finished).map(|color| view! {
+                                    <button class="match-resign" disabled=move || busy.get()
+                                        on:click=move |_| act("resign", serde_json::json!({"color": color}))>
+                                        {move || i18n::t(&language.get(), "play.resign")}
+                                    </button>
+                                })}
+                                <button
+                                    class="match-takeback"
+                                    on:click=move |_| act("takeback", serde_json::json!({}))
+                                >
+                                    {move || i18n::t(&language.get(), "play.takeback")}
+                                </button>
+                                <button
+                                    class="match-rematch"
+                                    disabled=move || busy.get()
+                                    on:click=move |_| rematch()
+                                >
+                                    {move || i18n::t(&language.get(), "play.rematch")}
+                                </button>
+                                <button
+                                    class="match-reset"
+                                    on:click=move |_| act("watch/reset", serde_json::json!({}))
+                                >
+                                    {move || i18n::t(&language.get(), "play.reset")}
+                                </button>
+                            </div>
+
+                            <div class="match-handoff">
+                                <button class="match-save" on:click=move |_| save_to_db(false)>
+                                    {move || i18n::t(&language.get(), "play.save")}
+                                </button>
+                                <button class="match-open" on:click=move |_| save_to_db(true)>
+                                    {move || i18n::t(&language.get(), "play.open")}
+                                </button>
+                                <button
+                                    class="match-export"
+                                    on:click=move |_| {
+                                        download_pgn(&pgn_for_download);
+                                    }
+                                >
+                                    {move || i18n::t(&language.get(), "play.export")}
+                                </button>
+                                <pre class="match-pgn">{pgn}</pre>
+                            </div>
+                        }.into_any()
+                    }}
+                    <div class="muted">{move || message.get()}</div>
+                </div>
                 <ul class="match-list">
                     {move || {
                         let list = matches.get();
@@ -721,180 +891,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 </table>
                             }.into_any()
                         })}
-                    {move || {
-                        let Some(payload) = detail.get() else {
-                            return view! {
-                                <p class="muted">{move || i18n::t(&language.get(), "play.choose")}</p>
-                            }.into_any();
-                        };
-                        let (white_clock, black_clock) = clocks(&payload);
-                        let moves = payload
-                            .get("moves")
-                            .and_then(|moves| moves.as_array())
-                            .cloned()
-                            .unwrap_or_default();
-                        let legal = payload
-                            .get("legal_moves")
-                            .and_then(|moves| moves.as_array())
-                            .map(|moves| {
-                                moves
-                                    .iter()
-                                    .filter_map(|mv| mv.as_str().map(str::to_string))
-                                    .collect::<Vec<_>>()
-                            })
-                            .unwrap_or_default();
-                        let result = result_text(&payload);
-                        let finished = result.is_some();
-                        let result_for_line = result.clone();
-                        let state = state_text(&payload);
-                        let turn = payload
-                            .get("turn")
-                            .and_then(|turn| turn.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let white = seat_label(&payload["white"]);
-                        let black = seat_label(&payload["black"]);
-                        let watching = payload["white"]["kind"] == "model" && payload["black"]["kind"] == "model";
-                        let human_turn = payload[turn.as_str()]["kind"] == "human";
-                        let human_color = ["white", "black"].into_iter().find(|color| payload[*color]["kind"] == "human");
-                        let pgn = payload
-                            .get("pgn")
-                            .and_then(|pgn| pgn.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let pgn_for_download = pgn.clone();
-                        view! {
-                            <div class="match-cards">
-                                <div class="player-card">
-                                    <span class="player-name">{move || i18n::t(&language.get(), "play.white")}</span>
-                                    <span>{white}</span>
-                                    <span class="player-clock">{clock_text(white_clock)}</span>
-                                </div>
-                                <div class="player-card">
-                                    <span class="player-name">{move || i18n::t(&language.get(), "play.black")}</span>
-                                    <span>{black}</span>
-                                    <span class="player-clock">{clock_text(black_clock)}</span>
-                                </div>
-                            </div>
-
-                            <div class="match-status">
-                                <span class="match-state">{state.clone()}</span>
-                                <span class="muted">{format!("{} to move", turn)}</span>
-                                {result_for_line.map(|result| view! {
-                                    <span class="match-result">{result}</span>
-                                })}
-                            </div>
-
-                            <ol class="match-moves">
-                                {moves.iter().enumerate().map(|(index, mv)| {
-                                    let san = mv.get("san").and_then(|san| san.as_str()).unwrap_or("").to_string();
-                                    let color = mv.get("color").and_then(|c| c.as_str()).unwrap_or("").to_string();
-                                    let number = index / 2 + 1;
-                                    let prefix = if color == "white" { format!("{number}.") } else { String::new() };
-                                    view! { <li class=format!("ply {color}")>{format!("{prefix} {san}")}</li> }
-                                }).collect_view()}
-                            </ol>
-
-                            <div class="match-actions">
-                                {watching.then(|| view! {
-                                <button
-                                    class="match-step"
-                                    disabled=move || busy.get() || finished
-                                    on:click=move |_| act("watch/step", serde_json::json!({"plies": 1}))
-                                >
-                                    {move || i18n::t(&language.get(), "play.step")}
-                                </button>
-                                <button
-                                    class="match-step-5"
-                                    disabled=move || busy.get() || finished
-                                    on:click=move |_| act("watch/step", serde_json::json!({"plies": 5}))
-                                >
-                                    {move || i18n::t(&language.get(), "play.step5")}
-                                </button>
-                                <button
-                                    class="match-pause"
-                                    on:click=move |_| act("watch/pause", serde_json::json!({}))
-                                >
-                                    {move || i18n::t(&language.get(), "play.pause")}
-                                </button>
-                                <button
-                                    class="match-resume"
-                                    on:click=move |_| act("watch/resume", serde_json::json!({}))
-                                >
-                                    {move || i18n::t(&language.get(), "play.resume")}
-                                </button>
-                                })}
-                                {(!finished && !watching && !human_turn).then(|| view! {
-                                    <button class="match-model-move" disabled=move || busy.get()
-                                        on:click=move |_| act("model-move", serde_json::json!({}))>
-                                        {move || i18n::t(&language.get(), "play.model_move")}
-                                    </button>
-                                })}
-                                {human_color.filter(|_| !finished).map(|color| view! {
-                                    <button class="match-resign" disabled=move || busy.get()
-                                        on:click=move |_| act("resign", serde_json::json!({"color": color}))>
-                                        {move || i18n::t(&language.get(), "play.resign")}
-                                    </button>
-                                })}
-                                <button
-                                    class="match-takeback"
-                                    on:click=move |_| act("takeback", serde_json::json!({}))
-                                >
-                                    {move || i18n::t(&language.get(), "play.takeback")}
-                                </button>
-                                <button
-                                    class="match-rematch"
-                                    disabled=move || busy.get()
-                                    on:click=move |_| rematch()
-                                >
-                                    {move || i18n::t(&language.get(), "play.rematch")}
-                                </button>
-                                <button
-                                    class="match-reset"
-                                    on:click=move |_| act("watch/reset", serde_json::json!({}))
-                                >
-                                    {move || i18n::t(&language.get(), "play.reset")}
-                                </button>
-                            </div>
-
-                            {(!finished && human_turn && !legal.is_empty()).then(|| view! {
-                                <div class="match-legal">
-                                    {legal.into_iter().map(|mv| {
-                                        let mv_click = mv.clone();
-                                        view! {
-                                            <button
-                                                class="legal-move"
-                                                disabled=move || busy.get()
-                                                on:click=move |_| act("move", serde_json::json!({"mv": mv_click.clone()}))
-                                            >
-                                                {mv}
-                                            </button>
-                                        }
-                                    }).collect_view()}
-                                </div>
-                            })}
-
-                            <div class="match-handoff">
-                                <button class="match-save" on:click=move |_| save_to_db(false)>
-                                    {move || i18n::t(&language.get(), "play.save")}
-                                </button>
-                                <button class="match-open" on:click=move |_| save_to_db(true)>
-                                    {move || i18n::t(&language.get(), "play.open")}
-                                </button>
-                                <button
-                                    class="match-export"
-                                    on:click=move |_| {
-                                        download_pgn(&pgn_for_download);
-                                    }
-                                >
-                                    {move || i18n::t(&language.get(), "play.export")}
-                                </button>
-                                <pre class="match-pgn">{pgn}</pre>
-                            </div>
-                        }.into_any()
-                    }}
                     </section>
-                    <div class="muted">{move || message.get()}</div>
                 </div>
             </div>
         </section>

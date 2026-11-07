@@ -31,6 +31,7 @@ pub struct AppState {
     pub data_dir: std::path::PathBuf,
     pub engine_path: Option<String>,
     pub model_url: Option<String>,
+    pub lamu_child: Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>,
     pub default_depth: u32,
     /// Persistent UCI session used by the engine console.
     pub console: Arc<Mutex<Option<crate::console::Console>>>,
