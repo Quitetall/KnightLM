@@ -18,6 +18,12 @@
 > -
 - doc:README.md · document · - · RustyBrickChess (RBC) · README.md:1
 
+## SPEC.md
+> KnightLM — Software Architecture Specification, migrated from docs/sas/KnightLM_SAS.md.
+- doc:SPEC.md · spec · - · KnightLM — Software Architecture Specification · SPEC.md:1
+- S-purpose · section · - · Purpose · SPEC.md:67
+- S-scope · section · - · Scope · SPEC.md:154
+
 ## docs/README.md
 > -
 - doc:docs/README.md · document · - · Documentation · docs/README.md:1
@@ -442,3 +448,41 @@
 ## docs/warrants/KLM-WAR-0021/manifest.toml
 > Release 1 hardening: performance, security, full suite, docs and RC
 - KLM-WAR-0021 · warrant · draft · Release 1 hardening: performance, security, full suite, docs and RC · docs/warrants/KLM-WAR-0021/manifest.toml:1
+
+## spec/section-106-architecture-requirements-index.md
+> 106. Architecture requirements index, from docs/sas/KnightLM_SAS.md.
+- doc:spec/section-106-architecture-requirements-index.md · spec · - · 106. Architecture requirements index · spec/section-106-architecture-requirements-index.md:1
+- S-106-architecture-requirements-index · section · - · 106. Architecture requirements index · spec/section-106-architecture-requirements-index.md:9
+- REQ-001 · requirement · - · This SAS is accepted by a human signature and every Warrant pins the accepted revision · spec/section-106-architecture-requirements-index.md:30
+- REQ-002 · requirement · - · Every Warrant is authorized and resolved by a human, never by the performer · spec/section-106-architecture-requirements-index.md:34
+- REQ-003 · requirement · - · Every resolution rests on an independent verification and recorded gate evidence · spec/section-106-architecture-requirements-index.md:38
+- REQ-004 · requirement · - · Every supported notation normalizes to the canonical GameRecord/GameState or fails explicitly; nothing is silently re... · spec/section-106-architecture-requirements-index.md:42
+- REQ-005 · requirement · - · Every supported export format round-trips: state, export, ingest, identical canonical state, proven on fixtures · spec/section-106-architecture-requirements-index.md:46
+- REQ-006 · requirement · - · Every GameRecord carries source and history_complete as source assertions; a four-field FEN source never yields histo... · spec/section-106-architecture-requirements-index.md:50
+- REQ-007 · requirement · - · Standard chess and Chess960/DFRC are first-class in ingest, replay, facts and export, in both UCI castling flavors · spec/section-106-architecture-requirements-index.md:54
+- REQ-008 · requirement · - · The viewer is Rust-only, Leptos and axum compiled to WASM, with no JavaScript or TypeScript in the application · spec/section-106-architecture-requirements-index.md:58
+- REQ-009 · requirement · - · An engine is reachable only as teacher labeler, post-decision scorer or opponent; the model's inference path never qu... · spec/section-106-architecture-requirements-index.md:62
+- REQ-010 · requirement · - · The player is exposed as a UCI engine, and an illegal model move is a reported failure, never silently corrected · spec/section-106-architecture-requirements-index.md:66
+- REQ-011 · requirement · - · Training corpora carry provenance and pass split audits before use; teacher labels are recorded as labels only · spec/section-106-architecture-requirements-index.md:70
+- REQ-012 · requirement · - · Model ability is reported per scoring axis with bounded evidence; no composite winner score and no scored free prose · spec/section-106-architecture-requirements-index.md:74
+- REQ-013 · requirement · - · A Burn-native model is admitted only through the parity gates, with reset isolation between inference passes · spec/section-106-architecture-requirements-index.md:78
+
+## spec/section-130-disciplines.md
+> 130. Disciplines, from docs/sas/KnightLM_SAS.md.
+- doc:spec/section-130-disciplines.md · spec · - · 130. Disciplines · spec/section-130-disciplines.md:1
+- S-130-disciplines · section · - · 130. Disciplines · spec/section-130-disciplines.md:9
+
+## spec/section-140-technology-pins.md
+> 140. Technology pins, from docs/sas/KnightLM_SAS.md.
+- doc:spec/section-140-technology-pins.md · spec · - · 140. Technology pins · spec/section-140-technology-pins.md:1
+- S-140-technology-pins · section · - · 140. Technology pins · spec/section-140-technology-pins.md:9
+
+## spec/section-150-scope-and-non-goals.md
+> 150. Scope and non-goals, from docs/sas/KnightLM_SAS.md.
+- doc:spec/section-150-scope-and-non-goals.md · spec · - · 150. Scope and non-goals · spec/section-150-scope-and-non-goals.md:1
+- S-150-scope-and-non-goals · section · - · 150. Scope and non-goals · spec/section-150-scope-and-non-goals.md:9
+
+## spec/section-98-implementation-phases.md
+> 98. Implementation phases, from docs/sas/KnightLM_SAS.md.
+- doc:spec/section-98-implementation-phases.md · spec · - · 98. Implementation phases · spec/section-98-implementation-phases.md:1
+- S-98-implementation-phases · section · - · 98. Implementation phases · spec/section-98-implementation-phases.md:9

@@ -3863,5 +3863,6 @@ Every command here has been judged by the act's dry run (`war sign <target> --dr
 | authorize | KLM-WAR-0019 | `war sign KLM-WAR-0019` | would record | revision 1 awaits authorization |
 | authorize | KLM-WAR-0020 | `war sign KLM-WAR-0020` | would record | revision 1 awaits authorization |
 | authorize | KLM-WAR-0021 | `war sign KLM-WAR-0021` | would record | revision 1 awaits authorization |
+| accept | specification | `war sign spec` | would record | 20 of 20 specification record(s) await acceptance (0 edited since accepted, 20 new) |
 | accept | SAS 0.2.0 | `war sign 0.2.0` | would refuse: sign.needs-decision | a proposed SAS revision awaits acceptance |
 | accept | SAS 0.2.1 | `war sign 0.2.1` | would refuse: sign.needs-decision | a proposed SAS revision awaits acceptance |
