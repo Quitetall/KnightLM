@@ -4,6 +4,8 @@ Ordinary coding needs no Warrant and no ticket. Fix bugs, add features,
 refactor and run tests the way you would in any repository: nothing has to be
 created, claimed, approved or signed first.
 
+For starter orders and the pull-request workflow, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 OpenWarrant is installed here as an optional kit for tracking work. One item
 in one format, at one of three levels its fields decide:
 
@@ -20,7 +22,7 @@ Use them when they help, or when the person you work with asks for them.
 ```bash
 war start && ls                            # take the next ready Warrant with your first look at the code
 # do the work
-make test && war done --note "what you did"   # close it with your last test run: every item, one call
+make check && war done --note "what you did"  # close it with your last test run: every item, one call
 war view prime                             # what is open, one line each (`war view prime <id>`: one in full)
 war create "What this work accomplishes" --item "..."   # new work
 war status                                 # progress

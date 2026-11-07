@@ -60,6 +60,9 @@ and [roadmap](apps/rusty-brick-chess/ROADMAP.md).
 
 ## Contributing
 
+The [contributor guide](CONTRIBUTING.md) explains the PR workflow and lists
+starter orders by role.
+
 OpenWarrant is optional for repository contributors. This checkout uses
 [OpenWarrant 1.0.0-alpha.7](https://github.com/Quitetall/OpenWarrant/releases/tag/v1.0.0-alpha.7).
 Run its commands from the Git checkout that contains `openwarrant.toml`.

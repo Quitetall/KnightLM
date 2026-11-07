@@ -7,7 +7,7 @@ model can advance in parallel through the same player interface.
 
 | Priority | Work remaining | Done when |
 | --- | --- | --- |
-| 1 | Integrate the approval refresh fix from `agent/rbc-approvals` and rebuild the release bundle. | A clean run of all browser checks passes against the packaged build. The approval regression already passes on the UI branch. |
+| 1 | Rebuild and verify the release bundle with the approval refresh fix on `main`. | A clean run of all browser checks passes against the packaged build. |
 | 2 | Package Windows and macOS and test on native hosts. | An installer launches RBC with its frontend, opens or creates the per-user database, and passes a PGN import and analysis smoke. Publish the tested packages. |
 | 3 | Make **Stop** responsive when a model provider stops sending data. | A browser check cancels a stalled provider within a bounded time and the composer becomes usable again. |
 | 4 | Improve opening-explorer latency. | The same million-game benchmark shows a faster query and the returned continuations match. The recorded reference is about 1.3 seconds. |
