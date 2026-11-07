@@ -398,11 +398,10 @@ pub fn StudyView(
                                                                     .iter()
                                                                     .map(|c| c.id.clone())
                                                                     .collect();
-                                                                if let Some(at) = ids.iter().position(|c| c == &id_up) {
-                                                                    if at > 0 {
+                                                                if let Some(at) = ids.iter().position(|c| c == &id_up)
+                                                                    && at > 0 {
                                                                         ids.swap(at, at - 1);
                                                                     }
-                                                                }
                                                                 let study_id = study_id.clone();
                                                                 spawn_local(async move {
                                                                     match api::reorder_chapters(&study_id, &ids).await {
@@ -427,11 +426,10 @@ pub fn StudyView(
                                                                     .iter()
                                                                     .map(|c| c.id.clone())
                                                                     .collect();
-                                                                if let Some(at) = ids.iter().position(|c| c == &id_down) {
-                                                                    if at + 1 < ids.len() {
+                                                                if let Some(at) = ids.iter().position(|c| c == &id_down)
+                                                                    && at + 1 < ids.len() {
                                                                         ids.swap(at, at + 1);
                                                                     }
-                                                                }
                                                                 let study_id = study_id.clone();
                                                                 spawn_local(async move {
                                                                     match api::reorder_chapters(&study_id, &ids).await {

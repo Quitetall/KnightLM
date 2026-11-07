@@ -8,12 +8,20 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use brick_chess_analysis::{AnalysisConfig, Eval, MoveInput};
-use rbc_db::{Annotation, AnnotationInput, Collection, Db, EventRow, Game, GameQuery, GameTags, PlayerRow, QueryResponse};
-use shakmaty::{CastlingMode, Chess, EnPassantMode, Position, fen::Fen, san::{San, SanPlus}, uci::UciMove};
+use rbc_db::{
+    Annotation, AnnotationInput, Collection, Db, EventRow, Game, GameQuery, GameTags, PlayerRow,
+    QueryResponse,
+};
+use serde::{Deserialize, Serialize};
+use shakmaty::{
+    CastlingMode, Chess, EnPassantMode, Position,
+    fen::Fen,
+    san::{San, SanPlus},
+    uci::UciMove,
+};
 use shakmaty_syzygy::Tablebase;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -179,7 +187,9 @@ pub async fn review_repertoire_card(
     Json(body): Json<ReviewBody>,
 ) -> Result<Json<rbc_db::RepertoireCard>, ApiError> {
     Ok(Json(
-        state.db.review_repertoire_card(body.card_id, body.correct)?,
+        state
+            .db
+            .review_repertoire_card(body.card_id, body.correct)?,
     ))
 }
 
@@ -197,7 +207,9 @@ pub async fn puzzle_attempts(
     State(state): State<AppState>,
     Query(q): Query<LimitQuery>,
 ) -> Result<Json<Vec<rbc_db::PuzzleAttempt>>, ApiError> {
-    Ok(Json(state.db.puzzle_attempts(q.limit.unwrap_or(10).min(100))?))
+    Ok(Json(
+        state.db.puzzle_attempts(q.limit.unwrap_or(10).min(100))?,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -246,7 +258,10 @@ pub async fn custom_sound(
     let path = sound_dir(&state).join(&name);
     let bytes = std::fs::read(&path).map_err(|_| ApiError::NotFound)?;
     Ok((
-        [(header::CONTENT_TYPE, "audio/ogg"), (header::CACHE_CONTROL, "no-cache")],
+        [
+            (header::CONTENT_TYPE, "audio/ogg"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
         bytes,
     )
         .into_response())
@@ -346,9 +361,7 @@ fn canonical(path: &std::path::Path) -> String {
         .to_string()
 }
 
-pub async fn databases(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<DatabaseInfo>>, ApiError> {
+pub async fn databases(State(state): State<AppState>) -> Result<Json<Vec<DatabaseInfo>>, ApiError> {
     let current = canonical(std::path::Path::new(&state.db.path()));
     let mut out = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&state.db_dir) {
@@ -525,10 +538,7 @@ fn variant_uci(name: &str) -> Option<&'static str> {
     }
 }
 
-fn apply_entry_options(
-    options: &mut knightlm_engine::EngineOptions,
-    entry: Option<&EngineEntry>,
-) {
+fn apply_entry_options(options: &mut knightlm_engine::EngineOptions, entry: Option<&EngineEntry>) {
     if let Some(entry) = entry {
         for (name, value) in &entry.options {
             if value.trim().is_empty() {
@@ -685,25 +695,31 @@ pub async fn put_settings(
         state.db.set_setting("variant_engine_path", v.trim())?;
     }
     if let Some(v) = body.online_explorer {
-        state.db.set_setting("online_explorer", if v { "true" } else { "false" })?;
+        state
+            .db
+            .set_setting("online_explorer", if v { "true" } else { "false" })?;
     }
     if let Some(v) = body.animate_last_move {
-        state.db
+        state
+            .db
             .set_setting("animate_last_move", if v { "true" } else { "false" })?;
     }
     if let Some(v) = body.sound_enabled {
-        state.db
+        state
+            .db
             .set_setting("sound_enabled", if v { "true" } else { "false" })?;
     }
     if let Some(v) = body.sound_theme {
         state.db.set_setting("sound_theme", v.trim())?;
     }
     if let Some(v) = body.sound_volume {
-        state.db
+        state
+            .db
             .set_setting("sound_volume", &v.min(100).to_string())?;
     }
     if let Some(v) = body.piece_animation_ms {
-        state.db
+        state
+            .db
             .set_setting("piece_animation_ms", &v.min(1000).to_string())?;
     }
     if let Some(v) = body.profile_name {
@@ -713,12 +729,14 @@ pub async fn put_settings(
         state.db.set_setting("profile_player", v.trim())?;
     }
     if let Some(v) = body.keybinds {
-        let parsed: serde_json::Value = serde_json::from_str(&v)
-            .map_err(|e| ApiError::BadRequest(format!("keybinds: {e}")))?;
+        let parsed: serde_json::Value =
+            serde_json::from_str(&v).map_err(|e| ApiError::BadRequest(format!("keybinds: {e}")))?;
         state.db.set_setting("keybinds", &parsed.to_string())?;
     }
     if let Some(v) = body.engines {
-        state.db.set_setting("engines", &serde_json::to_string(&v)?)?;
+        state
+            .db
+            .set_setting("engines", &serde_json::to_string(&v)?)?;
     }
     Ok(Json(effective(&state)))
 }
@@ -846,7 +864,10 @@ pub async fn import_game(
     Json(body): Json<ImportBody>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let ids = state.db.import_pgn(&body.pgn, body.collection_id)?;
-    Ok((StatusCode::CREATED, Json(serde_json::json!({ "imported": ids }))))
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "imported": ids })),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -880,8 +901,7 @@ fn fetch_lichess_pgn(username: &str, max: u32) -> anyhow::Result<String> {
 
 fn fetch_chesscom_pgn(username: &str, months: u32) -> anyhow::Result<String> {
     let agent = ureq::Agent::new_with_defaults();
-    let archives_url =
-        format!("https://api.chess.com/pub/player/{username}/games/archives");
+    let archives_url = format!("https://api.chess.com/pub/player/{username}/games/archives");
     let mut resp = agent.get(&archives_url).call()?;
     let v: serde_json::Value = resp.body_mut().read_json()?;
     let urls: Vec<String> = v
@@ -916,7 +936,9 @@ pub async fn import_lichess(
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
     let (ids, skipped) = state.db.import_pgn_lenient(&pgn, None)?;
-    Ok(Json(serde_json::json!({ "imported": ids.len(), "skipped": skipped })))
+    Ok(Json(
+        serde_json::json!({ "imported": ids.len(), "skipped": skipped }),
+    ))
 }
 
 pub async fn import_chesscom(
@@ -932,7 +954,9 @@ pub async fn import_chesscom(
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
     let (ids, skipped) = state.db.import_pgn_lenient(&pgn, None)?;
-    Ok(Json(serde_json::json!({ "imported": ids.len(), "skipped": skipped })))
+    Ok(Json(
+        serde_json::json!({ "imported": ids.len(), "skipped": skipped }),
+    ))
 }
 
 #[derive(Serialize)]
@@ -980,10 +1004,8 @@ pub async fn analyze_engines(
                     let mut options = engine_options(&settings, &fen, &variant);
                     apply_entry_options(&mut options, Some(engine));
                     scope.spawn(move || {
-                        let result = knightlm_engine::Engine::spawn_with(
-                            &engine.path, 30, options,
-                        )
-                        .and_then(|mut e| e.analyse_lines(&fen, depth, lines));
+                        let result = knightlm_engine::Engine::spawn_with(&engine.path, 30, options)
+                            .and_then(|mut e| e.analyse_lines(&fen, depth, lines));
                         (engine.clone(), result)
                     })
                 })
@@ -1135,11 +1157,7 @@ pub async fn game_pgn(
     Path(id): Path<i64>,
 ) -> Result<Response, ApiError> {
     let pgn = state.db.export_pgn(id)?.ok_or(ApiError::NotFound)?;
-    Ok((
-        [(header::CONTENT_TYPE, "application/x-chess-pgn")],
-        pgn,
-    )
-        .into_response())
+    Ok(([(header::CONTENT_TYPE, "application/x-chess-pgn")], pgn).into_response())
 }
 
 pub async fn delete_game(
@@ -1357,10 +1375,10 @@ pub async fn openings(
             Ok(body)
         })
         .await;
-        if let Ok(Ok(body)) = fetched {
-            if let Some(e) = parse_lichess_explorer(&body) {
-                return Ok(Json(e));
-            }
+        if let Ok(Ok(body)) = fetched
+            && let Some(e) = parse_lichess_explorer(&body)
+        {
+            return Ok(Json(e));
         }
         // Offline or malformed upstream: fall back to the local database.
     }
@@ -1387,7 +1405,11 @@ pub async fn get_puzzle(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<rbc_db::Puzzle>, ApiError> {
-    state.db.get_puzzle(&id)?.map(Json).ok_or(ApiError::NotFound)
+    state
+        .db
+        .get_puzzle(&id)?
+        .map(Json)
+        .ok_or(ApiError::NotFound)
 }
 
 #[derive(Serialize)]
@@ -1647,9 +1669,10 @@ pub async fn analyze_engine(
     })
     .await
     .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
-    let best = lines.into_iter().next().ok_or_else(|| {
-        ApiError::Internal(anyhow::anyhow!("engine returned no analysis"))
-    })?;
+    let best = lines
+        .into_iter()
+        .next()
+        .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("engine returned no analysis")))?;
     Ok(Json(EngineMove {
         best_move: best.best_move,
         score_cp: best.score_cp,
@@ -1678,7 +1701,11 @@ pub async fn report(Json(body): Json<ReportBody>) -> Json<ReportResponse> {
     })
 }
 
-static TABLEBASE: OnceLock<Mutex<Option<(String, Tablebase<Chess>)>>> = OnceLock::new();
+/// The open tablebase, with the path it was opened from so a changed path
+/// reopens rather than silently serving the old one.
+type TablebaseSlot = Option<(String, Tablebase<Chess>)>;
+
+static TABLEBASE: OnceLock<Mutex<TablebaseSlot>> = OnceLock::new();
 
 #[derive(Serialize)]
 pub struct TablebaseReply {
@@ -1698,7 +1725,9 @@ pub async fn tablebase(
     let fen = q.fen;
     let variant_name = q.variant.as_deref().unwrap_or("standard");
     if canonical_variant(variant_name) != "standard" {
-        return Err(ApiError::Unavailable("tablebases are only supported for standard chess"));
+        return Err(ApiError::Unavailable(
+            "tablebases are only supported for standard chess",
+        ));
     }
     let out = tokio::task::spawn_blocking(move || -> anyhow::Result<TablebaseReply> {
         let mut guard = TABLEBASE
@@ -1715,8 +1744,7 @@ pub async fn tablebase(
             *guard = Some((path.clone(), tb));
         }
         let tb = &guard.as_ref().expect("tablebase").1;
-        let pos: Chess = Fen::from_ascii(fen.as_bytes())?
-            .into_position(CastlingMode::Standard)?;
+        let pos: Chess = Fen::from_ascii(fen.as_bytes())?.into_position(CastlingMode::Standard)?;
         let pieces = pos.board().occupied().count();
         let wdl = tb.probe_wdl_after_zeroing(&pos)?;
         let wdl = match wdl {
@@ -1802,7 +1830,7 @@ fn accounts_view(state: &AppState) -> Vec<AccountView> {
             .filter(|value| !value.trim().is_empty());
         let profile = stored
             .get(profile_key)
-            .and_then(|raw| serde_json::from_str(&raw).ok());
+            .and_then(|raw| serde_json::from_str(raw).ok());
         let has_token = stored
             .get(token_key)
             .map(|token| !token.trim().is_empty())
@@ -1816,14 +1844,17 @@ fn accounts_view(state: &AppState) -> Vec<AccountView> {
         }
     };
     vec![
-        view("lichess", "lichess_user", "lichess_token", "lichess_profile"),
+        view(
+            "lichess",
+            "lichess_user",
+            "lichess_token",
+            "lichess_profile",
+        ),
         view("chesscom", "chesscom_user", "", "chesscom_profile"),
     ]
 }
 
-pub async fn accounts(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<AccountView>>, ApiError> {
+pub async fn accounts(State(state): State<AppState>) -> Result<Json<Vec<AccountView>>, ApiError> {
     Ok(Json(accounts_view(&state)))
 }
 
@@ -1957,11 +1988,10 @@ pub async fn import_account_games(
     .await
     .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
     let db = state.db.clone();
-    let (imported, skipped) = tokio::task::spawn_blocking(move || {
-        db.import_pgn_lenient(&pgn, None)
-    })
-    .await
-    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
+    let (imported, skipped) =
+        tokio::task::spawn_blocking(move || db.import_pgn_lenient(&pgn, None))
+            .await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
     Ok(Json(serde_json::json!({
         "imported": imported.len(),
         "skipped": skipped,
@@ -2046,9 +2076,7 @@ fn url_component(value: &str) -> String {
 }
 
 /// Lichess cloud evaluation for a position (no key required).
-pub async fn cloud_eval(
-    Query(q): Query<CloudQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+pub async fn cloud_eval(Query(q): Query<CloudQuery>) -> Result<Json<serde_json::Value>, ApiError> {
     let url = format!(
         "https://lichess.org/api/cloud-eval?fen={}&multiPv=1",
         url_component(q.fen.trim())
@@ -2166,7 +2194,9 @@ pub async fn console_status(
         Some(console) => (true, console.name.clone()),
         None => (false, String::new()),
     };
-    Ok(Json(serde_json::json!({ "running": running, "name": name })))
+    Ok(Json(
+        serde_json::json!({ "running": running, "name": name }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -2195,30 +2225,92 @@ fn chat_tools() -> serde_json::Value {
         })
     };
     serde_json::json!([
-        function("get_position", "The position on the board: FEN, side to move and piece count.", serde_json::json!({"type":"object","properties":{}})),
-        function("legal_moves", "Every legal move in the current position as SAN.", serde_json::json!({"type":"object","properties":{}})),
-        function("analyze", "Run the engine on the current position and return the best move, score and line.", serde_json::json!({"type":"object","properties":{"depth":{"type":"integer","minimum":1,"maximum":30}}})),
-        function("draw_arrow", "Draw an arrow on the board to point something out.", serde_json::json!({"type":"object","properties":{"from":{"type":"string","description":"origin square, e.g. e2"},"to":{"type":"string","description":"target square, e.g. e4"},"color":{"type":"string","enum":["green","red","blue","yellow"]}},"required":["from","to"]})),
-        function("draw_circle", "Circle a square on the board.", serde_json::json!({"type":"object","properties":{"square":{"type":"string"},"color":{"type":"string","enum":["green","red","blue","yellow"]}},"required":["square"]})),
-        function("clear_shapes", "Remove every arrow and circle from the board.", serde_json::json!({"type":"object","properties":{}})),
-        function("play_move", "Play a legal move on the board (SAN or UCI).", serde_json::json!({"type":"object","properties":{"move":{"type":"string","description":"e.g. Nf3 or g1f3"}},"required":["move"]})),
-        function("list_boards", "List open workspaces and their boards with stable ids and revisions.", serde_json::json!({"type":"object","properties":{}})),
-        function("get_board", "Read one board by id: title, FEN, revision, mutability and content.", serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"}},"required":["board_id"]})),
-        function("create_board", "Create a board in a workspace or study chapter.", serde_json::json!({"type":"object","properties":{"parent_kind":{"type":"string"},"parent_id":{"type":"string"},"title":{"type":"string"},"start_fen":{"type":"string"},"content_json":{"type":"string"}},"required":["parent_kind","parent_id","title","start_fen"]})),
-        function("copy_board", "Copy a board (required when it is locked or published).", serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"},"title":{"type":"string"}},"required":["board_id"]})),
-        function("lock_board", "Lock a board so writes require a copy.", serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"}},"required":["board_id"]})),
-        function("unlock_board", "Unlock a board.", serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"}},"required":["board_id"]})),
-        function("list_studies", "List studies with ids, versions and lifecycle.", serde_json::json!({"type":"object","properties":{}})),
-        function("get_study", "Read a study and its ordered chapters.", serde_json::json!({"type":"object","properties":{"study_id":{"type":"string"}},"required":["study_id"]})),
-        function("create_study", "Create a study.", serde_json::json!({"type":"object","properties":{"title":{"type":"string"},"description_md":{"type":"string"}},"required":["title"]}))
+        function(
+            "get_position",
+            "The position on the board: FEN, side to move and piece count.",
+            serde_json::json!({"type":"object","properties":{}})
+        ),
+        function(
+            "legal_moves",
+            "Every legal move in the current position as SAN.",
+            serde_json::json!({"type":"object","properties":{}})
+        ),
+        function(
+            "analyze",
+            "Run the engine on the current position and return the best move, score and line.",
+            serde_json::json!({"type":"object","properties":{"depth":{"type":"integer","minimum":1,"maximum":30}}})
+        ),
+        function(
+            "draw_arrow",
+            "Draw an arrow on the board to point something out.",
+            serde_json::json!({"type":"object","properties":{"from":{"type":"string","description":"origin square, e.g. e2"},"to":{"type":"string","description":"target square, e.g. e4"},"color":{"type":"string","enum":["green","red","blue","yellow"]}},"required":["from","to"]})
+        ),
+        function(
+            "draw_circle",
+            "Circle a square on the board.",
+            serde_json::json!({"type":"object","properties":{"square":{"type":"string"},"color":{"type":"string","enum":["green","red","blue","yellow"]}},"required":["square"]})
+        ),
+        function(
+            "clear_shapes",
+            "Remove every arrow and circle from the board.",
+            serde_json::json!({"type":"object","properties":{}})
+        ),
+        function(
+            "play_move",
+            "Play a legal move on the board (SAN or UCI).",
+            serde_json::json!({"type":"object","properties":{"move":{"type":"string","description":"e.g. Nf3 or g1f3"}},"required":["move"]})
+        ),
+        function(
+            "list_boards",
+            "List open workspaces and their boards with stable ids and revisions.",
+            serde_json::json!({"type":"object","properties":{}})
+        ),
+        function(
+            "get_board",
+            "Read one board by id: title, FEN, revision, mutability and content.",
+            serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"}},"required":["board_id"]})
+        ),
+        function(
+            "create_board",
+            "Create a board in a workspace or study chapter.",
+            serde_json::json!({"type":"object","properties":{"parent_kind":{"type":"string"},"parent_id":{"type":"string"},"title":{"type":"string"},"start_fen":{"type":"string"},"content_json":{"type":"string"}},"required":["parent_kind","parent_id","title","start_fen"]})
+        ),
+        function(
+            "copy_board",
+            "Copy a board (required when it is locked or published).",
+            serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"},"title":{"type":"string"}},"required":["board_id"]})
+        ),
+        function(
+            "lock_board",
+            "Lock a board so writes require a copy.",
+            serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"}},"required":["board_id"]})
+        ),
+        function(
+            "unlock_board",
+            "Unlock a board.",
+            serde_json::json!({"type":"object","properties":{"board_id":{"type":"string"}},"required":["board_id"]})
+        ),
+        function(
+            "list_studies",
+            "List studies with ids, versions and lifecycle.",
+            serde_json::json!({"type":"object","properties":{}})
+        ),
+        function(
+            "get_study",
+            "Read a study and its ordered chapters.",
+            serde_json::json!({"type":"object","properties":{"study_id":{"type":"string"}},"required":["study_id"]})
+        ),
+        function(
+            "create_study",
+            "Create a study.",
+            serde_json::json!({"type":"object","properties":{"title":{"type":"string"},"description_md":{"type":"string"}},"required":["title"]})
+        )
     ])
 }
 
 fn square_ok(name: &str) -> bool {
     let bytes = name.as_bytes();
-    bytes.len() == 2
-        && (b'a'..=b'h').contains(&bytes[0])
-        && (b'1'..=b'8').contains(&bytes[1])
+    bytes.len() == 2 && (b'a'..=b'h').contains(&bytes[0]) && (b'1'..=b'8').contains(&bytes[1])
 }
 
 fn legal_moves_san(fen: &str) -> anyhow::Result<Vec<(String, String)>> {
@@ -2381,7 +2473,10 @@ fn run_chat_tool(
             let Some(db) = db else {
                 return ("board storage is unavailable".into(), None);
             };
-            let id = arguments.get("board_id").and_then(|v| v.as_str()).unwrap_or("");
+            let id = arguments
+                .get("board_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             match db.board(id) {
                 Ok(Some(board)) => (serde_json::to_string(&board).unwrap_or_default(), None),
                 Ok(None) => (format!("board {id} not found"), None),
@@ -2412,7 +2507,14 @@ fn run_chat_tool(
                 .get("content_json")
                 .and_then(|v| v.as_str())
                 .unwrap_or("{}");
-            match db.create_board(parent_kind, parent_id, "analysis", title, start_fen, content) {
+            match db.create_board(
+                parent_kind,
+                parent_id,
+                "analysis",
+                title,
+                start_fen,
+                content,
+            ) {
                 Ok(board) => (
                     format!("created board {}", board.id),
                     Some(serde_json::json!({"kind":"board_created","board":board})),
@@ -2424,7 +2526,10 @@ fn run_chat_tool(
             let Some(db) = db else {
                 return ("board storage is unavailable".into(), None);
             };
-            let id = arguments.get("board_id").and_then(|v| v.as_str()).unwrap_or("");
+            let id = arguments
+                .get("board_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let title = arguments.get("title").and_then(|v| v.as_str());
             match db.copy_board(id, None, None, title) {
                 Ok(board) => (
@@ -2438,8 +2543,15 @@ fn run_chat_tool(
             let Some(db) = db else {
                 return ("board storage is unavailable".into(), None);
             };
-            let id = arguments.get("board_id").and_then(|v| v.as_str()).unwrap_or("");
-            let value = if name == "lock_board" { "locked" } else { "mutable" };
+            let id = arguments
+                .get("board_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let value = if name == "lock_board" {
+                "locked"
+            } else {
+                "mutable"
+            };
             match db.set_board_mutability(id, value) {
                 Ok(board) => (format!("board {} is {value}", board.id), None),
                 Err(error) => (format!("could not update board: {error}"), None),
@@ -2458,7 +2570,10 @@ fn run_chat_tool(
             let Some(db) = db else {
                 return ("study storage is unavailable".into(), None);
             };
-            let id = arguments.get("study_id").and_then(|v| v.as_str()).unwrap_or("");
+            let id = arguments
+                .get("study_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             match db.study(id) {
                 Ok(Some(study)) => {
                     let chapters = db.chapters(id).unwrap_or_default();
@@ -2547,10 +2662,10 @@ pub(crate) fn chat_with_tools(
             anyhow::bail!("model response has neither choices nor reply");
         };
         let msg = &choice["message"];
-        if let Some(content) = msg.get("content").and_then(|v| v.as_str()) {
-            if !content.trim().is_empty() {
-                reply = content.trim().to_owned();
-            }
+        if let Some(content) = msg.get("content").and_then(|v| v.as_str())
+            && !content.trim().is_empty()
+        {
+            reply = content.trim().to_owned();
         }
         let calls = msg
             .get("tool_calls")
@@ -2571,9 +2686,7 @@ pub(crate) fn chat_with_tools(
         }));
         for call in calls {
             let name = call["function"]["name"].as_str().unwrap_or_default();
-            let raw_args = call["function"]["arguments"]
-                .as_str()
-                .unwrap_or("{}");
+            let raw_args = call["function"]["arguments"].as_str().unwrap_or("{}");
             let arguments: serde_json::Value =
                 serde_json::from_str(raw_args).unwrap_or(serde_json::json!({}));
             let _ = &target_board;
@@ -2610,9 +2723,7 @@ pub async fn chat(
         .fen
         .clone()
         .filter(|f| !f.trim().is_empty())
-        .unwrap_or_else(|| {
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_owned()
-        });
+        .unwrap_or_else(|| "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_owned());
     let depth = body.depth.unwrap_or(settings.depth).clamp(1, 30);
     let message = body.message;
     let reply = tokio::task::spawn_blocking(move || {

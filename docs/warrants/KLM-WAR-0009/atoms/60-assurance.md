@@ -21,7 +21,7 @@ run 1
 - **evidence:** each case is logged and surfaced as a failed driver turn; zero silent
 fallback to RandomLegal (RQ-010)
 ### OBL-003 — engine-zero: the serving stack has no engine path
-- **scope:** code/ports/serve manifests + source; scripts
+- **scope:** code/model/serve manifests + source; scripts
 - **evidence:** a repo test asserting zero imports/dependencies from serve to crates/engine;
 the check is part of the cargo test battery
 ### OBL-004 — the model plays a full session vs SF19 through the stack

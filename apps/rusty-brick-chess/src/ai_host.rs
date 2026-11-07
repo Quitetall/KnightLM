@@ -114,15 +114,9 @@ impl ToolHost for SessionHost<'_> {
             _ => None,
         }
         .unwrap_or_else(|| before.clone());
-        let mut changeset = Changeset::for_board(
-            &board_id,
-            title,
-            revision,
-            call.name.clone(),
-            before,
-            after,
-        )
-        .with_arguments(call.arguments.clone());
+        let mut changeset =
+            Changeset::for_board(&board_id, title, revision, call.name.clone(), before, after)
+                .with_arguments(call.arguments.clone());
         changeset.summary = summary;
         if changeset.notes == ["no visible change"] {
             // Nothing to diff; say what was asked instead.
@@ -219,7 +213,7 @@ impl<'a> SessionHost<'a> {
                     rbc_ai::protocol::ApprovalStatus::Denied => "denied",
                     rbc_ai::protocol::ApprovalStatus::Expired => "expired",
                 };
-                let mut result = rbc_ai::result::ok(
+                rbc_ai::result::ok(
                     call,
                     format!("approval {status}"),
                     serde_json::json!({
@@ -229,9 +223,7 @@ impl<'a> SessionHost<'a> {
                         "changeset_summary": request.changeset_summary,
                         "revision": null,
                     }),
-                );
-                result.data.as_mut().and_then(|data| data.as_object_mut()).map(|_| ());
-                result
+                )
             }
             Ok(None) => rbc_ai::result::refused(
                 call,
@@ -245,5 +237,4 @@ impl<'a> SessionHost<'a> {
             ),
         }
     }
-
 }

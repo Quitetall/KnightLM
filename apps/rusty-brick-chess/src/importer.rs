@@ -59,11 +59,9 @@ pub fn import_dump(options: &DumpOptions, filters: &DumpFilters) -> Result<()> {
 
     let file = std::fs::File::open(&options.file)
         .with_context(|| format!("open {}", options.file.display()))?;
-    let decoder = zstd::stream::read::Decoder::new(std::io::BufReader::with_capacity(
-        1 << 20,
-        file,
-    ))
-    .context("zstd decoder")?;
+    let decoder =
+        zstd::stream::read::Decoder::new(std::io::BufReader::with_capacity(1 << 20, file))
+            .context("zstd decoder")?;
     let mut reader = std::io::BufReader::with_capacity(1 << 20, decoder);
 
     let mut buffer: Vec<u8> = Vec::with_capacity(1 << 20);
@@ -87,10 +85,7 @@ pub fn import_dump(options: &DumpOptions, filters: &DumpFilters) -> Result<()> {
         }
 
         // Games are separated by a blank line before the next `[Event `.
-        loop {
-            let Some(index) = find(&buffer, b"\n\n[Event ") else {
-                break;
-            };
+        while let Some(index) = find(&buffer, b"\n\n[Event ") {
             let game = String::from_utf8_lossy(&buffer[..index]).into_owned();
             buffer.drain(..index + 2);
             seen += 1;
@@ -176,7 +171,10 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 fn matches(game: &str, filters: &DumpFilters) -> bool {
-    let header_end = game.find("\n\n1.").or_else(|| game.find("\n\n1...")).unwrap_or(game.len());
+    let header_end = game
+        .find("\n\n1.")
+        .or_else(|| game.find("\n\n1..."))
+        .unwrap_or(game.len());
     let header = &game[..header_end];
     let tag = |name: &str| -> Option<&str> {
         let needle = format!("[{name} \"");
@@ -225,15 +223,15 @@ fn matches(game: &str, filters: &DumpFilters) -> bool {
             return false;
         }
     }
-    if let Some(result) = filters.result.as_deref().filter(|r| !r.is_empty()) {
-        if tag("Result").unwrap_or_default() != result {
-            return false;
-        }
+    if let Some(result) = filters.result.as_deref().filter(|r| !r.is_empty())
+        && tag("Result").unwrap_or_default() != result
+    {
+        return false;
     }
-    if let Some(tc) = filters.time_control.as_deref().filter(|t| !t.is_empty()) {
-        if tag("TimeControl").unwrap_or_default() != tc {
-            return false;
-        }
+    if let Some(tc) = filters.time_control.as_deref().filter(|t| !t.is_empty())
+        && tag("TimeControl").unwrap_or_default() != tc
+    {
+        return false;
     }
     true
 }
@@ -256,8 +254,20 @@ mod tests {
         };
         format!(
             "{}{}{}",
-            game("Alpha", "Beta", "2026.09.01", 1800, "1. e4 e5 2. Nf3 Nc6 1-0"),
-            game("Gamma", "Alpha", "2026.09.02", 2100, "1. d4 d5 2. c4 e6 1-0"),
+            game(
+                "Alpha",
+                "Beta",
+                "2026.09.01",
+                1800,
+                "1. e4 e5 2. Nf3 Nc6 1-0"
+            ),
+            game(
+                "Gamma",
+                "Alpha",
+                "2026.09.02",
+                2100,
+                "1. d4 d5 2. c4 e6 1-0"
+            ),
             game("Delta", "Epsilon", "2026.08.15", 1200, "1. c4 e5 1-0"),
         )
     }
@@ -299,7 +309,11 @@ mod tests {
         let db = Db::open(&db_path.display().to_string()).unwrap();
         let all = db.query(&GameQuery::default()).unwrap();
         assert_eq!(all.total, 2);
-        assert!(all.games.iter().all(|g| g.white == "Alpha" || g.black == "Alpha"));
+        assert!(
+            all.games
+                .iter()
+                .all(|g| g.white == "Alpha" || g.black == "Alpha")
+        );
     }
 
     #[test]
@@ -313,6 +327,9 @@ mod tests {
         let db = Db::open(&db_path.display().to_string()).unwrap();
         let fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2";
         let hits = db.search_position_variant(fen, "standard").unwrap();
-        assert!(!hits.is_empty(), "expected the e4 e5 position to be indexed");
+        assert!(
+            !hits.is_empty(),
+            "expected the e4 e5 position to be indexed"
+        );
     }
 }

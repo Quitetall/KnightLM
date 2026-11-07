@@ -5,15 +5,15 @@
 //! or accepts a secret — a request carries a `key_ref`, a name, and the answer
 //! carries whether that name resolves, never what it resolves to.
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::api::{ApiError, AppState};
 use crate::providers::{
-    acceptable_base_url, capabilities_of, models_url, resolve_secret, ModelCard, LocalEndpoint,
-    LOCAL_CANDIDATES,
+    LOCAL_CANDIDATES, LocalEndpoint, ModelCard, acceptable_base_url, capabilities_of, models_url,
+    resolve_secret,
 };
 
 #[derive(Deserialize)]
@@ -94,7 +94,10 @@ pub async fn add_provider(
             label,
             "openai_compatible",
             body.base_url.trim(),
-            body.key_ref.as_deref().map(str::trim).filter(|r| !r.is_empty()),
+            body.key_ref
+                .as_deref()
+                .map(str::trim)
+                .filter(|r| !r.is_empty()),
         )
         .map_err(ApiError::from)?;
     // A key reference is configuration; the fact that one was set is worth
@@ -115,12 +118,12 @@ pub async fn edit_provider(
     Path(id): Path<String>,
     Json(body): Json<EditProvider>,
 ) -> Result<Json<Value>, ApiError> {
-    if let Some(base) = body.base_url.as_deref() {
-        if !acceptable_base_url(base) {
-            return Err(ApiError::BadRequest(
-                "a base URL starts with http:// or https://".into(),
-            ));
-        }
+    if let Some(base) = body.base_url.as_deref()
+        && !acceptable_base_url(base)
+    {
+        return Err(ApiError::BadRequest(
+            "a base URL starts with http:// or https://".into(),
+        ));
     }
     let key_ref = body
         .key_ref
@@ -129,7 +132,12 @@ pub async fn edit_provider(
     let key_ref = key_ref.as_ref().map(|inner| inner.as_deref());
     let updated = state
         .db
-        .update_provider(&id, body.label.as_deref(), body.base_url.as_deref(), key_ref)
+        .update_provider(
+            &id,
+            body.label.as_deref(),
+            body.base_url.as_deref(),
+            key_ref,
+        )
         .map_err(ApiError::from)?;
     match updated {
         Some(row) => Ok(Json(provider_json(&row))),
@@ -241,10 +249,7 @@ async fn fetch_models(base_url: &str, key_ref: Option<&str>) -> (Vec<String>, Op
     match request.call() {
         Ok(mut response) => {
             let status = response.status().as_u16();
-            let body = response
-                .body_mut()
-                .read_to_string()
-                .unwrap_or_default();
+            let body = response.body_mut().read_to_string().unwrap_or_default();
             if status >= 400 {
                 // A 401 is the interesting one: it means the endpoint is there
                 // and the key is not. Say that rather than "failed".
@@ -280,6 +285,9 @@ async fn fetch_models(base_url: &str, key_ref: Option<&str>) -> (Vec<String>, Op
                 Err(error) => (Vec::new(), Some(format!("unreadable answer: {error}"))),
             }
         }
-        Err(error) => (Vec::new(), Some(format!("could not reach the endpoint: {error}"))),
+        Err(error) => (
+            Vec::new(),
+            Some(format!("could not reach the endpoint: {error}")),
+        ),
     }
 }

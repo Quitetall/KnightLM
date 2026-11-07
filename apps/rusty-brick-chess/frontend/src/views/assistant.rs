@@ -267,7 +267,6 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                     .into_iter()
                     .filter(|(_, label)| label.to_lowercase().contains(&needle))
                     .take(8)
-                    .map(|(key, label)| (key, label))
                     .collect();
                 if !items.is_empty() {
                     palette_items.set(items);
@@ -506,16 +505,14 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                 live_tools.update(|list| list.push(name.to_string()));
                             }
                         }
-                        Some("turn_done") => {
-                            if live {
-                                live = false;
-                                source.with_value(|held| {
-                                    if let Some(stream) = held {
-                                        stream.close();
-                                    }
-                                });
-                                refresh.update(|count| *count += 1);
-                            }
+                        Some("turn_done") if live => {
+                            live = false;
+                            source.with_value(|held| {
+                                if let Some(stream) = held {
+                                    stream.close();
+                                }
+                            });
+                            refresh.update(|count| *count += 1);
                         }
                         _ => {}
                     }
@@ -593,8 +590,6 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     // Publish the session and its target so the board strip can mark the board
     // the assistant is writing to, even when it is not the one on screen.
     {
-        let ai_session_id = ai_session_id;
-        let ai_target_board = ai_target_board;
         Effect::new(move |_| {
             let id = selected.get();
             ai_session_id.set(id.clone());
@@ -1403,8 +1398,8 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                             let Some(reader) = reader else { return };
                             let reader_for_load = reader.clone();
                             let onload = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-                                if let Ok(result) = reader_for_load.result() {
-                                    if let Some(data) = result.as_string() {
+                                if let Ok(result) = reader_for_load.result()
+                                    && let Some(data) = result.as_string() {
                                         spawn_local(async move {
                                             match api::recognize_image(&data).await {
                                                 Ok(vision) => {
@@ -1420,7 +1415,6 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                             }
                                         });
                                     }
-                                }
                             });
                             reader.set_onload(Some(onload.as_ref().unchecked_ref()));
                             onload.forget();
@@ -1586,9 +1580,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                             // said; the previous answer stays in the transcript.
                             let last_user = turns
                                 .get_untracked()
-                                .into_iter()
-                                .filter(|turn| turn.role == "user")
-                                .next_back()
+                                .into_iter().rfind(|turn| turn.role == "user")
                                 .map(|turn| turn.content);
                             if let Some(content) = last_user {
                                 draft.set(content);

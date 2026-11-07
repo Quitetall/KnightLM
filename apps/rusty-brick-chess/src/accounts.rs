@@ -39,14 +39,16 @@ fn get_json(url: &str, token: Option<&str>) -> Result<serde_json::Value> {
         request = request.header("Authorization", &format!("Bearer {}", token.trim()));
     }
     let mut response = request.call().with_context(|| format!("GET {url}"))?;
-    let body = response.body_mut().with_config().limit(2 << 20).read_to_string()?;
+    let body = response
+        .body_mut()
+        .with_config()
+        .limit(2 << 20)
+        .read_to_string()?;
     Ok(serde_json::from_str(&body)?)
 }
 
 fn get_text(url: &str, token: Option<&str>) -> Result<String> {
-    let mut request = agent()
-        .get(url)
-        .header("Accept", "application/x-chess-pgn");
+    let mut request = agent().get(url).header("Accept", "application/x-chess-pgn");
     if let Some(token) = token.filter(|t| !t.trim().is_empty()) {
         request = request.header("Authorization", &format!("Bearer {}", token.trim()));
     }

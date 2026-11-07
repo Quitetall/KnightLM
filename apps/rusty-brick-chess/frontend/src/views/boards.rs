@@ -88,15 +88,13 @@ pub fn boards_bar(ctx: AppCtx) -> impl IntoView {
                                 // and this is the request to look at it.
                                 // Switching to it is the explicit request; the
                                 // badge is only a prompt until then.
-                                if let Some(target) = target_id.clone() {
-                                    if let Some(ws) = current() {
-                                        if let Some(index) =
+                                if let Some(target) = target_id.clone()
+                                    && let Some(ws) = current()
+                                        && let Some(index) =
                                             ws.boards.iter().position(|board| board.id == target)
                                         {
                                             select_board.run(index);
                                         }
-                                    }
-                                }
                             }
                         >
                             {format!("AI → {title}")}

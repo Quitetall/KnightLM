@@ -11,7 +11,7 @@ classification: internal
 
 ## Deliverables
 
-1. `code/ports/serve/` — FastAPI server (uv-managed): loads base+adapter per
+1. `code/model/serve/` — FastAPI server (uv-managed): loads base+adapter per
    the run manifest, exposes `POST /v1/move` (state packet in, move out as
    SAN + inner UCI tokens), `/v1/health`, `/v1/manifest`; requests are
    version-checked against `model-io` (packet format version from the
@@ -66,5 +66,5 @@ server (forbidden by construction; escalation is the failure backstop).
 
 ## Rollback
 
-Delete `code/ports/serve/` and the ModelPlayer module; the UCI binary falls
+Delete `code/model/serve/` and the ModelPlayer module; the UCI binary falls
 back to RandomLegal (a Player removal is safe by contract).

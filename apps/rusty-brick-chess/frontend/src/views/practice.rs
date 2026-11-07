@@ -45,7 +45,6 @@ pub fn practice(ctx: AppCtx) -> impl IntoView {
         spar_play,
         spar_status,
         spar_thinking,
-        total: _,
         ..
     } = ctx;
     let on_match_play = move |args| ctx.on_match_play.run(args);

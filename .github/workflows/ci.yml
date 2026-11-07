@@ -9,6 +9,9 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: rustup update stable && rustup default stable
       - run: rustup component add rustfmt clippy
+      # The frontend only compiles for wasm; clippy on the host target would lint
+      # code that never ships.
+      - run: rustup target add wasm32-unknown-unknown
       - name: Install Stockfish for the UCI smoke test
         run: |
           timeout 120 sudo apt-get update
@@ -16,6 +19,9 @@ jobs:
       - run: make check
         env:
           STOCKFISH_PATH: /usr/games/stockfish
+      # `make check` never sees `apps/`: the server and wasm frontend crates are
+      # excluded from the workspace, so their lints and tests need this step.
+      - run: make check-apps
   mojo-parity:
     runs-on: ubuntu-latest
     steps:

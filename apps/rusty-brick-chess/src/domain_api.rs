@@ -59,11 +59,7 @@ pub async fn get_workspace(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Workspace>, ApiError> {
-    state
-        .db
-        .workspace(&id)?
-        .map(Json)
-        .ok_or(ApiError::NotFound)
+    state.db.workspace(&id)?.map(Json).ok_or(ApiError::NotFound)
 }
 
 pub async fn update_workspace(
@@ -152,7 +148,12 @@ pub async fn update_board(
 ) -> Result<Json<Board>, ApiError> {
     state
         .db
-        .update_board_content(&id, body.expected_revision, &body.content_json, body.actor.as_deref())
+        .update_board_content(
+            &id,
+            body.expected_revision,
+            &body.content_json,
+            body.actor.as_deref(),
+        )
         .map(Json)
         .map_err(write_error)
 }
@@ -235,7 +236,9 @@ pub async fn create_study(
     State(state): State<AppState>,
     Json(body): Json<CreateStudy>,
 ) -> Result<Json<Study>, ApiError> {
-    Ok(Json(state.db.create_study(&body.title, &body.description_md)?))
+    Ok(Json(
+        state.db.create_study(&body.title, &body.description_md)?,
+    ))
 }
 
 pub async fn get_study(
@@ -405,7 +408,11 @@ pub async fn get_ai_session(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<rbc_db::AiSession>, ApiError> {
-    state.db.ai_session(&id)?.map(Json).ok_or(ApiError::NotFound)
+    state
+        .db
+        .ai_session(&id)?
+        .map(Json)
+        .ok_or(ApiError::NotFound)
 }
 
 #[derive(Deserialize)]
@@ -431,7 +438,11 @@ pub async fn set_ai_target(
     Path(id): Path<String>,
     Json(body): Json<SetAiTarget>,
 ) -> Result<Json<rbc_db::AiSession>, ApiError> {
-    Ok(Json(state.db.set_ai_session_target(&id, body.board_id.as_deref())?))
+    Ok(Json(
+        state
+            .db
+            .set_ai_session_target(&id, body.board_id.as_deref())?,
+    ))
 }
 
 pub async fn archive_ai_session(
@@ -667,7 +678,12 @@ pub async fn send_ai_turn(
     }
     // A per-turn model override. The provider stays the session's: switching to
     // a model at another provider is a settings change, not a turn option.
-    if let Some(model) = body.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+    if let Some(model) = body
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+    {
         plan.model.model = model.to_string();
     }
     plan.mode = match session.mode.as_str() {
@@ -690,8 +706,8 @@ pub async fn send_ai_turn(
         .lock()
         .expect("turn registry")
         .insert(session_key.clone(), cancel.clone());
-    let outcome = tokio::task::spawn_blocking(
-        move || -> Result<rbc_ai::agent::AgentOutcome, String> {
+    let outcome =
+        tokio::task::spawn_blocking(move || -> Result<rbc_ai::agent::AgentOutcome, String> {
             let config = rbc_ai::provider::ProviderConfig::openai_compatible(
                 &url,
                 "openai_compatible",
@@ -699,10 +715,12 @@ pub async fn send_ai_turn(
             );
             let provider =
                 rbc_ai::provider::OpenAiProvider::new(config).map_err(|error| error.message)?;
-            let engine = engine_path
-                .and_then(|path| crate::ai_host::LocalEngine::spawn(&path, Default::default()).ok());
-            let engine_ref: Option<&dyn rbc_ai::reads::Engine> =
-                engine.as_ref().map(|engine| engine as &dyn rbc_ai::reads::Engine);
+            let engine = engine_path.and_then(|path| {
+                crate::ai_host::LocalEngine::spawn(&path, Default::default()).ok()
+            });
+            let engine_ref: Option<&dyn rbc_ai::reads::Engine> = engine
+                .as_ref()
+                .map(|engine| engine as &dyn rbc_ai::reads::Engine);
             let mut host = crate::ai_host::SessionHost::new(
                 &db_for_turn,
                 "assistant",
@@ -726,10 +744,9 @@ pub async fn send_ai_turn(
                 },
             );
             Ok(outcome)
-        },
-    )
-    .await
-    .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?;
+        })
+        .await
+        .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?;
     // The turn is over, whatever it returned: nothing can cancel it now.
     state
         .turn_cancels
@@ -812,14 +829,14 @@ pub async fn send_ai_turn(
         (outcome.usage.tokens_in + outcome.usage.tokens_out) as i64,
     )?;
 
-    if reply.trim().is_empty() {
-        if let Some(error) = &outcome.error {
-            return Ok(Json(serde_json::json!({
-                "user_turn": user_turn,
-                "assistant_turn": assistant_turn,
-                "error": error.message,
-            })));
-        }
+    if reply.trim().is_empty()
+        && let Some(error) = &outcome.error
+    {
+        return Ok(Json(serde_json::json!({
+            "user_turn": user_turn,
+            "assistant_turn": assistant_turn,
+            "error": error.message,
+        })));
     }
 
     Ok(Json(serde_json::json!({
@@ -893,9 +910,7 @@ pub async fn replay_ai_turn(
             .db
             .board(board_id)?
             .map(|board| board.start_fen)
-            .unwrap_or_else(|| {
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into()
-            }),
+            .unwrap_or_else(|| "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into()),
         None => "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into(),
     };
     let compiled = rbc_context::compile(
@@ -1008,10 +1023,7 @@ pub async fn play_match_move(
     }
     let finished = game.result().is_some();
     let snapshot = game.snapshot();
-    let result_json = game
-        .result()
-        .map(serde_json::to_string)
-        .transpose()?;
+    let result_json = game.result().map(serde_json::to_string).transpose()?;
     let termination = game.result().map(|result| result.termination.clone());
     state.db.save_ai_match(
         &id,
@@ -1048,10 +1060,7 @@ pub async fn resign_match(
     }
     game.resign(color);
     let snapshot = game.snapshot();
-    let result_json = game
-        .result()
-        .map(serde_json::to_string)
-        .transpose()?;
+    let result_json = game.result().map(serde_json::to_string).transpose()?;
     state.db.save_ai_match(
         &id,
         &serde_json::to_string(&snapshot)?,
@@ -1129,7 +1138,7 @@ pub async fn stream_ai_session(
                 }
                 Ok(_) => {
                     quiet_polls += 1;
-                    if quiet_polls % 20 == 0 {
+                    if quiet_polls.is_multiple_of(20) {
                         let keep = Ok(Event::default().comment("keep-alive"));
                         if sender.send(keep).await.is_err() {
                             return;
@@ -1146,10 +1155,11 @@ pub async fn stream_ai_session(
         }
     });
 
-    Ok(Sse::new(tokio_stream::wrappers::ReceiverStream::new(receiver))
-        .keep_alive(KeepAlive::default()))
+    Ok(
+        Sse::new(tokio_stream::wrappers::ReceiverStream::new(receiver))
+            .keep_alive(KeepAlive::default()),
+    )
 }
-
 
 /// The wall clock, in Unix milliseconds.
 fn now_ms() -> i64 {
@@ -1297,7 +1307,6 @@ fn execute_approved(
     Some(rbc_ai::agent::ToolHost::call(&mut host, &call))
 }
 
-
 /// `POST /api/ai/sessions/{id}/cancel`
 ///
 /// Stops the turn running for this session. The provider checks the token
@@ -1327,7 +1336,6 @@ pub async fn cancel_ai_turn(
     })))
 }
 
-
 // --- playing a match -------------------------------------------------------
 
 /// Casual games are the unrated ones; a rated match is competitive, so the
@@ -1340,11 +1348,7 @@ fn play_policy(game: &Match) -> rbc_ai::play::PlayPolicy {
     }
 }
 
-fn save_match_after(
-    state: &AppState,
-    id: &str,
-    game: &Match,
-) -> Result<(), ApiError> {
+fn save_match_after(state: &AppState, id: &str, game: &Match) -> Result<(), ApiError> {
     let result_json = game.result().map(serde_json::to_string).transpose()?;
     let termination = game.result().map(|result| result.termination.clone());
     state.db.save_ai_match(
@@ -1402,8 +1406,8 @@ pub async fn model_match_move(
             "openai_compatible",
             seat.model.clone(),
         );
-        let provider = rbc_ai::provider::OpenAiProvider::new(config)
-            .map_err(|error| error.message)?;
+        let provider =
+            rbc_ai::provider::OpenAiProvider::new(config).map_err(|error| error.message)?;
         let cancel = rbc_ai::provider::Cancellation::new();
         rbc_ai::play::request_move(&mut game, &provider, &seat, &policy, &cancel)
             .map(|played| (game, played))
@@ -1480,8 +1484,8 @@ pub async fn chat_match(
             "openai_compatible",
             seat.model.clone(),
         );
-        let provider = rbc_ai::provider::OpenAiProvider::new(config)
-            .map_err(|error| error.message)?;
+        let provider =
+            rbc_ai::provider::OpenAiProvider::new(config).map_err(|error| error.message)?;
         let cancel = rbc_ai::provider::Cancellation::new();
         rbc_ai::play::request_chat(&game, &provider, &seat, &policy, &message, &cancel)
             .map_err(|error| error.message)
@@ -1492,7 +1496,6 @@ pub async fn chat_match(
 
     Ok(Json(serde_json::json!({ "reply": reply })))
 }
-
 
 // --- watching two models ---------------------------------------------------
 
@@ -1537,7 +1540,10 @@ pub async fn watch_step(
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     let seats = watch_seats_or_refuse(&game)?;
-    let plies = body.and_then(|Json(body)| body.plies).unwrap_or(1).clamp(1, 20);
+    let plies = body
+        .and_then(|Json(body)| body.plies)
+        .unwrap_or(1)
+        .clamp(1, 20);
 
     let played = tokio::task::spawn_blocking(move || {
         let cancel = rbc_ai::provider::Cancellation::new();
@@ -1626,12 +1632,15 @@ pub async fn watch_reset(
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     if !game.reset() {
-        return Err(ApiError::BadRequest("this match could not be reset".to_string()));
+        return Err(ApiError::BadRequest(
+            "this match could not be reset".to_string(),
+        ));
     }
     save_match_after(&state, &id, &game)?;
-    Ok(Json(serde_json::json!({ "match": match_payload(&id, &game) })))
+    Ok(Json(
+        serde_json::json!({ "match": match_payload(&id, &game) }),
+    ))
 }
-
 
 // --- leaderboard and metrics ----------------------------------------------
 
@@ -1668,7 +1677,11 @@ pub struct CreateTournament {
     pub concurrency: Option<u32>,
 }
 
-fn parse_format(name: &str, rounds: Option<u32>, players: usize) -> Result<rbc_ai::tournament::Format, ApiError> {
+fn parse_format(
+    name: &str,
+    rounds: Option<u32>,
+    players: usize,
+) -> Result<rbc_ai::tournament::Format, ApiError> {
     use rbc_ai::tournament::Format;
     Ok(match name {
         "swiss" => Format::Swiss {
@@ -1728,8 +1741,7 @@ pub async fn get_tournament(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let running = rbc_ai::tournament_store::load(&state.db, &id)?
-        .ok_or(ApiError::NotFound)?;
+    let running = rbc_ai::tournament_store::load(&state.db, &id)?.ok_or(ApiError::NotFound)?;
     let standings = rbc_ai::tournament_store::standings(&state.db, &id)?;
     Ok(Json(serde_json::json!({
         "tournament": running,
@@ -1742,8 +1754,7 @@ pub async fn tournament_action(
     State(state): State<AppState>,
     Path((id, action)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let mut running = rbc_ai::tournament_store::load(&state.db, &id)?
-        .ok_or(ApiError::NotFound)?;
+    let mut running = rbc_ai::tournament_store::load(&state.db, &id)?.ok_or(ApiError::NotFound)?;
     let mut started = Vec::new();
     match action.as_str() {
         "pause" => running.pause(),
@@ -1767,8 +1778,7 @@ pub async fn tournament_pgn(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<String, ApiError> {
-    let running = rbc_ai::tournament_store::load(&state.db, &id)?
-        .ok_or(ApiError::NotFound)?;
+    let running = rbc_ai::tournament_store::load(&state.db, &id)?.ok_or(ApiError::NotFound)?;
     Ok(rbc_ai::tournament::combined_pgn(
         &running.name,
         &running.schedule.rounds,
@@ -1787,10 +1797,12 @@ pub async fn update_study(
     let title = body.get("title").and_then(|v| v.as_str());
     let description = body.get("description_md").and_then(|v| v.as_str());
     let lifecycle = body.get("lifecycle").and_then(|v| v.as_str());
-    let tags: Option<Vec<String>> = body
-        .get("tags")
-        .and_then(|v| v.as_array())
-        .map(|values| values.iter().filter_map(|v| v.as_str().map(str::to_string)).collect());
+    let tags: Option<Vec<String>> = body.get("tags").and_then(|v| v.as_array()).map(|values| {
+        values
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect()
+    });
     state
         .db
         .update_study(&id, title, description, tags.as_deref(), lifecycle)
@@ -1858,7 +1870,12 @@ pub async fn reorder_chapters(
     let ids: Vec<String> = body
         .get("chapter_ids")
         .and_then(|v| v.as_array())
-        .map(|values| values.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
         .unwrap_or_default();
     state
         .db
@@ -1961,10 +1978,7 @@ pub async fn list_study_versions(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    let versions = state
-        .db
-        .study_versions(&id)
-        .map_err(ApiError::Internal)?;
+    let versions = state.db.study_versions(&id).map_err(ApiError::Internal)?;
     Ok(Json(
         versions
             .into_iter()
@@ -1986,9 +2000,8 @@ pub async fn export_study_bundle(
     Path(id): Path<String>,
 ) -> Result<axum::response::Response, ApiError> {
     let bundle = rbc_ai::study_bundle::export(&state.db, &id).map_err(ApiError::Internal)?;
-    let body = serde_json::to_string_pretty(&bundle).map_err(|error| {
-        ApiError::Internal(anyhow::Error::new(error))
-    })?;
+    let body = serde_json::to_string_pretty(&bundle)
+        .map_err(|error| ApiError::Internal(anyhow::Error::new(error)))?;
     let mut response = axum::response::IntoResponse::into_response(body);
     let headers = response.headers_mut();
     headers.insert(
@@ -2049,9 +2062,10 @@ pub async fn import_study_bundle(
                     &study.id,
                     &added.id,
                     "Imported",
-                    board.fen.as_deref().unwrap_or(
-                        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-                    ),
+                    board
+                        .fen
+                        .as_deref()
+                        .unwrap_or("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
                     "{}",
                 )
                 .map_err(ApiError::Internal)?;
@@ -2127,7 +2141,8 @@ pub async fn import_study_pgn(
             .iter()
             .map(|node| node.san.clone())
             .collect::<Vec<_>>();
-        let content = serde_json::json!({"moves": movetext, "arrows": [], "circles": [], "notes_md": ""});
+        let content =
+            serde_json::json!({"moves": movetext, "arrows": [], "circles": [], "notes_md": ""});
         state
             .db
             .update_board_content(&board.id, 1, &content.to_string(), Some("import"))
@@ -2219,10 +2234,13 @@ pub async fn set_compare_scope(
             return Err(ApiError::NotFound);
         }
     }
-    state
-        .db
-        .set_setting(COMPARE_SCOPE, &serde_json::json!({"left": left, "right": right}).to_string())?;
-    Ok(Json(serde_json::json!({"left": left, "right": right, "active": true})))
+    state.db.set_setting(
+        COMPARE_SCOPE,
+        &serde_json::json!({"left": left, "right": right}).to_string(),
+    )?;
+    Ok(Json(
+        serde_json::json!({"left": left, "right": right, "active": true}),
+    ))
 }
 
 /// `DELETE /api/compare/scope` — stop comparing.
