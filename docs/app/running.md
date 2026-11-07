@@ -76,6 +76,23 @@ own will serve the API and no UI.
 | `RBC_DATA` | data directory for models and sounds |
 | `RBC_DEPTH` | default analysis depth, 15 |
 
+## Play a local model through LAMU
+
+RBC starts and serves the chess UI with the AI runtime offline. When you want
+a model opponent, run LAMU on `127.0.0.1:8020`, open **Play**, click **Find local
+models**, choose a **LAMU** opponent, and start a casual game. RBC asks that
+endpoint for a reply after you make a move. LAMU manages model loading when
+the request arrives. RBC checks the reply against the position before adding
+it to the game.
+
+For Assistant chat, set the model endpoint in **Settings** to
+`http://127.0.0.1:8020/v1/chat/completions` and select a LAMU model ID in the
+composer's model override. Model discovery reads the runtime's catalog.
+
+KnightLM's pilot is a PEFT adapter for a pinned SmolVLM checkpoint. It will
+appear as a selectable player once a compatible base and adapter are served
+under a model ID in the LAMU catalog. [KnightLM model tooling](../../model/README.md)
+
 ## The tabs
 
 `Home`, `Database`, `Analysis`, `Assistant`, `Play`, `Practice`, `Openings`,

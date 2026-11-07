@@ -39,6 +39,12 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "Play a casual game",
         "Jugar una partida informal",
     ),
+    ("play.scan_models", "Find local models", "Buscar modelos locales"),
+    ("play.opponent", "Opponent model", "Modelo oponente"),
+    ("play.default_model", "Default endpoint", "Servidor predeterminado"),
+    ("play.no_local_models", "No local models found", "No se encontraron modelos locales"),
+    ("play.model_move", "Ask model to move", "Pedir una jugada al modelo"),
+    ("play.resign", "Resign", "Abandonar"),
     ("play.new_watch", "Watch two models", "Ver a dos modelos"),
     ("play.empty", "No matches yet", "Aún no hay partidas"),
     (
