@@ -8,9 +8,9 @@ from pathlib import Path
 import random
 import time
 
-from ports.corpus.pipeline import read_corpus, sha256_file
+from model.corpus.pipeline import read_corpus, sha256_file
 
-PROFILE = Path(__file__).resolve().parents[2] / "configs/models/smolvlm-500m.json"
+PROFILE = Path(__file__).resolve().parents[1] / "configs/models/smolvlm-500m.json"
 WEIGHTS_SHA256 = "d05b567eeaf534e83d375551f068ed57b5f52d37c657197f644af5ef9db091a2"
 LORA_TARGETS = r"model\.text_model\.layers\.\d+\.self_attn\.[qv]_proj"
 

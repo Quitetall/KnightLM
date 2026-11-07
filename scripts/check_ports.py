@@ -27,7 +27,7 @@ def main():
     binary = ROOT / "target/debug/knightlm"
     if not binary.is_file():
         raise RuntimeError("run cargo build --locked first")
-    local = ROOT / "ports/mojo/.venv/bin/mojo"
+    local = ROOT / "model/parity/mojo/.venv/bin/mojo"
     mojo = local if local.is_file() else shutil.which("mojo")
     if args.require_mojo and not mojo:
         raise RuntimeError("Mojo unavailable; install pinned toolchain")
@@ -41,9 +41,9 @@ def main():
             for helpers in ([], ["--legal-choices", "--features"]):
                 packet_path.write_text(run([binary, "compile", f"fixtures/{fixture}.json", *helpers, "--compact"]))
                 expected = run([binary, "canonicalize", packet_path])
-                commands = [[sys.executable, ROOT / "ports/python/knightlm_contract.py", packet_path]]
+                commands = [[sys.executable, ROOT / "model/parity/python/knightlm_contract.py", packet_path]]
                 if mojo:
-                    commands.append([mojo, ROOT / "ports/mojo/packet.mojo", ROOT / "ports/python", packet_path])
+                    commands.append([mojo, ROOT / "model/parity/mojo/packet.mojo", ROOT / "model/parity/python", packet_path])
                 for command in commands:
                     assert run(command, env=env) == expected, "packet parity mismatch"
                 original = json.loads(expected)

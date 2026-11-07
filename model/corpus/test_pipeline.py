@@ -1,6 +1,6 @@
 import unittest
 
-from ports.corpus.pipeline import audit_splits, split_candidates
+from model.corpus.pipeline import audit_splits, split_candidates
 
 
 def game(number, family, minute):

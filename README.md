@@ -50,10 +50,12 @@ provider in **Settings** when you want those features.
 - [`crates/context`](crates/context) builds the Assistant's inspectable prompts.
   [`crates/ai`](crates/ai) handles providers, streaming, matches, and approval
   policy. [MCP clients](docs/app/mcp.md) use the same tool and approval paths.
-- [`ports`](ports/README.md) contains KnightLM's Lichess and SmolVLM training
+- [`model/`](model/README.md) contains KnightLM's Lichess and SmolVLM training
   path. [`crates/model`](crates/model) contains the experimental Burn backend
   contracts and CPU smoke test. The [model plan](docs/model/plan.md) explains the
   fresh-state experiment and [contracts](docs/model/contracts.md) define its evidence.
+- [Lichess bot integration](integrations/lichess-bot/README.md) connects the UCI
+  player to lichess-bot.
 
 ## Documentation and contributing
 

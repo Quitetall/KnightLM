@@ -1,4 +1,4 @@
-# Experimental ports
+# KnightLM model tooling
 
 Rust owns the chess state and packet compiler. Python and Mojo include bounded
 protocol parity checks. Python also hosts the Hugging Face pilot below.
@@ -11,8 +11,8 @@ protocol parity checks. Python also hosts the Hugging Face pilot below.
 Install Mojo locally, without changing system Python:
 
 ```sh
-uv venv ports/mojo/.venv
-uv pip install --python ports/mojo/.venv/bin/python -r ports/mojo/requirements.txt
+uv venv model/parity/mojo/.venv
+uv pip install --python model/parity/mojo/.venv/bin/python -r model/parity/mojo/requirements.txt
 ```
 
 Run `python3 scripts/check_ports.py --require-mojo` from the repository root.
@@ -26,19 +26,19 @@ Mojo source targets https://mojolang.org/docs/manual/python/ version 1.0.0.
 
 From the repository root, use Python 3.11+, `zstd`, and a PyTorch installation
 with CUDA and bfloat16 support. The pilot uses the pinned snapshot in
-`configs/models/smolvlm-500m.json`. Put the model and output directories on SSD.
+`model/configs/models/smolvlm-500m.json`. Put the model and output directories on SSD.
 Use a new directory for each output.
 
 ```sh
 timeout 300 cargo build --locked --release -p knightlm-cli --bin knightlm
-timeout 300 uv pip install --python "$PYTHON" -r ports/train/requirements.txt
+timeout 300 uv pip install --python "$PYTHON" -r model/train/requirements.txt
 timeout 300 hf download HuggingFaceTB/SmolVLM-500M-Instruct \
   config.json generation_config.json processor_config.json preprocessor_config.json \
   chat_template.json tokenizer.json tokenizer_config.json special_tokens_map.json model.safetensors \
   --revision a7da5b986cb59b408707209984f360a5f4ad7e47 \
   --local-dir "$MODEL_DIR"
-timeout 220 "$PYTHON" -m ports.corpus.pipeline --pgn "$LICHESS_PGN" --output "$CORPUS_DIR"
-timeout 600 "$PYTHON" -u -m ports.train.harness --corpus "$CORPUS_DIR" \
+timeout 220 "$PYTHON" -m model.corpus.pipeline --pgn "$LICHESS_PGN" --output "$CORPUS_DIR"
+timeout 600 "$PYTHON" -u -m model.train.harness --corpus "$CORPUS_DIR" \
   --model-dir "$MODEL_DIR" --output "$RUN_DIR"
 ```
 
@@ -69,7 +69,7 @@ CLI. The following commands run the model-specific checks from the repo root:
 cargo run --locked -p knightlm-cli --bin knightlm -- compile fixtures/repetition.json
 cargo run --locked -p knightlm-cli --bin knightlm -- evaluate-fixtures fixtures/start.json
 cargo run --locked -p knightlm-cli --bin knightlm -- train-smoke /path/to/new/cpu-smoke.json
-cargo run --locked -p knightlm-cli --bin knightlm -- verify-model configs/models/smolvlm-500m.json
+cargo run --locked -p knightlm-cli --bin knightlm -- verify-model model/configs/models/smolvlm-500m.json
 ```
 
 Fixture evaluation exercises the experiment arms with scripted moves and

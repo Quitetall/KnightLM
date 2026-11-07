@@ -22,6 +22,6 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: rustup update stable && rustup default stable
       - run: cargo build --locked -j 2
-      - run: python3 -m venv ports/mojo/.venv
-      - run: ports/mojo/.venv/bin/pip install -r ports/mojo/requirements.txt
+      - run: python3 -m venv model/parity/mojo/.venv
+      - run: model/parity/mojo/.venv/bin/pip install -r model/parity/mojo/requirements.txt
       - run: python3 scripts/check_ports.py --require-mojo

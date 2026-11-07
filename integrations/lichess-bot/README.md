@@ -18,8 +18,9 @@ full chain offline (no Lichess account needed):
 ## Human setup (you do these once)
 
 ```bash
-# 1. Build the engine
-./setup.sh              # debug; or ./setup.sh release
+# 1. From the KnightLM checkout, build the engine
+RBC_REPO="$PWD"
+"$RBC_REPO/integrations/lichess-bot/setup.sh"              # debug; or ./setup.sh release
 
 # 2. Get a Lichess OAuth token
 #    https://lichess.org/account/oauth/token
@@ -32,7 +33,7 @@ cd lichess-bot
 pip install -r requirements.txt   # add --break-system-packages if PEP 668 blocks
 
 # 4. Run it
-python lichess-bot.py /home/brianklam/Projects/KnightLM/code/lichess-bot/config.knightlm.yml
+python lichess-bot.py "$RBC_REPO/integrations/lichess-bot/config.knightlm.yml"
 ```
 
 The token stays in `config.knightlm.yml`, which is gitignored-adjacent (human-

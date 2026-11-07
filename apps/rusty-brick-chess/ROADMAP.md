@@ -33,5 +33,5 @@ opening-explorer measurement.
 4. **Extend the model.** Evaluate board vision, prove the Burn backend against
    the reference, and qualify larger Qwen checkpoints separately.
 
-[Training quickstart](../../ports/README.md#lichess-lora-pilot) ·
+[Training quickstart](../../model/README.md#lichess-lora-pilot) ·
 [Research plan](../../docs/model/plan.md) · [Architecture spec](../../docs/sas/KnightLM_SAS.md#98-implementation-phases)
