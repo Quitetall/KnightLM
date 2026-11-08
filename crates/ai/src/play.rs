@@ -187,7 +187,10 @@ pub fn move_prompt(game: &Match, policy: &PlayPolicy) -> String {
 }
 
 /// Match the pilot's single user message and canonical packet serialization.
-fn knightlm_pilot_prompt(game: &Match) -> anyhow::Result<String> {
+fn knightlm_move_request(
+    game: &Match,
+    model: &ModelRef,
+) -> anyhow::Result<(CompletionRequest, Vec<String>)> {
     let config = game.config();
     anyhow::ensure!(
         config.ruleset == "standard-v1" && config.time_control.is_none(),
@@ -202,20 +205,73 @@ fn knightlm_pilot_prompt(game: &Match) -> anyhow::Result<String> {
         moves: game.moves().iter().map(|mv| mv.uci.clone()).collect(),
         variant: "standard".into(),
     })?;
-    let packet = serde_json::to_value(state.compile(PacketOptions {
+    let packet = state.compile(PacketOptions {
         legal_choices: true,
         derived_features: false,
-    }))?;
-    Ok(format!(
-        "Choose a legal chess move. Reply with just the UCI move.\n{packet}"
-    ))
+    });
+    let legal = game.legal_uci_moves();
+    anyhow::ensure!(
+        game.result().is_none() && !legal.is_empty(),
+        "KnightLM has no legal move in this position"
+    );
+    // The entries are canonical UCI from the rules engine, including promotion
+    // suffixes. Permit one leading space to match common move tokens.
+    let alternatives = legal
+        .iter()
+        .map(|mv| format!("{mv:?}"))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let mut request = CompletionRequest::new(
+        model.model.clone(),
+        vec![ChatMessage::user(format!(
+            "Choose a legal chess move. Reply with just the UCI move.\n{}",
+            serde_json::to_value(packet)?
+        ))],
+    )
+    .with_temperature(0.0)
+    .with_max_tokens(20)
+    .with_stream(false);
+    request.grammar = Some(format!("root ::= \" \"? ({alternatives})"));
+    Ok((request, legal))
+}
+
+fn complete_knightlm_move(
+    provider: &dyn Provider,
+    request: &CompletionRequest,
+    legal: &[String],
+    cancel: &Cancellation,
+) -> Result<String, ErrorInfo> {
+    let response = provider.complete(request, cancel, &mut |_| {})?;
+    let raw = response.content.trim();
+    if !legal.iter().any(|mv| mv == raw) {
+        return Err(error(
+            error_code::PROTOCOL,
+            "KnightLM's constrained decoder returned a response outside the legal move list",
+            false,
+        ));
+    }
+    Ok(raw.to_owned())
+}
+
+fn apply_knightlm_move(game: &mut Match, uci: String) -> Result<ModelMove, ErrorInfo> {
+    let mut mv = game
+        .apply(&uci)
+        .map_err(|failure| error(error_code::PROTOCOL, failure.to_string(), false))?;
+    game.note_attempts(mv.ply, 1);
+    mv.attempts = 1;
+    Ok(ModelMove {
+        mv,
+        reasoning: None,
+        raw: uci,
+        attempts: 1,
+    })
 }
 
 /// Ask a model for one move and record it on the match.
 ///
-/// An unparseable or illegal reply is fed back to the model with the reason
-/// rather than accepted or guessed at; after [`MatchConfig::max_retries`] the
-/// turn fails and the match is untouched.
+/// KnightLM generates against the legal UCI grammar. For other models an
+/// unparseable or illegal reply is retried up to [`MatchConfig::max_retries`].
+/// The match is untouched on failure.
 pub fn request_move(
     game: &mut Match,
     provider: &dyn Provider,
@@ -223,26 +279,22 @@ pub fn request_move(
     policy: &PlayPolicy,
     cancel: &Cancellation,
 ) -> Result<ModelMove, ErrorInfo> {
-    let budget = game.config().max_retries.max(1) as u32;
-    let knightlm_pilot = model.provider == "local:LAMU" && model.model == "knightlm-smolvlm-500m";
-    let mut messages = if knightlm_pilot {
-        let prompt = knightlm_pilot_prompt(game)
+    if model.provider == "local:LAMU" && model.model == "knightlm-smolvlm-500m" {
+        let (request, legal) = knightlm_move_request(game, model)
             .map_err(|failure| error(error_code::PROTOCOL, failure.to_string(), false))?;
-        vec![ChatMessage::user(prompt)]
-    } else {
-        vec![
-            ChatMessage::system(move_prompt(game, policy)),
-            ChatMessage::user("Your move."),
-        ]
-    };
+        let uci = complete_knightlm_move(provider, &request, &legal, cancel)?;
+        return apply_knightlm_move(game, uci);
+    }
+    let budget = game.config().max_retries.max(1) as u32;
+    let mut messages = vec![
+        ChatMessage::system(move_prompt(game, policy)),
+        ChatMessage::user("Your move."),
+    ];
     let mut last_error = None;
     for attempt in 1..=budget {
-        let mut request = CompletionRequest::new(model.model.clone(), messages.clone())
+        let request = CompletionRequest::new(model.model.clone(), messages.clone())
             .with_temperature(0.0)
             .with_stream(false);
-        if knightlm_pilot {
-            request = request.with_max_tokens(20);
-        }
         let response = provider.complete(&request, cancel, &mut |_event: ProviderEvent| {})?;
         let raw = response.content.trim().to_string();
         match game.apply(&raw) {
@@ -284,13 +336,12 @@ pub struct KnightLmVote {
 }
 
 /// Keep the trained prompt and choose among legal replies by frequency.
-/// The deterministic reply breaks ties. Each additional sample starts from the
-/// same position, and the live match changes only after a move is chosen.
+/// The direct reply wins ties when included among the tied moves. Every
+/// sample uses the same legal-move grammar for the current position.
 pub fn request_sampled_knightlm_move(
     game: &mut Match,
     provider: &dyn Provider,
     model: &ModelRef,
-    policy: &PlayPolicy,
     cancel: &Cancellation,
     samples: u8,
     temperature: f32,
@@ -302,55 +353,31 @@ pub fn request_sampled_knightlm_move(
             false,
         ));
     }
-    let prompt = knightlm_pilot_prompt(game)
+    let (request, legal) = knightlm_move_request(game, model)
         .map_err(|failure| error(error_code::PROTOCOL, failure.to_string(), false))?;
-    let mut direct_game = game.clone();
-    let direct = request_move(&mut direct_game, provider, model, policy, cancel)?;
-    let direct_move = direct.mv.uci.clone();
-    let mut candidates = vec![(direct, 1u8)];
-    let mut legal_samples = 1;
-    let request = CompletionRequest::new(model.model.clone(), vec![ChatMessage::user(prompt)])
-        .with_temperature(temperature)
-        .with_max_tokens(20)
-        .with_stream(false);
+    let direct_move = complete_knightlm_move(provider, &request, &legal, cancel)?;
+    let mut candidates = vec![(direct_move.clone(), 1u8)];
+    let request = request.with_temperature(temperature);
     for _ in 1..samples {
-        let response = provider.complete(&request, cancel, &mut |_| {})?;
-        let raw = response.content.trim();
-        let mut trial = game.clone();
-        let Ok(mv) = trial.apply(raw) else { continue };
-        legal_samples += 1;
-        if let Some((_, votes)) = candidates
-            .iter_mut()
-            .find(|(candidate, _)| candidate.mv.uci == mv.uci)
-        {
+        let uci = complete_knightlm_move(provider, &request, &legal, cancel)?;
+        if let Some((_, votes)) = candidates.iter_mut().find(|(mv, _)| mv == &uci) {
             *votes += 1;
         } else {
-            candidates.push((
-                ModelMove {
-                    mv,
-                    reasoning: None,
-                    raw: raw.to_owned(),
-                    attempts: 1,
-                },
-                1,
-            ));
+            candidates.push((uci, 1));
         }
     }
     // max_by_key takes the last equal element, so reverse the insertion order.
-    let (mut winner, winning_votes) = candidates
+    let (winner, winning_votes) = candidates
         .into_iter()
         .rev()
         .max_by_key(|(_, votes)| *votes)
         .expect("the direct move is always a candidate");
-    winner.mv = game
-        .apply(&winner.mv.uci)
-        .map_err(|failure| error(error_code::PROTOCOL, failure.to_string(), false))?;
-    game.note_attempts(winner.mv.ply, winner.attempts);
+    let played = apply_knightlm_move(game, winner)?;
     Ok((
-        winner,
+        played,
         KnightLmVote {
             samples,
-            legal_samples,
+            legal_samples: samples,
             winning_votes,
             direct_move,
         },

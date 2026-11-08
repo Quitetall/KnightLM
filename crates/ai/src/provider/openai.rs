@@ -87,6 +87,9 @@ impl OpenAiProvider {
         {
             body["max_tokens"] = json!(max_tokens);
         }
+        if let Some(grammar) = &request.grammar {
+            body["grammar"] = json!(grammar);
+        }
         if !request.tools.is_empty() {
             let tools: Vec<Value> = request
                 .tools

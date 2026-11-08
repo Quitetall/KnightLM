@@ -102,6 +102,33 @@ pub(crate) async fn ensure_runtime(child: &Mutex<Option<Child>>) -> Result<Strin
     Ok(format!("{origin}/v1"))
 }
 
+/// LAMU owns model residency, but its chat gateway does not forward grammar.
+pub(crate) async fn knightlm_move_endpoint(child: &Mutex<Option<Child>>) -> Result<String> {
+    let base = ensure_runtime(child).await?;
+    tokio::task::spawn_blocking(move || {
+        let agent = ureq::Agent::new_with_config(
+            ureq::config::Config::builder()
+                .max_redirects(0)
+                .timeout_global(Some(Duration::from_secs(4)))
+                .build(),
+        );
+        let vram: Value = agent.get(format!("{base}/admin/vram")).call()
+            .context("could not find KnightLM's llama.cpp backend in LAMU")?
+            .body_mut().read_json()?;
+        let port = vram["loaded"].as_array()
+            .and_then(|entries| entries.iter().find(|entry| {
+                entry["model"] == KNIGHTLM_MODEL && entry["state"] == "loaded"
+            }))
+            .and_then(|entry| entry["port"].as_u64())
+            .and_then(|port| u16::try_from(port).ok())
+            .filter(|port| *port != 0)
+            .context("KnightLM is not loaded with a local llama.cpp endpoint. Use Load model in Play, then retry.")?;
+        Ok(format!("http://127.0.0.1:{port}/v1/chat/completions"))
+    })
+    .await
+    .context("KnightLM backend lookup failed")?
+}
+
 #[derive(Deserialize)]
 pub(crate) struct ModelSelection {
     model: String,

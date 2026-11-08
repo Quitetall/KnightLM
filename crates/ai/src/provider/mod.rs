@@ -261,6 +261,9 @@ pub struct CompletionRequest {
     pub temperature: f32,
     #[serde(default)]
     pub max_tokens: Option<u32>,
+    /// Optional llama.cpp grammar for constrained completion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grammar: Option<String>,
     /// Ask for a streamed response. A provider may still answer in one piece.
     #[serde(default)]
     pub stream: bool,
@@ -275,6 +278,7 @@ impl CompletionRequest {
             tools: Vec::new(),
             temperature: 0.2,
             max_tokens: None,
+            grammar: None,
             stream: true,
         }
     }

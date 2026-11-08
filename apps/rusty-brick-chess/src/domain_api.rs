@@ -1435,14 +1435,7 @@ pub async fn model_match_move(
     if seat.provider == "local:LAMU" {
         policy.request_reasoning = native_thinking;
     }
-    let url = if knightlm {
-        format!(
-            "{}/chat/completions",
-            crate::lamu_runtime::ensure_runtime(&state.lamu_child).await?
-        )
-    } else {
-        match_endpoint(settings.model_url.as_deref(), &seat)?
-    };
+    let url = move_endpoint(&state, settings.model_url.as_deref(), &seat).await?;
     let playing = tokio::task::spawn_blocking(move || {
         let provider = provider_for(&url, &seat, true, native_thinking)?;
         let cancel = rbc_ai::provider::Cancellation::new();
@@ -1459,7 +1452,6 @@ pub async fn model_match_move(
                 &mut game,
                 &provider,
                 &seat,
-                &policy,
                 &cancel,
                 samples,
                 temperature,
@@ -1585,6 +1577,17 @@ fn match_endpoint(
         .ok_or(ApiError::Unavailable("model URL is not set"))
 }
 
+async fn move_endpoint(
+    state: &AppState,
+    default: Option<&str>,
+    seat: &rbc_ai::protocol::ModelRef,
+) -> Result<String, ApiError> {
+    if seat.provider == "local:LAMU" && seat.model == crate::lamu_runtime::KNIGHTLM_MODEL {
+        return Ok(crate::lamu_runtime::knightlm_move_endpoint(&state.lamu_child).await?);
+    }
+    match_endpoint(default, seat)
+}
+
 fn provider_for(
     url: &str,
     seat: &rbc_ai::protocol::ModelRef,
@@ -1628,8 +1631,8 @@ pub async fn watch_step(
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     let seats = watch_seats_or_refuse(&game)?;
-    let white_url = match_endpoint(settings.model_url.as_deref(), &seats.white)?;
-    let black_url = match_endpoint(settings.model_url.as_deref(), &seats.black)?;
+    let white_url = move_endpoint(&state, settings.model_url.as_deref(), &seats.white).await?;
+    let black_url = move_endpoint(&state, settings.model_url.as_deref(), &seats.black).await?;
     let plies = body
         .and_then(|Json(body)| body.plies)
         .unwrap_or(1)
