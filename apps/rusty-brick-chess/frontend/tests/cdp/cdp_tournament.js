@@ -1,8 +1,9 @@
+const { openView } = require("./navigation");
 // A tournament from the UI: create with a format and competitors, step it, read
 // the pairings and standings, pause, and export the PGN.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9546;
+const PORT = Number(process.env.RBC_CDP_PORT || 9546);
 function getJson(port, path) {
   return new Promise((res, rej) => {
     http.get({ host: "127.0.0.1", port, path }, (r) => {
@@ -12,7 +13,7 @@ function getJson(port, path) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-tour-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-tour-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let t; for (let i = 0; i < 40; i++) { await sleep(300); try { t = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(t.find((x) => x.type === "page").webSocketDebuggerUrl);
   let id = 0; const pend = new Map();
@@ -24,7 +25,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const clickText = async (text) => await ev(`(()=>{const b=[...document.querySelectorAll("button")].find(x=>x.textContent.trim()===${JSON.stringify(text)});if(!b)return false;b.click();return true;})()`);
   const typeInto = async (selector, text) => await ev(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)return false;el.value=${JSON.stringify(text)};el.dispatchEvent(new Event("input",{bubbles:true}));return true;})()`);
 
-  await clickText("Play");
+  if (!await openView(ev, "workbench", "tournaments")) throw new Error("tournaments destination unavailable");
   await sleep(1500);
   const named = await typeInto(".tournament-name", "UI cup");
   const typed = await typeInto(".tournament-competitors", "llm:a:v1, llm:b:v1, llm:c:v1, llm:d:v1");

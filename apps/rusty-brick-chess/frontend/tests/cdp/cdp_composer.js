@@ -1,8 +1,9 @@
+const { openView } = require("./navigation");
 // The assistant composer: slash palette, @-mentions as chips, temperature, and
 // regenerate. Each is checked by what a person would see happen.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9562;
+const PORT = Number(process.env.RBC_CDP_PORT || 9562);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function getJson(port, path) {
   return new Promise((res, rej) => {
@@ -12,7 +13,7 @@ function getJson(port, path) {
   });
 }
 (async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-composer-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-composer-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let t; for (let i = 0; i < 40; i++) { await sleep(300); try { t = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(t.find((x) => x.type === "page").webSocketDebuggerUrl);
   let id = 0; const pend = new Map();
@@ -29,7 +30,7 @@ function getJson(port, path) {
     return Boolean(study.id);
   })()`);
 
-  await ev(`[...document.querySelectorAll(".nav")].find(b=>b.textContent.trim()==="Assistant")?.click()`);
+  if (!await openView(ev, "workbench", "assistant")) throw new Error("assistant destination unavailable");
   await sleep(1600);
   // A conversation created the way a person does it, so the composer is enabled.
   const session = await ev(`(()=>{const b=[...document.querySelectorAll("button")].find(x=>x.textContent.trim()==="New chat");if(!b)return false;b.click();return true;})()`);

@@ -1,4 +1,5 @@
 use crate::i18n;
+use crate::model::Tab;
 use crate::views::AppCtx;
 use leptos::prelude::*;
 
@@ -51,6 +52,21 @@ pub fn database(ctx: AppCtx) -> impl IntoView {
             <div class="panel-head">
                 <h2>{move || i18n::t(&language.get(), "db.database")}</h2>
                 <span class="muted">{move || format!("{} games", total.get())}</span>
+            </div>
+            <div class="row-btns">
+                <button on:click=move |_| ctx.switch_tab.run(Tab::Study)>
+                    {move || i18n::t(&language.get(), "study.studies")}
+                </button>
+                <button on:click=move |_| {
+                    ctx.opening_mode.set("repertoire".into());
+                    ctx.switch_tab.run(Tab::Openings);
+                }>{move || i18n::t(&language.get(), "openings.repertoires")}</button>
+                <button on:click=move |_| ctx.switch_tab.run(Tab::Compare)>
+                    {move || i18n::t(&language.get(), "nav.compare")}
+                </button>
+                <button on:click=move |_| ctx.switch_tab.run(Tab::Stats)>
+                    {move || i18n::t(&language.get(), "db.statistics")}
+                </button>
             </div>
             <div class="dbs">
                 <label>

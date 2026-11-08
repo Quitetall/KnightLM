@@ -3,6 +3,29 @@ use crate::model::*;
 use crate::views::AppCtx;
 use leptos::prelude::*;
 
+fn destinations(ctx: AppCtx, tabs: &'static [Tab]) -> impl IntoView {
+    let language = ctx.language;
+    view! {
+        <div class="destination-grid">
+            {tabs.iter().map(|&tab| view! {
+                <button data-open-view=tab_name(tab) on:click=move |_| ctx.switch_tab.run(tab)>
+                    {move || i18n::t(&language.get(), tab.label())}
+                </button>
+            }).collect_view()}
+        </div>
+    }
+}
+
+pub fn hub(ctx: AppCtx, tab: Tab, tabs: &'static [Tab]) -> impl IntoView {
+    let language = ctx.language;
+    view! {
+        <section class="panel destination-hub">
+            <h1>{move || i18n::t(&language.get(), tab.label())}</h1>
+            {destinations(ctx, tabs)}
+        </section>
+    }
+}
+
 pub fn home(ctx: AppCtx) -> impl IntoView {
     let AppCtx {
         account_busy,
@@ -42,7 +65,13 @@ pub fn home(ctx: AppCtx) -> impl IntoView {
     };
     view! {
         <section class="home">
-            <div class="panel home-hero">
+            <div class="panel destination-hub">
+                <h1>"Rusty Brick Chess"</h1>
+                {destinations(ctx, &[Tab::Play, Tab::Train, Tab::Workbench])}
+            </div>
+            <details class="panel">
+            <summary>{move || i18n::t(&language.get(), "home.profile_settings")}</summary>
+            <div class="home-hero">
                 <div>
                     <div class="panel-sub">{move || i18n::t(&language.get(), "home.local_account")}</div>
                     <h2 class="home-greeting">
@@ -220,60 +249,6 @@ pub fn home(ctx: AppCtx) -> impl IntoView {
                 </div>
             </div>
 
-            <div class="home-stats">
-                {move || stat(stats.get().games, "games")}
-                {move || stat(stats.get().players, "players")}
-                {move || stat(stats.get().events, "events")}
-                {move || stat(stats.get().puzzles, "puzzles")}
-            </div>
-
-            <div class="home-grid">
-                <div class="panel">
-                    <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.recent")}</h2></div>
-                    <div class="table">
-                        <div class="row head">
-                            <span>"ID"</span><span>"White"</span><span>"Black"</span>
-                            <span>"Result"</span><span>{move || i18n::t(&language.get(), "db.event")}</span>
-                        </div>
-                        {move || {
-                            home_recent
-                                .get()
-                                .into_iter()
-                                .map(|g| {
-                                    let summary = g.clone();
-                                    let title = format!("{} vs {} · {}", g.white, g.black, g.result);
-                                    view! {
-                                        <button
-                                            class="row game"
-                                            data-game-id=g.id.to_string()
-                                            on:click=move |_| {
-                                                open_game(summary.clone());
-                                                tab.set(Tab::Analysis);
-                                            }
-                                        >
-                                            <span>{g.id.to_string()}</span>
-                                            <span>{g.white}</span>
-                                            <span>{g.black}</span>
-                                            <span>{g.result}</span>
-                                            <span class="muted">{g.event.unwrap_or_default()}</span>
-                                            <span class="hidden-title">{title}</span>
-                                        </button>
-                                    }
-                                })
-                                .collect_view()
-                        }}
-                    </div>
-                    <div class="muted">
-                        {move || {
-                            if home_recent.get().is_empty() {
-                                i18n::t(&language.get(), "home.no_games")
-                            } else {
-                                ""
-                            }
-                        }}
-                    </div>
-                </div>
-
                 <div class="panel">
                     <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.profile")}</h2></div>
                     <select
@@ -333,7 +308,60 @@ pub fn home(ctx: AppCtx) -> impl IntoView {
                         }}
                     </div>
                 </div>
+            </details>
+
+            <div class="home-stats">
+                {move || stat(stats.get().games, "games")}
+                {move || stat(stats.get().players, "players")}
+                {move || stat(stats.get().events, "events")}
+                {move || stat(stats.get().puzzles, "puzzles")}
             </div>
+
+                <div class="panel">
+                    <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.recent")}</h2></div>
+                    <div class="table">
+                        <div class="row head">
+                            <span>"ID"</span><span>"White"</span><span>"Black"</span>
+                            <span>"Result"</span><span>{move || i18n::t(&language.get(), "db.event")}</span>
+                        </div>
+                        {move || {
+                            home_recent
+                                .get()
+                                .into_iter()
+                                .map(|g| {
+                                    let summary = g.clone();
+                                    let title = format!("{} vs {} · {}", g.white, g.black, g.result);
+                                    view! {
+                                        <button
+                                            class="row game"
+                                            data-game-id=g.id.to_string()
+                                            on:click=move |_| {
+                                                open_game(summary.clone());
+                                                tab.set(Tab::Analysis);
+                                            }
+                                        >
+                                            <span>{g.id.to_string()}</span>
+                                            <span>{g.white}</span>
+                                            <span>{g.black}</span>
+                                            <span>{g.result}</span>
+                                            <span class="muted">{g.event.unwrap_or_default()}</span>
+                                            <span class="hidden-title">{title}</span>
+                                        </button>
+                                    }
+                                })
+                                .collect_view()
+                        }}
+                    </div>
+                    <div class="muted">
+                        {move || {
+                            if home_recent.get().is_empty() {
+                                i18n::t(&language.get(), "home.no_games")
+                            } else {
+                                ""
+                            }
+                        }}
+                    </div>
+                </div>
 
             <div class="panel">
                 <div class="panel-head"><h2>{move || i18n::t(&language.get(), "home.quick")}</h2></div>

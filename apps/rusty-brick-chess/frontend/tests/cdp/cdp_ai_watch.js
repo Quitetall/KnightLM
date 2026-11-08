@@ -3,7 +3,7 @@
 // page's own origin, which is what the UI will call.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9542;
+const PORT = Number(process.env.RBC_CDP_PORT || 9542);
 function getJson(port, path) {
   return new Promise((res, rej) => {
     http.get({ host: "127.0.0.1", port, path }, (r) => {
@@ -48,7 +48,7 @@ const DRIVER = `(async () => {
 })().then((r) => JSON.stringify(r), (e) => JSON.stringify({error: String(e)}))`;
 
 (async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-watch-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1400,900", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-watch-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1400,900", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let t; for (let i = 0; i < 40; i++) { await sleep(300); try { t = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(t.find((x) => x.type === "page").webSocketDebuggerUrl);
   let id = 0; const pend = new Map();

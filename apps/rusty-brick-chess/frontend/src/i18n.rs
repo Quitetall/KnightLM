@@ -5,7 +5,24 @@ pub const LANGS: [(&str, &str); 2] = [("en", "English"), ("es", "Español")];
 
 const STRINGS: &[(&str, &str, &str)] = &[
     ("nav.home", "Home", "Inicio"),
+    ("nav.train", "Train", "Entrenar"),
+    ("nav.workbench", "Workbench", "Taller"),
+    ("nav.library", "Library", "Biblioteca"),
+    ("nav.sections", "Main destinations", "Destinos principales"),
+    (
+        "home.profile_settings",
+        "Profile and linked accounts",
+        "Perfil y cuentas vinculadas",
+    ),
     ("nav.database", "Database", "Base de datos"),
+    ("analysis.mode", "Analysis mode", "Modo de análisis"),
+    ("analysis.simple", "Simple", "Simple"),
+    ("analysis.detailed", "Detailed", "Detallado"),
+    (
+        "analysis.best_suggestion",
+        "Suggested move: {move}",
+        "Jugada sugerida: {move}",
+    ),
     ("nav.analysis", "Analysis", "Análisis"),
     ("nav.assistant", "Assistant", "Asistente"),
     ("nav.study", "Study", "Estudio"),
@@ -33,6 +50,15 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("nav.openings", "Openings", "Aperturas"),
     ("nav.puzzles", "Puzzles", "Puzzles"),
     ("nav.stats", "Stats", "Estadísticas"),
+    ("play.friend", "Play a friend", "Jugar con un amigo"),
+    ("play.engine", "Play an engine", "Jugar contra un motor"),
+    ("play.side_turn", "{side} to move", "Juegan: {side}"),
+    ("play.return_live", "Return to live", "Volver a la partida"),
+    (
+        "play.reviewing_ply",
+        "Reviewing ply {ply}",
+        "Revisando la media jugada {ply}",
+    ),
     ("nav.play", "Play", "Jugar"),
     (
         "play.new_casual",

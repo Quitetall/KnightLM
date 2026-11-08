@@ -67,12 +67,15 @@ fn result_text(payload: &serde_json::Value, language: &str) -> Option<String> {
     if result.is_null() {
         return None;
     }
-    let label = i18n::t(language, match result["score"].as_str() {
-        Some("1-0") => "db.white_wins",
-        Some("0-1") => "db.black_wins",
-        Some("1/2-1/2") => "db.draw",
-        _ => "play.ended",
-    });
+    let label = i18n::t(
+        language,
+        match result["score"].as_str() {
+            Some("1-0") => "db.white_wins",
+            Some("0-1") => "db.black_wins",
+            Some("1/2-1/2") => "db.draw",
+            _ => "play.ended",
+        },
+    );
     let termination = result["termination"].as_str().unwrap_or_default();
     if termination.is_empty() {
         Some(label.to_owned())
@@ -106,13 +109,14 @@ fn download_pgn(pgn: &str) {
 pub fn play(ctx: AppCtx) -> impl IntoView {
     let AppCtx {
         language,
-        open_game,
+        open_game_at,
+        play_match_id: selected,
         settings_model,
         ..
     } = ctx;
 
     let matches = RwSignal::new(Vec::<serde_json::Value>::new());
-    let selected = RwSignal::new(None::<String>);
+    let replay_ply = RwSignal::new(None::<usize>);
     let detail = RwSignal::new(None::<serde_json::Value>);
     let busy = RwSignal::new(false);
     let thinking = RwSignal::new(false);
@@ -130,16 +134,23 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
         spawn_local(async move {
             match db_api::scan_local_providers().await {
                 Ok(endpoints) => {
-                    let models = endpoints.into_iter().filter(|endpoint| endpoint.responding)
+                    let models = endpoints
+                        .into_iter()
+                        .filter(|endpoint| endpoint.responding)
                         .flat_map(|endpoint| {
                             let label = endpoint.label;
-                            endpoint.models.into_iter().map(move |model| (label.clone(), model))
-                        }).filter(|(label, model)| label != "LAMU" || model != KNIGHTLM_MODEL)
+                            endpoint
+                                .models
+                                .into_iter()
+                                .map(move |model| (label.clone(), model))
+                        })
+                        .filter(|(label, model)| label != "LAMU" || model != KNIGHTLM_MODEL)
                         .collect::<Vec<_>>();
                     let selected = opponent.get_untracked();
                     let next = selected.checked_sub(2).map(|index| {
                         let previous = local_models.with_untracked(|old| old.get(index).cloned());
-                        previous.and_then(|seat| models.iter().position(|model| *model == seat))
+                        previous
+                            .and_then(|seat| models.iter().position(|model| *model == seat))
                             .map_or(1, |index| index + 2)
                     });
                     local_models.set(models);
@@ -152,19 +163,6 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             scanning.set(false);
         });
     };
-    // The leaderboard and the tournaments live beside the matches: they are the
-    // same question — who is playing well — asked over a longer window.
-    let board_rows = RwSignal::new(Vec::<ai_api::LeaderboardRow>::new());
-    let board_metrics = RwSignal::new(Vec::<ai_api::ModelMetrics>::new());
-    let board_filter = RwSignal::new(String::new());
-    let tournaments = RwSignal::new(Vec::<serde_json::Value>::new());
-    let tournament_id = RwSignal::new(None::<String>);
-    let tournament_detail = RwSignal::new(None::<serde_json::Value>);
-    let tour_name = RwSignal::new(String::new());
-    let tour_format = RwSignal::new("double-round-robin".to_string());
-    let tour_competitors = RwSignal::new(String::new());
-    let tour_log = RwSignal::new(Vec::<String>::new());
-
     let reload = move || {
         spawn_local(async move {
             match ai_api::list_ai_matches().await {
@@ -177,27 +175,11 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     let load_detail = move |id: String| {
         spawn_local(async move {
             match ai_api::get_ai_match(&id).await {
-                Ok(value) if selected.get_untracked().as_deref() == Some(&id) => detail.set(Some(value)),
+                Ok(value) if selected.get_untracked().as_deref() == Some(&id) => {
+                    detail.set(Some(value))
+                }
                 Ok(_) => {}
                 Err(error) => message.set(error),
-            }
-        });
-    };
-
-    let reload_board = move || {
-        spawn_local(async move {
-            if let Ok(rows) = ai_api::leaderboard().await {
-                board_rows.set(rows);
-            }
-            if let Ok(rows) = ai_api::metrics().await {
-                board_metrics.set(rows);
-            }
-        });
-    };
-    let reload_tournaments = move || {
-        spawn_local(async move {
-            if let Ok(list) = ai_api::list_tournaments().await {
-                tournaments.set(list);
             }
         });
     };
@@ -205,20 +187,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     // Load once, and whenever the list is asked for again.
     Effect::new(move |_| scan_local());
     Effect::new(move |_| reload());
-    Effect::new(move |_| reload_board());
-    Effect::new(move |_| reload_tournaments());
-    Effect::new(move |_| {
-        if let Some(id) = tournament_id.get() {
-            spawn_local(async move {
-                if let Ok(detail) = ai_api::tournament_detail(&id).await {
-                    tournament_detail.set(Some(detail));
-                }
-            });
-        }
-    });
-
     // Follow the selection.
     Effect::new(move |_| {
+        replay_ply.set(None);
         if let Some(id) = selected.get() {
             let already_loaded = detail.with_untracked(|payload| {
                 payload.as_ref().and_then(|value| value["id"].as_str()) == Some(id.as_str())
@@ -232,22 +203,27 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
         }
     });
 
-    let lamu_model = move || {
-        match opponent.get() {
-            1 => Some(KNIGHTLM_MODEL.to_owned()),
-            index => index.checked_sub(2).and_then(|index| {
-                local_models.with(|models| models.get(index)
+    let lamu_model = move || match opponent.get() {
+        1 => Some(KNIGHTLM_MODEL.to_owned()),
+        index => index.checked_sub(2).and_then(|index| {
+            local_models.with(|models| {
+                models
+                    .get(index)
                     .filter(|(label, _)| label == "LAMU")
-                    .map(|(_, model)| model.clone()))
-            }),
-        }
+                    .map(|(_, model)| model.clone())
+            })
+        }),
     };
 
     let manage_model = move |action: &'static str| {
         let Some(model) = lamu_model() else { return };
         busy.set(true);
         message.set(String::new());
-        model_status.set(if action == "load" { format!("Loading {model}…") } else { format!("Unloading {model}…") });
+        model_status.set(if action == "load" {
+            format!("Loading {model}…")
+        } else {
+            format!("Unloading {model}…")
+        });
         spawn_local(async move {
             match ai_api::manage_lamu_model(action, &model).await {
                 Ok(()) if action == "load" => {
@@ -273,16 +249,21 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             let result = async {
                 if let Some(model) = ["white", "black"].into_iter().find_map(|color| {
                     let seat = &config[color];
-                    (seat["provider"] == "local:LAMU").then(|| seat["model"].as_str()).flatten()
+                    (seat["provider"] == "local:LAMU")
+                        .then(|| seat["model"].as_str())
+                        .flatten()
                 }) {
                     model_status.set(format!("Preparing {model}…"));
                     ai_api::manage_lamu_model("load", model).await?;
-                    if local_models.with_untracked(|models| !models.iter().any(|(label, _)| label == "LAMU")) {
+                    if local_models
+                        .with_untracked(|models| !models.iter().any(|(label, _)| label == "LAMU"))
+                    {
                         scan_local();
                     }
                 }
                 ai_api::create_ai_match(config).await
-            }.await;
+            }
+            .await;
             model_status.set(String::new());
             match result {
                 Ok(value) => {
@@ -304,11 +285,13 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             0 if !settings_model.get_untracked().trim().is_empty() => {
                 serde_json::json!({"kind": "model", "provider": "local", "model": "assistant"})
             }
-            1 => serde_json::json!({"kind": "model", "provider": "local:LAMU", "model": KNIGHTLM_MODEL}),
+            1 => {
+                serde_json::json!({"kind": "model", "provider": "local:LAMU", "model": KNIGHTLM_MODEL})
+            }
             choice => {
-                let Some((label, model)) = choice.checked_sub(2)
-                    .and_then(|index| local_models.with_untracked(|models| models.get(index).cloned()))
-                else {
+                let Some((label, model)) = choice.checked_sub(2).and_then(|index| {
+                    local_models.with_untracked(|models| models.get(index).cloned())
+                }) else {
                     return;
                 };
                 serde_json::json!({"kind": "model", "provider": format!("local:{label}"), "model": model})
@@ -336,7 +319,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
 
     // An action that changes the match, then refreshes the list and the detail.
     let act = move |action: &'static str, body: serde_json::Value| {
-        if busy.get_untracked() { return; }
+        if busy.get_untracked() {
+            return;
+        }
         let Some(id) = selected.get_untracked() else {
             return;
         };
@@ -348,16 +333,26 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             "knightlm_samples": knightlm_samples.get_untracked(),
             "knightlm_temperature": knightlm_temperature.get_untracked(),
         });
-        let body = if action == "model-move" { model_options.clone() } else { body };
+        let body = if action == "model-move" {
+            model_options.clone()
+        } else {
+            body
+        };
         spawn_local(async move {
             match ai_api::match_action(&id, action, body).await {
                 Ok(value) => {
                     // A route may answer with the match itself or wrap it.
-                    let vote = value.get("knightlm_vote").filter(|vote| !vote.is_null()).cloned();
+                    let vote = value
+                        .get("knightlm_vote")
+                        .filter(|vote| !vote.is_null())
+                        .cloned();
                     let next = value.get("match").cloned().unwrap_or(value);
                     if next.get("id").is_some() {
-                        let model_reply = action == "move" && next["result"].is_null()
-                            && next["turn"].as_str().is_some_and(|turn| next[turn]["kind"] == "model");
+                        let model_reply = action == "move"
+                            && next["result"].is_null()
+                            && next["turn"]
+                                .as_str()
+                                .is_some_and(|turn| next[turn]["kind"] == "model");
                         if selected.get_untracked().as_deref() == Some(&id) {
                             knightlm_vote.set(vote);
                             detail.set(Some(next));
@@ -365,7 +360,12 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         if model_reply {
                             match ai_api::match_action(&id, "model-move", model_options).await {
                                 Ok(reply) if selected.get_untracked().as_deref() == Some(&id) => {
-                                    knightlm_vote.set(reply.get("knightlm_vote").filter(|vote| !vote.is_null()).cloned());
+                                    knightlm_vote.set(
+                                        reply
+                                            .get("knightlm_vote")
+                                            .filter(|vote| !vote.is_null())
+                                            .cloned(),
+                                    );
                                     detail.set(reply.get("match").cloned());
                                 }
                                 Err(error) if selected.get_untracked().as_deref() == Some(&id) => {
@@ -423,25 +423,17 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             .and_then(|pgn| pgn.as_str())
             .unwrap_or("")
             .to_string();
+        let ply = replay_ply
+            .get_untracked()
+            .unwrap_or_else(|| payload["moves"].as_array().map_or(0, Vec::len));
         spawn_local(async move {
-            match db_api::import_pgn(&pgn).await {
-                Ok(0) => message.set("nothing was imported".to_string()),
-                Ok(count) => {
-                    if open {
-                        // Opening means putting it in front of the board, and a
-                        // game lives in the database once it leaves this screen.
-                        let filters = db_api::Filters::default();
-                        match db_api::list_games(&filters).await {
-                            Ok((list, _)) => match list.into_iter().next() {
-                                Some(summary) => open_game.run(summary),
-                                None => message.set("the game was saved but not found".to_string()),
-                            },
-                            Err(error) => message.set(error),
-                        }
-                    } else {
-                        message.set(format!("saved {count} game(s)"));
-                    }
-                }
+            match db_api::import_pgn_ids(&pgn).await {
+                Ok(ids) if ids.is_empty() => message.set("nothing was imported".to_string()),
+                Ok(ids) if open => match db_api::get_game_summary(ids[0]).await {
+                    Ok(game) => open_game_at.run((game, ply)),
+                    Err(error) => message.set(error),
+                },
+                Ok(ids) => message.set(format!("saved {} game(s)", ids.len())),
                 Err(error) => message.set(error),
             }
         });
@@ -476,6 +468,18 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                     >
                         {move || i18n::t(&language.get(), "play.new_casual")}
                     </button>
+                    <button class="play-friend" disabled=move || busy.get() on:click=move |_| {
+                        create_game(serde_json::json!({
+                            "start_fen": START_FEN,
+                            "white": {"kind": "human", "name": "White"},
+                            "black": {"kind": "human", "name": "Black"},
+                            "max_plies": 300,
+                        }));
+                    }>{move || i18n::t(&language.get(), "play.friend")}</button>
+                    <button on:click=move |_| {
+                        ctx.practice_mode.set("spar".into());
+                        ctx.switch_tab.run(crate::model::Tab::Practice);
+                    }>{move || i18n::t(&language.get(), "play.engine")}</button>
                 </div>
                 <div class="play-new">
                     <label title=move || i18n::t(&language.get(), "play.thinking_hint")>
@@ -551,8 +555,24 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             .unwrap_or("")
                             .to_string();
                         let pgn_for_download = pgn.clone();
-                        let fen = payload["fen"].as_str().unwrap_or(START_FEN).to_owned();
+                        let live_fen = payload["fen"].as_str().unwrap_or(START_FEN).to_owned();
+                        let replay = replay_ply.get().filter(|ply| *ply < moves.len());
+                        let fen = replay.and_then(|ply| {
+                            let mut board = brick_chess::Widget::new();
+                            board.apply(brick_chess::Command::LoadPgn { pgn: pgn.clone() });
+                            if ply >= board.history_len() {
+                                return None;
+                            }
+                            board.apply(brick_chess::Command::Goto { index: ply });
+                            Some(board.fen())
+                        }).unwrap_or(live_fen);
                         let orientation = human_color.unwrap_or("white").to_owned();
+                        let local_game = payload["white"]["kind"] == "human" && payload["black"]["kind"] == "human";
+                        let resign_color = if local_game {
+                            if turn == "black" { Some("black") } else { Some("white") }
+                        } else {
+                            human_color
+                        };
                         view! {
                             <p class="match-cards">
                                 <strong>{white}" vs "{black}</strong>
@@ -561,11 +581,30 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 })}
                             </p>
 
+                            <div class="match-workspace">
+                            <Board
+                                pgn=Signal::derive(String::new)
+                                load_fen=Signal::derive(move || Some((0, fen.clone(), "standard".into())))
+                                orientation=Signal::derive(move || orientation.clone())
+                                board_only=true
+                                read_only=finished || !human_turn || replay.is_some()
+                                interaction_disabled=busy.into()
+                                lang=language.into()
+                                on_move=Callback::new(move |(uci, _, _): (String, String, String)| {
+                                    act("move", serde_json::json!({"mv": uci}));
+                                })
+                            />
+
+                            <aside class="match-inspector">
                             <div class="match-status" role="status">
                                 {move || if let Some(result) = &result_for_line {
                                     result.clone()
                                 } else if watching {
                                     format!("{state} · {turn} to move")
+                                } else if local_game {
+                                    i18n::tf(&language.get(), "play.side_turn", &[(
+                                        "side", i18n::t(&language.get(), if turn == "black" { "play.black" } else { "play.white" }).to_owned()
+                                    )])
                                 } else if human_turn {
                                     i18n::t(&language.get(), "play.your_turn").to_owned()
                                 } else if busy.get() {
@@ -584,26 +623,28 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             })}
                             <p class="match-error" role="alert">{move || message.get()}</p>
 
-                            <Board
-                                pgn=Signal::derive(String::new)
-                                load_fen=Signal::derive(move || Some((0, fen.clone(), "standard".into())))
-                                orientation=Signal::derive(move || orientation.clone())
-                                board_only=true
-                                read_only=finished || !human_turn
-                                interaction_disabled=busy.into()
-                                lang=language.into()
-                                on_move=Callback::new(move |(uci, _, _): (String, String, String)| {
-                                    act("move", serde_json::json!({"mv": uci}));
-                                })
-                            />
-
+                            {replay.map(|ply| view! {
+                                <p role="status">{move || i18n::tf(&language.get(), "play.reviewing_ply", &[("ply", ply.to_string())])}</p>
+                                <button on:click=move |_| replay_ply.set(None)>
+                                    {move || i18n::t(&language.get(), "play.return_live")}
+                                </button>
+                            })}
                             <ol class="match-moves">
                                 {moves.iter().enumerate().map(|(index, mv)| {
                                     let san = mv.get("san").and_then(|san| san.as_str()).unwrap_or("").to_string();
                                     let color = mv.get("color").and_then(|c| c.as_str()).unwrap_or("").to_string();
                                     let number = index / 2 + 1;
                                     let prefix = if color == "white" { format!("{number}.") } else { String::new() };
-                                    view! { <li class=format!("ply {color}")>{format!("{prefix} {san}")}</li> }
+                                    let ply = index + 1;
+                                    view! {
+                                        <li class=format!("ply {color}")>
+                                            <button data-match-ply=ply
+                                                aria-pressed=if replay.unwrap_or(moves.len()) == ply { "true" } else { "false" }
+                                                on:click=move |_| replay_ply.set(Some(ply))>
+                                                {format!("{prefix} {san}")}
+                                            </button>
+                                        </li>
+                                    }
                                 }).collect_view()}
                             </ol>
 
@@ -642,7 +683,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                         {move || i18n::t(&language.get(), "play.model_move")}
                                     </button>
                                 })}
-                                {human_color.filter(|_| !finished).map(|color| view! {
+                                {resign_color.filter(|_| !finished).map(|color| view! {
                                     <button class="match-resign" disabled=move || busy.get()
                                         on:click=move |_| act("resign", serde_json::json!({"color": color}))>
                                         {move || i18n::t(&language.get(), "play.resign")}
@@ -684,7 +725,12 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 >
                                     {move || i18n::t(&language.get(), "play.export")}
                                 </button>
-                                <pre class="match-pgn">{pgn}</pre>
+                                <details>
+                                    <summary>"PGN"</summary>
+                                    <pre class="match-pgn">{pgn}</pre>
+                                </details>
+                            </div>
+                            </aside>
                             </div>
                         }.into_any()
                     }}
@@ -714,6 +760,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         list.into_iter().map(|row| {
                             let id = row.get("id").and_then(|id| id.as_str()).unwrap_or("").to_string();
                             let id_click = id.clone();
+                            let data_id = id.clone();
                             let white = row
                                 .get("white_json")
                                 .and_then(|json| json.as_str())
@@ -730,6 +777,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             view! {
                                 <li>
                                     <button
+                                        data-match-id=data_id
                                         class=move || if selected.get().as_deref() == Some(id.as_str()) {
                                             "match-card active"
                                         } else {
@@ -756,6 +804,65 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                     }}
                 </ul>
 
+                </details>
+            </div>
+        </section>
+    }
+}
+
+pub fn tournaments(ctx: AppCtx) -> impl IntoView {
+    let language = ctx.language;
+    let message = ctx.status;
+    let board_rows = RwSignal::new(Vec::<ai_api::LeaderboardRow>::new());
+    let board_metrics = RwSignal::new(Vec::<ai_api::ModelMetrics>::new());
+    let board_filter = RwSignal::new(String::new());
+    let tournaments = RwSignal::new(Vec::<serde_json::Value>::new());
+    let tournament_id = RwSignal::new(None::<String>);
+    let tournament_detail = RwSignal::new(None::<serde_json::Value>);
+    let tour_name = RwSignal::new(String::new());
+    let tour_format = RwSignal::new("double-round-robin".to_string());
+    let tour_competitors = RwSignal::new(String::new());
+    let tour_log = RwSignal::new(Vec::<String>::new());
+
+    let reload_board = move || {
+        spawn_local(async move {
+            if let Ok(rows) = ai_api::leaderboard().await {
+                board_rows.set(rows);
+            }
+            if let Ok(rows) = ai_api::metrics().await {
+                board_metrics.set(rows);
+            }
+        });
+    };
+    let reload_tournaments = move || {
+        spawn_local(async move {
+            if let Ok(list) = ai_api::list_tournaments().await {
+                tournaments.set(list);
+            }
+        });
+    };
+
+    Effect::new(move |_| reload_board());
+    Effect::new(move |_| reload_tournaments());
+    Effect::new(move |_| {
+        if let Some(id) = tournament_id.get() {
+            spawn_local(async move {
+                if let Ok(detail) = ai_api::tournament_detail(&id).await {
+                    tournament_detail.set(Some(detail));
+                }
+            });
+        }
+    });
+
+    view! {
+        <section class="panel competition-view">
+            <div class="panel-head">
+                <h2>{move || i18n::t(&language.get(), "play.tournaments")}</h2>
+                <button on:click=move |_| {
+                    reload_board();
+                    reload_tournaments();
+                }>{move || i18n::t(&language.get(), "approvals.refresh")}</button>
+            </div>
                 <div class="match-panel">
                     <section class="leaderboard">
                         <h3>{move || i18n::t(&language.get(), "play.leaderboard")}</h3>
@@ -1034,8 +1141,6 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         })}
                     </section>
                 </div>
-                </details>
-            </div>
         </section>
     }
 }

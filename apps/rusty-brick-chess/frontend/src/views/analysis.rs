@@ -139,8 +139,22 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
             })
             .unwrap_or_else(|| "—".to_owned())
     };
+    let is_detailed = move || {
+        ctx.detailed_workspaces
+            .with(|set| set.contains(&ctx.active_ws.get()))
+    };
+    let select_mode = move |detailed| {
+        let active = ctx.active_ws.get_untracked();
+        ctx.detailed_workspaces.update(|set| {
+            if detailed {
+                set.insert(active);
+            } else {
+                set.remove(&active);
+            }
+        });
+    };
     view! {
-        <section class="analysis">
+        <section class="analysis" data-analysis-mode=move || if is_detailed() { "detailed" } else { "simple" }>
             <div class="board-pane">
                 {move || {
                     clock
@@ -358,6 +372,22 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                 </div>
             </div>
             <aside class="engine-pane">
+                <div class="row-btns analysis-mode" role="group" aria-label=move || i18n::t(&language.get(), "analysis.mode")>
+                    <button data-analysis-view="simple" aria-pressed=move || if is_detailed() { "false" } else { "true" }
+                        on:click=move |_| select_mode(false)>{move || i18n::t(&language.get(), "analysis.simple")}</button>
+                    <button data-analysis-view="detailed" aria-pressed=move || if is_detailed() { "true" } else { "false" }
+                        on:click=move |_| select_mode(true)>{move || i18n::t(&language.get(), "analysis.detailed")}</button>
+                </div>
+                <div class="simple-analysis" hidden=is_detailed>
+                    <div class="eval-score">{score}</div>
+                    {move || analysis.get().map(|result| view! {
+                        <p>{i18n::tf(&language.get(), "analysis.best_suggestion", &[("move", result.best_move)])}</p>
+                    })}
+                    <button on:click=run_analysis disabled=move || analyzing.get() || variant_only.get()>
+                        {move || i18n::t(&language.get(), if analyzing.get() { "analysis.analyzing" } else { "analysis.analyze" })}
+                    </button>
+                </div>
+                <div class="detailed-analysis" hidden=move || !is_detailed()>
                 <div class="panel-head"><h2>{move || i18n::t(&language.get(), "settings.engine")}</h2></div>
                 <div class="row-btns">
                     <label class="checkline">
@@ -453,6 +483,11 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                     <button on:click=fetch_cloud>
                         {move || i18n::t(&language.get(), "analysis.cloud_eval")}
                     </button>
+                    <button on:click=move |_| {
+                        ctx.opening_fen.set(fen.get_untracked());
+                        ctx.opening_mode.set("explorer".into());
+                        ctx.switch_tab.run(Tab::Openings);
+                    }>{move || i18n::t(&language.get(), "openings.explorer")}</button>
                 </div>
                 {move || {
                     let list = engine_results.get();
@@ -970,6 +1005,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                         <option value="6">"?!"</option>
                     </select>
                     <button on:click=save_annotation>{move || i18n::t(&language.get(), "common.save")}</button>
+                </div>
                 </div>
             </aside>
             {move || {

@@ -1,8 +1,9 @@
+const { openView } = require("./navigation");
 // The Study tab: create a study, add chapters, reorder and duplicate one, add a
 // board and mark it primary, write notes, and publish.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9548;
+const PORT = Number(process.env.RBC_CDP_PORT || 9548);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function getJson(port, path) {
   return new Promise((res, rej) => {
@@ -12,7 +13,7 @@ function getJson(port, path) {
   });
 }
 (async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-study-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1600,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-study-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1600,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let t; for (let i = 0; i < 40; i++) { await sleep(300); try { t = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(t.find((x) => x.type === "page").webSocketDebuggerUrl);
   let id = 0; const pend = new Map();
@@ -24,7 +25,7 @@ function getJson(port, path) {
   const click = async (sel) => await ev(`(()=>{const b=document.querySelector(${JSON.stringify(sel)});if(!b)return false;b.click();return true;})()`);
   const typeInto = async (sel, text) => await ev(`(()=>{const el=document.querySelector(${JSON.stringify(sel)});if(!el)return false;el.value=${JSON.stringify(text)};el.dispatchEvent(new Event("input",{bubbles:true}));return true;})()`);
 
-  await ev(`[...document.querySelectorAll("nav button, .tabs button, .sidebar button")].find(b=>b.textContent.trim()==="Study")?.click()`);
+  if (!await openView(ev, "train", "study")) throw new Error("study destination unavailable");
   await sleep(1200);
   const hasView = await ev(`Boolean(document.querySelector(".study-view"))`);
   const created = await click(".study-new");

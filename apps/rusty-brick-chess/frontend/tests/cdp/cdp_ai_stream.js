@@ -1,3 +1,4 @@
+const { openView } = require("./navigation");
 // Streaming, stop and tool cards — self-contained.
 //
 // This script serves its own OpenAI-compatible SSE provider, so the check does
@@ -5,8 +6,8 @@
 // pointed at it: MODEL_URL=http://127.0.0.1:8100/v1/chat.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9536;
-const PROVIDER = 8100;
+const PORT = Number(process.env.RBC_CDP_PORT || 9536);
+const PROVIDER = Number(process.env.RBC_CDP_PROVIDER_PORT || 8100);
 const CHUNK_DELAY_MS = 400;
 
 // --- a provider that streams slowly and can call a tool --------------------
@@ -84,7 +85,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
   const provider = startProvider();
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-stream2-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-stream2-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let target;
   for (let i = 0; i < 40; i++) { await sleep(300); try { target = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(target.find((x) => x.type === "page").webSocketDebuggerUrl);
@@ -100,7 +101,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const streamingText = async () => await ev(`(()=>{const b=document.querySelector(".chat-msg.streaming");return b?b.textContent.trim():"";})()`);
   const waitFor = async (read, ms = 8000) => { const start = Date.now(); while (Date.now() - start < ms) { const value = await read(); if (value) return value; await sleep(250); } return ""; };
 
-  await clickText(".nav", "Assistant");
+  await openView(ev, "workbench", "assistant");
   await sleep(900);
   await clickText("button", "New chat");
   await sleep(1500);

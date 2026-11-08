@@ -1,8 +1,9 @@
+const { openView } = require("./navigation");
 // Cross-board addressing: the shell knows which board the assistant is writing
 // to, marks it, and points at it with a badge when it is off screen.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9539;
+const PORT = Number(process.env.RBC_CDP_PORT || 9539);
 function getJson(port, path) {
   return new Promise((res, rej) => {
     http.get({ host: "127.0.0.1", port, path }, (r) => {
@@ -12,7 +13,7 @@ function getJson(port, path) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-xb-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-xb-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let t; for (let i = 0; i < 40; i++) { await sleep(300); try { t = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(t.find((x) => x.type === "page").webSocketDebuggerUrl);
   let id = 0; const pend = new Map();
@@ -25,7 +26,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // A workspace with at least two boards, made through the strip itself: the
   // client's workspace list only knows about boards it created.
-  await clickText(".nav", "Analysis");
+  await openView(ev, "workbench", "analysis");
   await sleep(1200);
   const setup = await ev(`(()=>{
     const pick = document.querySelector("select.ws-new");
@@ -42,13 +43,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   }
 
   // The Assistant needs a session so there is something to target.
-  await clickText(".nav", "Assistant");
+  await openView(ev, "workbench", "assistant");
   await sleep(1200);
   await clickText("button", "New chat");
   await sleep(1500);
 
   // Back to Analysis, where the strip lives.
-  await clickText(".nav", "Analysis");
+  await openView(ev, "workbench", "analysis");
   await sleep(1500);
   const chips = await ev(`[...document.querySelectorAll(".board-chip")].map(c=>c.textContent.trim())`);
 

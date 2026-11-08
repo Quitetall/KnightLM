@@ -22,6 +22,7 @@ use model::*;
 #[component]
 pub fn App() -> impl IntoView {
     let tab = RwSignal::new(Tab::Home);
+    let play_match_id = RwSignal::new(None::<String>);
     let workspaces = RwSignal::new(Vec::<Workspace>::new());
     let active_ws = RwSignal::new(0u32);
     let ws_seq = RwSignal::new(1u32);
@@ -1255,7 +1256,21 @@ pub fn App() -> impl IntoView {
     // it on the next load, so reopening the app returns to the same boards.
     let client = client_id();
     let client_for_restore = client.clone();
+    let resume_on_load = web_sys::window()
+        .and_then(|window| window.performance())
+        .and_then(|performance| {
+            performance
+                .get_entries_by_type("navigation")
+                .get(0)
+                .dyn_into::<web_sys::PerformanceNavigationTiming>()
+                .ok()
+        })
+        .is_some_and(|navigation| navigation.type_() == web_sys::NavigationType::Reload);
+    let session_write = RwSignal::new(0_u64);
     Effect::new(move |_| {
+        if !session_restored.get() {
+            return;
+        }
         let mut list = workspaces.get();
         let active = active_ws.get();
         let tab_now = tab.get();
@@ -1275,15 +1290,22 @@ pub fn App() -> impl IntoView {
         };
         let raw = serde_json::to_string(&session).unwrap_or_default();
         let client = client.clone();
+        let write = session_write.get_untracked() + 1;
+        session_write.set(write);
+        write_session(&session);
         spawn_local(async move {
             TimeoutFuture::new(350).await;
-            write_session(&session);
-            let _ = api::save_session(&client, &raw).await;
+            if session_write.get_untracked() == write {
+                let _ = api::save_session(&client, &raw).await;
+            }
         });
     });
 
     let apply_session = move |session: Session| {
         if session.workspaces.is_empty() {
+            if resume_on_load && let Some(t) = tab_from_name(&session.tab) {
+                tab.set(t);
+            }
             return;
         }
         let seq = session.seq.max(
@@ -1340,23 +1362,29 @@ pub fn App() -> impl IntoView {
                 tab.set(t);
             }
         }
+        if !resume_on_load {
+            tab.set(Tab::Home);
+        }
     };
 
     Effect::new(move |_| {
-        if session_restored.get_untracked() {
-            return;
-        }
-        session_restored.set(true);
         if let Some(session) = read_session() {
             apply_session(session);
+            session_restored.set(true);
             return;
         }
         let client = client_for_restore.clone();
         spawn_local(async move {
-            if let Ok(Some(raw)) = api::load_session(&client).await
-                && let Ok(session) = serde_json::from_str::<Session>(&raw)
-            {
-                apply_session(session);
+            match api::load_session(&client).await {
+                Ok(Some(raw)) => match serde_json::from_str::<Session>(&raw) {
+                    Ok(session) => {
+                        apply_session(session);
+                        session_restored.set(true);
+                    }
+                    Err(error) => status.set(error.to_string()),
+                },
+                Ok(None) => session_restored.set(true),
+                Err(error) => status.set(error),
             }
         });
     });
@@ -1382,7 +1410,7 @@ pub fn App() -> impl IntoView {
         on_import.forget();
     }
 
-    let open_game = move |g: api::GameSummary| {
+    let open_game_at = move |(g, ply): (api::GameSummary, usize)| {
         save_workspace();
         let sans: Vec<String> = g.moves.split_whitespace().map(str::to_owned).collect();
         let preview_only = g
@@ -1434,18 +1462,19 @@ pub fn App() -> impl IntoView {
             variant_name.clone(),
             preview_only,
         );
+        let ply = if preview_only { 0 } else { ply.min(sans.len()) };
         report.set(None);
         evals.set(Vec::new());
         lines.set(Vec::new());
         analysis.set(None);
         tree_current.set(String::new());
-        tree_ply.set(0);
-        ann_ply.set(0);
+        tree_ply.set(ply);
+        ann_ply.set(ply as i64);
         shapes.set(Vec::new());
         vs_engine.set(false);
         tb_result.set(None);
         tb_status.set(String::new());
-        goto_sig.set(Some((goto_seq.get_untracked() + 1, 0)));
+        goto_sig.set(Some((goto_seq.get_untracked() + 1, ply)));
         let id = g.id;
         add_collection.set(0);
         spawn_local(async move {
@@ -1461,6 +1490,7 @@ pub fn App() -> impl IntoView {
         });
         tab.set(Tab::Analysis);
     };
+    let open_game = move |game| open_game_at((game, 0));
 
     let import = move |_| {
         let text = import_text.get();
@@ -3640,6 +3670,9 @@ pub fn App() -> impl IntoView {
         }),
         open_editor: views::app_ctx::view_callback(open_editor),
         open_game: views::app_ctx::view_callback(open_game),
+        open_game_at: views::app_ctx::view_callback(open_game_at),
+        play_match_id,
+        detailed_workspaces: RwSignal::new(std::collections::BTreeSet::new()),
         pause_match: views::app_ctx::view_callback(pause_match),
         persist_settings: views::app_ctx::view_callback(move |_: ()| persist_settings()),
         probe_tablebase: views::app_ctx::view_callback(probe_tablebase),
@@ -3698,30 +3731,18 @@ pub fn App() -> impl IntoView {
         <div class="app">
             <aside class="sidebar">
                 <div class="brand">"RustyBrickChess"</div>
-                <nav>
-                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Assistant, Tab::Play, Tab::Study, Tab::Compare, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
+                <nav aria-label=move || i18n::t(&language.get(), "nav.sections")>
+                    {[Tab::Home, Tab::Play, Tab::Train, Tab::Workbench, Tab::Settings]
                         .into_iter()
-                        .map(|t| {
-                            let key = match t {
-                                Tab::Home => "nav.home",
-                                Tab::Database => "nav.database",
-                                Tab::Analysis => "nav.analysis",
-                                Tab::Assistant => "nav.assistant",
-                                Tab::Play => "nav.play",
-                                Tab::Study => "nav.study",
-                                Tab::Compare => "nav.compare",
-                                Tab::Practice => "nav.practice",
-                                Tab::Openings => "nav.openings",
-                                Tab::Puzzles => "nav.puzzles",
-                                Tab::Stats => "nav.stats",
-                                Tab::Settings => "nav.settings",
-                            };
+                        .map(|destination| {
                             view! {
                                 <button
-                                    class=move || if tab.get() == t { "nav active" } else { "nav" }
-                                    on:click=move |_| switch_tab(t)
+                                    class=move || if tab.get().destination() == destination { "nav active" } else { "nav" }
+                                    aria-current=move || (tab.get().destination() == destination).then_some("page")
+                                    data-destination=tab_name(destination)
+                                    on:click=move |_| switch_tab(destination)
                                 >
-                                    {move || i18n::t(&language.get(), key)}
+                                    {move || i18n::t(&language.get(), destination.label())}
                                 </button>
                             }
                         })
@@ -3729,10 +3750,10 @@ pub fn App() -> impl IntoView {
                 </nav>
                 // The board tree: every workspace and the boards it holds, so a
                 // board can be reached without first switching to its tab.
-                <div class="side-boards">
-                    <div class="side-boards-title">
+                <details class="side-boards">
+                    <summary class="side-boards-title">
                         {move || i18n::t(&language.get(), "boards.label")}
-                    </div>
+                    </summary>
                     <ul class="board-tree">
                         {move || {
                             let list = workspaces.get();
@@ -3776,12 +3797,14 @@ pub fn App() -> impl IntoView {
                             }).collect_view()
                         }}
                     </ul>
-                </div>
+                </details>
                 <div class="side-foot">"AGPL-3.0 · BrickChess"</div>
             </aside>
-            <main class="main" id="app-main">
+            <main class="main" id="app-main" data-view=move || tab_name(tab.get())>
                 <header class="topbar">
+                    <Show when=move || tab.get() == Tab::Database>
                     <input
+                        aria-label=move || i18n::t(&language.get(), "top.search_player")
                         placeholder=move || i18n::t(&language.get(), "top.search_player")
                         prop:value=move || query.get()
                         on:input=move |ev| query.set(event_target_value(&ev))
@@ -3792,6 +3815,7 @@ pub fn App() -> impl IntoView {
                     <button on:click=move |_| reload()>
                         {move || i18n::t(&language.get(), "top.search")}
                     </button>
+                    </Show>
                     <span class="status" aria-live="polite">{move || status.get()}</span>
                 </header>
                 {move || {
@@ -3815,6 +3839,30 @@ pub fn App() -> impl IntoView {
                 }}
                 {move || match tab.get() {
                     Tab::Home => home_view().into_any(),
+                    Tab::Train => views::home::hub(
+                        app_ctx, Tab::Train, &[Tab::Puzzles, Tab::Openings, Tab::Study, Tab::Practice],
+                    ).into_any(),
+                    Tab::Workbench => views::home::hub(
+                        app_ctx, Tab::Workbench, &[Tab::Analysis, Tab::Database, Tab::Engines, Tab::Tournaments, Tab::Assistant, Tab::Compare, Tab::Stats],
+                    ).into_any(),
+                    Tab::Engines => view! {
+                        <section class="panel destination-hub">
+                            <h1>{move || i18n::t(&language.get(), "settings.engines")}</h1>
+                            <div class="destination-grid">
+                                <button on:click=move |_| switch_tab(Tab::Settings)>
+                                    {move || i18n::t(&language.get(), "settings.configure")}
+                                </button>
+                                <button on:click=move |_| {
+                                    practice_mode.set("engine".into());
+                                    switch_tab(Tab::Practice);
+                                }>{move || i18n::t(&language.get(), "practice.match")}</button>
+                                <button on:click=move |_| switch_tab(Tab::Play)>
+                                    {move || i18n::t(&language.get(), "nav.play")}
+                                </button>
+                            </div>
+                        </section>
+                    }.into_any(),
+                    Tab::Tournaments => views::play::tournaments(app_ctx).into_any(),
                     Tab::Database => database_view().into_any(),
                     Tab::Analysis => analysis_view().into_any(),
                     Tab::Assistant => assistant_view().into_any(),

@@ -1,8 +1,9 @@
+const { openView } = require("./navigation");
 // The leaderboard and the tournament panel: a ladder that reflects real games,
 // and a tournament you can start, pause and step from the UI.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9545;
+const PORT = Number(process.env.RBC_CDP_PORT || 9545);
 function getJson(port, path) {
   return new Promise((res, rej) => {
     http.get({ host: "127.0.0.1", port, path }, (r) => {
@@ -12,7 +13,7 @@ function getJson(port, path) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-lb-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-lb-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let t; for (let i = 0; i < 40; i++) { await sleep(300); try { t = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(t.find((x) => x.type === "page").webSocketDebuggerUrl);
   let id = 0; const pend = new Map();
@@ -32,7 +33,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     return true;
   })()`).catch(() => false);
 
-  await clickText("Play");
+  if (!await openView(ev, "workbench", "tournaments")) throw new Error("tournaments destination unavailable");
   await sleep(1500);
   const hasBoard = await ev(`!!document.querySelector(".leaderboard")`);
   const hasTournaments = await ev(`!!document.querySelector(".tournaments")`);
@@ -47,10 +48,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const rows = await ev(`document.querySelectorAll(".tournament-list .tournament-row").length`);
   const stepClicked = await clickText("Step");
   await sleep(1500);
-  const stepped = await ev(`(()=>{const e=[...document.querySelectorAll(".match-panel .muted")].map(x=>x.textContent.trim()).filter(Boolean);return e.join(" | ")})()`);
+  const stepped = await ev(`(()=>{const e=[...document.querySelectorAll(".tournament-log li")].map(x=>x.textContent.trim()).filter(Boolean);return e.join(" | ")})()`);
   const paused = await clickText("Pause");
   await sleep(1200);
-  const afterPause = await ev(`(()=>{const e=[...document.querySelectorAll(".match-panel .muted")].map(x=>x.textContent.trim()).filter(Boolean);return e.join(" | ")})()`);
+  const afterPause = await ev(`(()=>{const e=[...document.querySelectorAll(".tournament-log li")].map(x=>x.textContent.trim()).filter(Boolean);return e.join(" | ")})()`);
   const standings = await ev(`document.querySelectorAll(".standings-table tbody tr").length`);
   const columns = await ev(`[...document.querySelectorAll(".leaderboard-table thead th")].map(t=>t.textContent.trim())`);
 

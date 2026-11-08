@@ -1,3 +1,4 @@
+const { openView } = require("./navigation");
 // A queued write appears in an already-open panel and applies only on approval.
 // Run against an app with MODEL_URL=http://127.0.0.1:8100/v1/chat.
 const { spawn } = require("node:child_process");
@@ -7,7 +8,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 
-const BASE = "http://127.0.0.1:8090";
+const BASE = (process.env.RBC_CDP_URL || "http://127.0.0.1:8090").replace(/\/$/, "");
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -45,7 +46,7 @@ async function main() {
   const profile = mkdtempSync(path.join(os.tmpdir(), "rbc-cdp-approvals-"));
   let chrome, ws;
   try {
-    provider.listen(8100, "127.0.0.1");
+    provider.listen(Number(process.env.RBC_CDP_PROVIDER_PORT || 8100), "127.0.0.1");
     await once(provider, "listening");
     chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", "--no-first-run",
       "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--remote-allow-origins=*",
@@ -92,7 +93,7 @@ async function main() {
       button?.click();
       return !!button;
     })()`);
-    if (!await waitFor(() => click(".nav", "Assistant"))) throw new Error("Assistant did not load");
+    if (!await waitFor(() => openView(evaluate, "workbench", "assistant"))) throw new Error("Assistant did not load");
     if (!await waitFor(() => click("button", "New chat"))) throw new Error("New chat button did not load");
     if (!await waitFor(() => evaluate(`!!document.querySelector(".chat-input textarea")`))) {
       throw new Error("New chat did not open");
