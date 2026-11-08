@@ -14,6 +14,12 @@ to finish a starter.
 | [Research · Design the strength baseline](../../tickets/t-e135.md) | 60–90 min | The research plan and a way to review chess positions | A small evaluation protocol with an example of how to score a result |
 | [Windows · Try the source launcher](../../tickets/t-a226.md) | 45–90 min after setup | Native Windows, PowerShell, and MSVC | A launch report or the first reproducible blocker |
 
+## This team's first picks
+
+Start with [Docs](../../tickets/t-389d.md) and [Data inventory](../../tickets/t-a475.md).
+The [four-person training plan](training-loop.md) lists the follow-up work for
+Data, Representation/Evaluation, and MLOps/CV and how it comes together.
+
 ## Pick up and hand back work
 
 1. Check open PRs for the ticket ID. With [OpenWarrant alpha.7](https://github.com/Quitetall/OpenWarrant/releases/tag/v1.0.0-alpha.7),
