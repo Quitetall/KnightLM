@@ -2775,7 +2775,7 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Provider trait and streaming adapter | `crates/ai/src/provider/mod.rs` | verified |
+| D-001 | Provider trait and streaming adapter | `crates/ai/src/provider/mod.rs` | drift |
 | D-002 | Agent loop with tools, retries and cancellation | `crates/ai/src/agent.rs` | verified |
 | D-003 | Approval service | `crates/ai/src/approval.rs` | verified |
 | D-004 | Runtime tests | `crates/ai/tests/agent_loop.rs` | verified |
@@ -3063,9 +3063,9 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Match state machine and PGN | `crates/ai/src/game.rs` | verified |
-| D-002 | Play policy and watch mode | `crates/ai/src/play.rs` | verified |
-| D-003 | Match UI | `apps/rusty-brick-chess/frontend/src/views/play.rs` | verified |
+| D-001 | Match state machine and PGN | `crates/ai/src/game.rs` | drift |
+| D-002 | Play policy and watch mode | `crates/ai/src/play.rs` | drift |
+| D-003 | Match UI | `apps/rusty-brick-chess/frontend/src/views/play.rs` | drift |
 | D-004 | Play and watch CDP suites | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_ai_play.js` | verified |
 
 #### KLM-WAR-0017 — Tournaments and ratings: Swiss, knockout, round robin, Glicko-2
@@ -3197,7 +3197,7 @@ until the release gate records otherwise.
 |---|---|---|---|
 | D-001 | Glicko-2 ratings | `crates/ai/src/glicko.rs` | verified |
 | D-002 | Tournament formats | `crates/ai/src/tournament.rs` | verified |
-| D-003 | Tournament UI and leaderboard | `apps/rusty-brick-chess/frontend/src/views/play.rs` | verified |
+| D-003 | Tournament UI and leaderboard | `apps/rusty-brick-chess/frontend/src/views/play.rs` | drift |
 | D-004 | Leaderboard CDP suite | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_leaderboard.js` | verified |
 
 #### KLM-WAR-0018 — Structured studies: editor, chapters, boards, versions, progress, import/export
@@ -3817,7 +3817,7 @@ until the release gate records otherwise.
 | D-001 | Security review | `docs/app/security.md` | verified |
 | D-002 | Security tests | `crates/ai/tests/security.rs` | verified |
 | D-003 | The full check suite | `scripts/check_all.sh` | drift |
-| D-004 | Running and packaging documentation | `docs/app/running.md` | verified |
+| D-004 | Running and packaging documentation | `docs/app/running.md` | drift |
 
 ## Replaced
 
