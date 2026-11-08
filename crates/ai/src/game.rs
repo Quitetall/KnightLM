@@ -305,6 +305,17 @@ impl Match {
             .collect()
     }
 
+    pub(crate) fn legal_uci_moves(&self) -> Vec<String> {
+        let mut moves: Vec<_> = self
+            .position
+            .legal_moves()
+            .into_iter()
+            .map(|mv| UciMove::from_move(mv, self.mode).to_string())
+            .collect();
+        moves.sort();
+        moves
+    }
+
     /// Apply one move in an untimed match, or in a timed one whose clock this
     /// caller does not run.
     pub fn apply(&mut self, input: &str) -> Result<MatchMove> {
