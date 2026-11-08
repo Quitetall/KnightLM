@@ -540,7 +540,20 @@
     .destination-hub { padding: clamp(1rem, 4vw, 2.5rem); }
     .destination-hub h1 { margin: 0 0 1rem; font-size: clamp(1.6rem, 4vw, 2.6rem); }
     .destination-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: .65rem; }
-    .destination-grid button { min-height: 4rem; text-align: left; font-weight: 600; }
+    .destination-grid button {
+      min-height: 4rem;
+      padding: .8rem 1rem;
+      border: 1px solid #3a4a39;
+      border-radius: 8px;
+      background: #252e25;
+      color: #e9efe4;
+      text-align: left;
+      font: 600 .95rem/1.4 system-ui, sans-serif;
+      cursor: pointer;
+    }
+    .destination-grid button:hover { background: #314331; }
+    .destination-grid button:focus-visible { outline: 2px solid #a4c491; outline-offset: 2px; }
+    .main > .destination-hub { flex: 0 1 auto; }
     .topbar:has(.status:empty):not(:has(input)) { display: none; }
     .main { min-width: 0; }
     @media (max-width: 1000px) {
