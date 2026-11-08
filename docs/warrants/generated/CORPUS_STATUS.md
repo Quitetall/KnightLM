@@ -62,7 +62,7 @@ Warrants blocked on each requirement. Names, not a score: this says what to fix.
 | no required unknown remains | 21 |
 | required judgments exist | 21 |
 | residual risks have sufficient authority | 21 |
-| artifact digests verify | 7 |
+| artifact digests verify | 10 |
 
 ## Requirements (SAS §106, §34.3)
 
