@@ -196,6 +196,9 @@ pub fn App() -> impl IntoView {
     let spar_color = RwSignal::new("white".to_string());
     let spar_play = RwSignal::new(None::<(u32, String)>);
     let spar_seq = RwSignal::new(0u32);
+    let spar_epoch = RwSignal::new(0u32);
+    let spar_player = RwSignal::new("white".to_string());
+    let spar_finished = RwSignal::new(false);
     let spar_thinking = RwSignal::new(false);
     let spar_status = RwSignal::new(String::new());
     let filter_date_from = RwSignal::new(String::new());
@@ -1653,17 +1656,45 @@ pub fn App() -> impl IntoView {
         });
     };
 
+    let analysis_position = Memo::new(move |_| {
+        let workspace = active_ws.get();
+        AnalysisPosition {
+            workspace,
+            board: workspaces.with(|items| {
+                items
+                    .iter()
+                    .find(|item| item.key == workspace)
+                    .and_then(Workspace::active_board_ref)
+                    .map(|board| board.id.clone())
+            }),
+            fen: fen.get(),
+            variant: board_variant.get(),
+            ply: tree_ply.get(),
+            node: tree_current.get(),
+        }
+    });
+    // The displayed score and lines belong to the position used in the request.
+    Effect::new(move |_| {
+        analysis_position.track();
+        analysis.set(None);
+        lines.set(Vec::new());
+        engine_results.set(Vec::new());
+        cloud.set(None);
+        tb_result.set(None);
+        tb_status.set(String::new());
+    });
+
     let run_analysis = move |_| {
-        let f = fen.get();
-        if f.is_empty() {
+        let position = analysis_position.get_untracked();
+        if position.fen.is_empty() || analyzing.get_untracked() {
             return;
         }
         analyzing.set(true);
         spawn_local(async move {
             let depth = settings_depth.get_untracked();
-            match api::analyze(&f, depth, &board_variant.get_untracked()).await {
-                Ok(a) => {
-                    let ply = tree_ply.get_untracked() as i64;
+            match api::analyze(&position.fen, depth, &position.variant).await {
+                Ok(a) if analysis_position.get_untracked() == position => {
+                    let ply = position.ply as i64;
                     let row = api::EvalRow {
                         ply,
                         depth: a.depth,
@@ -1678,13 +1709,11 @@ pub fn App() -> impl IntoView {
                         }
                     });
                     analysis.set(Some(a));
-                    analyzing.set(false);
                 }
-                Err(e) => {
-                    status.set(e);
-                    analyzing.set(false);
-                }
+                Err(e) if analysis_position.get_untracked() == position => status.set(e),
+                _ => {}
             }
+            analyzing.set(false);
         });
     };
 
@@ -1963,30 +1992,34 @@ pub fn App() -> impl IntoView {
     };
 
     let fetch_lines = move |_| {
-        let f = fen.get();
-        if f.is_empty() {
+        let position = analysis_position.get_untracked();
+        if position.fen.is_empty() {
             return;
         }
         spawn_local(async move {
             let depth = settings_depth.get_untracked();
-            match api::engine_lines(&f, depth, 3, &board_variant.get_untracked()).await {
-                Ok(l) => lines.set(l),
-                Err(e) => status.set(e),
+            match api::engine_lines(&position.fen, depth, 3, &position.variant).await {
+                Ok(l) if analysis_position.get_untracked() == position => lines.set(l),
+                Err(e) if analysis_position.get_untracked() == position => status.set(e),
+                _ => {}
             }
         });
     };
 
     let fetch_engine_lines = move |_| {
-        let f = fen.get();
-        if f.is_empty() {
+        let position = analysis_position.get_untracked();
+        if position.fen.is_empty() {
             return;
         }
         engine_results.set(Vec::new());
         spawn_local(async move {
             let depth = settings_depth.get_untracked();
-            match api::analyze_engines(&f, depth, 3, &board_variant.get_untracked()).await {
-                Ok(list) => engine_results.set(list),
-                Err(e) => status.set(e),
+            match api::analyze_engines(&position.fen, depth, 3, &position.variant).await {
+                Ok(list) if analysis_position.get_untracked() == position => {
+                    engine_results.set(list)
+                }
+                Err(e) if analysis_position.get_untracked() == position => status.set(e),
+                _ => {}
             }
         });
     };
@@ -2224,6 +2257,8 @@ pub fn App() -> impl IntoView {
         .into_any()
     };
 
+    let pending_settings = RwSignal::new(None::<api::Settings>);
+    let saving_settings = RwSignal::new(false);
     let persist_settings = move || {
         let settings = api::Settings {
             engine_path: {
@@ -2266,14 +2301,32 @@ pub fn App() -> impl IntoView {
             keybinds: serde_json::to_string(&keybinds.get_untracked()).unwrap_or_default(),
             engines: engines.get_untracked(),
         };
+        pending_settings.set(Some(settings));
+        if saving_settings.get_untracked() {
+            return;
+        }
+        saving_settings.set(true);
+        // Settings saves carry a full snapshot. Send them in order so an older
+        // request cannot overwrite a more recent change.
         spawn_local(async move {
-            match api::save_settings(&settings).await {
-                Ok(s) => {
-                    settings_status.set(i18n::t(&language.get(), "status.m23").into());
-                    puzzle_rating.set(s.puzzle_rating);
+            while let Some(settings) = pending_settings.get_untracked() {
+                pending_settings.set(None);
+                let result = api::save_settings(&settings).await;
+                if pending_settings.with_untracked(Option::is_some) {
+                    continue;
                 }
-                Err(e) => settings_status.set(e),
+                match result {
+                    Ok(saved) => {
+                        settings_status
+                            .set(i18n::t(&language.get_untracked(), "status.m23").into());
+                        if puzzle_rating.get_untracked() == settings.puzzle_rating {
+                            puzzle_rating.set(saved.puzzle_rating);
+                        }
+                    }
+                    Err(error) => settings_status.set(error),
+                }
             }
+            saving_settings.set(false);
         });
     };
 
@@ -2920,19 +2973,20 @@ pub fn App() -> impl IntoView {
     };
 
     let probe_tablebase = move |_| {
-        let position = fen.get_untracked();
-        if position.is_empty() {
+        let position = analysis_position.get_untracked();
+        if position.fen.is_empty() {
             return;
         }
         tb_status.set(i18n::t(&language.get(), "status.m20").into());
         tb_result.set(None);
         spawn_local(async move {
-            match api::tablebase(&position, &board_variant.get_untracked()).await {
-                Ok(t) => {
+            match api::tablebase(&position.fen, &position.variant).await {
+                Ok(t) if analysis_position.get_untracked() == position => {
                     tb_status.set(String::new());
                     tb_result.set(Some(t));
                 }
-                Err(e) => tb_status.set(e),
+                Err(e) if analysis_position.get_untracked() == position => tb_status.set(e),
+                _ => {}
             }
         });
     };
@@ -3020,15 +3074,15 @@ pub fn App() -> impl IntoView {
     };
 
     let fetch_cloud = move |_: leptos::ev::MouseEvent| {
-        let position = fen.get_untracked();
-        if position.trim().is_empty() {
+        let position = analysis_position.get_untracked();
+        if position.fen.trim().is_empty() {
             status.set(i18n::t(&language.get(), "status.m14").into());
             return;
         }
         status.set(i18n::t(&language.get(), "status.m02").into());
         spawn_local(async move {
-            match api::cloud_eval(&position).await {
-                Ok(result) => {
+            match api::cloud_eval(&position.fen).await {
+                Ok(result) if analysis_position.get_untracked() == position => {
                     if result.available {
                         status.set(i18n::tf(
                             &language.get(),
@@ -3040,7 +3094,8 @@ pub fn App() -> impl IntoView {
                     }
                     cloud.set(Some(result));
                 }
-                Err(error) => status.set(error),
+                Err(error) if analysis_position.get_untracked() == position => status.set(error),
+                _ => {}
             }
         });
     };
@@ -3061,18 +3116,14 @@ pub fn App() -> impl IntoView {
                 "Accuracy: White {:.1}% · Black {:.1}%
 
 ",
-                white * 100.0,
-                black * 100.0
+                white, black
             ));
         }
         text.push_str("| Ply | Move | Label | Accuracy |\n|---|---|---|---|\n");
         for m in &report.moves {
             text.push_str(&format!(
                 "| {} | {} | {} | {:.0}% |\n",
-                m.ply,
-                m.san,
-                m.lichess,
-                m.accuracy * 100.0
+                m.ply, m.san, m.lichess, m.accuracy
             ));
         }
         let name: String = title
@@ -3108,7 +3159,7 @@ pub fn App() -> impl IntoView {
                 if nag == 0 {
                     continue;
                 }
-                let comment = format!("{} · {:.0}% accuracy", m.lichess, m.accuracy * 100.0);
+                let comment = format!("{} · {:.0}% accuracy", m.lichess, m.accuracy);
                 if api::add_annotation(
                     game_id,
                     m.ply as i64,
@@ -3216,48 +3267,86 @@ pub fn App() -> impl IntoView {
         }
     };
 
+    let advance_spar = move |position: String| {
+        let board = match brick_chess::Widget::from_fen(&position) {
+            Ok(board) => board,
+            Err(error) => {
+                spar_thinking.set(false);
+                spar_status.set(error.to_string());
+                return;
+            }
+        };
+        if let Some(reason) = board.current().facts().terminal_reason {
+            spar_finished.set(true);
+            spar_thinking.set(false);
+            spar_status.set(i18n::tf(
+                &language.get_untracked(),
+                "practice.finished",
+                &[("reason", reason)],
+            ));
+            return;
+        }
+        let player_turn = position.split_whitespace().nth(1)
+            == Some(if spar_player.get_untracked() == "black" {
+                "b"
+            } else {
+                "w"
+            });
+        if player_turn {
+            spar_thinking.set(false);
+            spar_status.set(i18n::t(&language.get_untracked(), "practice.your_move").into());
+            return;
+        }
+
+        spar_thinking.set(true);
+        spar_status.set(i18n::t(&language.get_untracked(), "analysis.engine_thinking_caps").into());
+        let epoch = spar_epoch.get_untracked();
+        let depth = settings_depth.get_untracked();
+        spawn_local(async move {
+            let reply = api::analyze(&position, depth, "standard").await;
+            if spar_epoch.get_untracked() != epoch {
+                return;
+            }
+            match reply {
+                Ok(a) if board.current().is_legal(&a.best_move) => {
+                    let seq = spar_seq.get_untracked() + 1;
+                    spar_seq.set(seq);
+                    spar_play.set(Some((seq, a.best_move)));
+                }
+                Ok(_) => {
+                    spar_thinking.set(false);
+                    spar_status
+                        .set(i18n::t(&language.get_untracked(), "practice.engine_illegal").into());
+                }
+                Err(e) => {
+                    spar_thinking.set(false);
+                    spar_status.set(e);
+                }
+            }
+        });
+    };
+
     let start_spar = move |_| {
         let entered = spar_fen.get_untracked();
-        let fen = if entered.trim().is_empty() {
+        let position = if entered.trim().is_empty() {
             "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_owned()
         } else {
             entered
         };
-        spar_pgn.set(line_pgn(&fen, &[], "standard"));
+        if let Err(error) = brick_chess::Widget::from_fen(&position) {
+            spar_status.set(error.to_string());
+            return;
+        }
+        spar_epoch.update(|epoch| *epoch += 1);
+        spar_player.set(spar_color.get_untracked());
+        spar_finished.set(false);
         spar_play.set(None);
-        let color = if spar_color.get_untracked() == "black" {
-            i18n::t(&language.get(), "common.black")
-        } else {
-            i18n::t(&language.get(), "common.white")
-        };
-        spar_status.set(i18n::tf(
-            &language.get(),
-            "status.d30",
-            &[("color", color.to_string())],
-        ));
+        spar_pgn.set(line_pgn(&position, &[], "standard"));
+        advance_spar(position);
     };
 
-    let on_spar_move = move |(_uci, _san, fen_after): (String, String, String)| {
-        let engine_white = spar_color.get_untracked() == "black";
-        let turn_white = fen_after.split_whitespace().nth(1) != Some("b");
-        spar_status.set(i18n::t(&language.get(), "analysis.engine_thinking_caps").into());
-        if turn_white == engine_white {
-            spar_thinking.set(true);
-            let depth = settings_depth.get_untracked();
-            spawn_local(async move {
-                match api::analyze(&fen_after, depth, "standard").await {
-                    Ok(a) => {
-                        let seq = spar_seq.get_untracked() + 1;
-                        spar_seq.set(seq);
-                        spar_play.set(Some((seq, a.best_move)));
-                    }
-                    Err(e) => spar_status.set(e),
-                }
-                spar_thinking.set(false);
-            });
-        } else {
-            spar_status.set(i18n::t(&language.get(), "practice.your_move").into());
-        }
+    let on_spar_move = move |(_uci, _san, position): (String, String, String)| {
+        advance_spar(position);
     };
 
     let request_match_move = move || {
@@ -3397,6 +3486,7 @@ pub fn App() -> impl IntoView {
     let ai_session_id = RwSignal::new(read_active_ai_session());
     let ai_target_board = RwSignal::new(None::<String>);
     let app_ctx = views::AppCtx {
+        analysis_position,
         account_busy,
         account_import_max,
         account_msg,
@@ -3574,6 +3664,8 @@ pub fn App() -> impl IntoView {
         sound_theme,
         sound_volume,
         spar_color,
+        spar_player,
+        spar_finished,
         spar_fen,
         spar_pgn,
         spar_play,

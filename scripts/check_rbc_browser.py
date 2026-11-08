@@ -81,8 +81,14 @@ def check_suite(suite, args, scratch, expected_assets):
                RBC_CDP_URL=base, RBC_CDP_PORT=str(cdp_port), RBC_CDP_PROVIDER_PORT=str(provider_port),
                RBC_CDP_EVIDENCE=str(logs),
                MOCK_REASONING="controls the centre")
+    if suite.stem in {"cdp_engine_preview", "cdp_game_report", "cdp_sparring"} and "STOCKFISH_PATH" not in env:
+        if engine := shutil.which("stockfish"):
+            env["STOCKFISH_PATH"] = engine
+    no_provider = suite.stem == "cdp_ai_i18n_a11y"
+    if no_provider:
+        env.pop("MODEL_URL", None)
     with ExitStack() as stack:
-        if suite.stem not in SELF_HOSTED:
+        if not no_provider and suite.stem not in SELF_HOSTED:
             start(stack, ["python3", ROOT / "scripts/mock_provider.py", "--port", str(provider_port)],
                   logs / "provider.log", env)
         server = start(stack, [args.server], logs / "server.log", env)
@@ -136,6 +142,9 @@ def main():
         run = Path(scratch)
         scripts = run / "cdp"
         shutil.copytree(CDP, scripts)
+        static = run / "public"
+        shutil.copytree(args.static, static)
+        args.static = static
         for name in names:
             fixture = run / name
             fixture.mkdir()

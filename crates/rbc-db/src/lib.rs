@@ -1086,22 +1086,7 @@ impl Db {
 
     pub fn annotations(&self, game_id: i64) -> Result<Vec<Annotation>> {
         let conn = self.conn.lock().expect("db lock");
-        let mut stmt = conn.prepare(
-            "SELECT id, game_id, ply, path, comment, nag, shapes FROM annotations
-             WHERE game_id = ?1 ORDER BY ply, path, id",
-        )?;
-        let rows = stmt.query_map(params![game_id], |row| {
-            Ok(Annotation {
-                id: row.get(0)?,
-                game_id: row.get(1)?,
-                ply: row.get(2)?,
-                path: row.get(3)?,
-                comment: row.get(4)?,
-                nag: row.get(5)?,
-                shapes: row.get(6)?,
-            })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        game_annotations(&conn, game_id)
     }
 }
 
@@ -2047,8 +2032,12 @@ impl Db {
 
     /// Export one game as PGN, preserving variations, comments and NAGs.
     pub fn export_pgn(&self, id: i64) -> Result<Option<String>> {
-        let Some(game) = self.get(id)? else {
-            return Ok(None);
+        let (game, annotations) = {
+            let conn = self.conn.lock().expect("db lock");
+            let Some(game) = get_game(&conn, id)? else {
+                return Ok(None);
+            };
+            (game, game_annotations(&conn, id)?)
         };
         let mut tags: BTreeMap<String, String> = BTreeMap::new();
         let pairs = [
@@ -2081,7 +2070,7 @@ impl Db {
                 tags.insert(k.clone(), v.clone());
             }
         }
-        let movetext = game
+        let mut movetext = game
             .movetext
             .as_deref()
             .and_then(|json| {
@@ -2099,6 +2088,40 @@ impl Db {
                     })
                     .collect()
             });
+        for annotation in annotations {
+            let node = match annotation.path.as_deref().filter(|path| !path.is_empty()) {
+                Some(path) => resolve_tree_path(&mut movetext, path)
+                    .ok()
+                    .map(|(line, index)| &mut line[index]),
+                None => usize::try_from(annotation.ply)
+                    .ok()
+                    .and_then(|index| movetext.get_mut(index)),
+            };
+            let Some(node) = node else { continue };
+            if let Some(nag) = annotation.nag.and_then(|nag| u8::try_from(nag).ok())
+                && nag > 0
+                && !node.nags.contains(&u32::from(nag))
+            {
+                node.nags.push(u32::from(nag));
+            }
+            let mut additions = Vec::new();
+            if let Some(comment) = annotation
+                .comment
+                .filter(|comment| !comment.trim().is_empty())
+            {
+                additions.push(comment.replace('{', "(").replace('}', ")"));
+            }
+            if let Some(shapes) = annotation.shapes {
+                additions.extend(pgn_shape_comments(&shapes));
+            }
+            if !additions.is_empty() {
+                let comment = node.post_comment.get_or_insert_with(String::new);
+                if !comment.is_empty() {
+                    comment.push(' ');
+                }
+                comment.push_str(&additions.join(" "));
+            }
+        }
         let out = knightlm_notation::pgn::PgnGame {
             tags,
             movetext,
@@ -2830,6 +2853,25 @@ fn row_to_game(row: &rusqlite::Row<'_>) -> rusqlite::Result<Game> {
     })
 }
 
+fn game_annotations(conn: &Connection, game_id: i64) -> Result<Vec<Annotation>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, game_id, ply, path, comment, nag, shapes FROM annotations
+             WHERE game_id = ?1 ORDER BY ply, path, id",
+    )?;
+    let rows = stmt.query_map(params![game_id], |row| {
+        Ok(Annotation {
+            id: row.get(0)?,
+            game_id: row.get(1)?,
+            ply: row.get(2)?,
+            path: row.get(3)?,
+            comment: row.get(4)?,
+            nag: row.get(5)?,
+            shapes: row.get(6)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 fn get_game(conn: &Connection, id: i64) -> Result<Option<Game>> {
     let mut stmt = conn.prepare(
         "SELECT id, event, site, date, round, white, white_elo, black, black_elo,
@@ -3145,6 +3187,58 @@ fn resolve_tree_path<'a>(
     }
     let (first, rest) = split_tree_path(path)?;
     walk(nodes, first, &rest)
+}
+
+fn pgn_shape_comments(json: &str) -> Vec<String> {
+    #[derive(Deserialize)]
+    #[serde(tag = "kind", rename_all = "snake_case")]
+    enum PgnShape {
+        Arrow {
+            from: String,
+            to: String,
+            color: String,
+        },
+        Circle {
+            square: String,
+            color: String,
+        },
+        #[serde(other)]
+        Other,
+    }
+
+    let color_code = |color: &str| match color {
+        "green" => Some('G'),
+        "red" => Some('R'),
+        "blue" => Some('B'),
+        "yellow" => Some('Y'),
+        _ => None,
+    };
+    let square = |name: &str| matches!(name.as_bytes(), [b'a'..=b'h', b'1'..=b'8']);
+    let mut arrows = Vec::new();
+    let mut circles = Vec::new();
+    for shape in serde_json::from_str::<Vec<PgnShape>>(json).unwrap_or_default() {
+        match shape {
+            PgnShape::Arrow { from, to, color } if square(&from) && square(&to) => {
+                if let Some(code) = color_code(&color) {
+                    arrows.push(format!("{code}{from}{to}"));
+                }
+            }
+            PgnShape::Circle {
+                square: name,
+                color,
+            } if square(&name) => {
+                if let Some(code) = color_code(&color) {
+                    circles.push(format!("{code}{name}"));
+                }
+            }
+            _ => {}
+        }
+    }
+    [("cal", arrows), ("csl", circles)]
+        .into_iter()
+        .filter(|(_, items)| !items.is_empty())
+        .map(|(tag, items)| format!("[%{tag} {}]", items.join(",")))
+        .collect()
 }
 
 fn prune_tree(nodes: &mut [knightlm_notation::pgn::PgnNode]) {

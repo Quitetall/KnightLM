@@ -516,6 +516,11 @@
     .analysis .engine-pane { max-height: 100%; overflow-y: auto; }
     .size-control { display: flex; align-items: center; gap: .35rem; font-size: .72rem; color: #9a9aa8; }
     .size-control input[type="range"] { width: 90px; }
+    .recorded-board[hidden] { display: none; }
+    .preview-engine-line { min-width: 0; text-align: left; }
+    .preview-engine-line .pv { overflow-wrap: anywhere; }
+    .preview-engine-line[aria-pressed="true"] { background: #345039; }
+    .engine-line-preview { margin-bottom: .65rem; }
     .analysis-mode [aria-pressed="true"] { background: #345039; }
     .detailed-analysis:not([hidden]), .simple-analysis:not([hidden]) {
       display: flex; flex-direction: column; align-items: stretch; gap: .7rem;

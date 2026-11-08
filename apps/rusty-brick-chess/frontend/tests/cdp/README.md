@@ -70,3 +70,10 @@ python3 scripts/check_rbc_ui_parity.py /path/to/ledger.json --build <build-id> \
 Omit `--id` for the cutover gate. Each required record must have PASS
 evidence for the identified build. Preserve failures and unknowns in the
 ledger until a later run establishes the corresponding behavior.
+
+The runner copies the test scripts and frontend assets into its run directory
+so a rebuild cannot change an in-flight browser check. It uses a fixture
+model provider and disables LAMU startup. For the engine preview, game report,
+and sparring suites, it uses `STOCKFISH_PATH` or resolves `stockfish` on
+`PATH`. Keep native packages, live providers, vision, and sound evidence
+separate from these browser runs in the parity ledger.

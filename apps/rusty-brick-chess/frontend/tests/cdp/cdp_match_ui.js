@@ -1,3 +1,4 @@
+const { waitFor } = require("./browser");
 // The Play tab: cards, clocks, moves, controls, and the three handoffs.
 const { spawn } = require("child_process");
 const http = require("http");
@@ -130,8 +131,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       return response;
     };
   })()`);
-  await clickText("button", "Open in Analysis");
-  await sleep(3000);
+  if (!await clickText(".match-open", "Open in Analysis")) throw new Error("historical handoff button missing");
+  await waitFor(() => ev('document.querySelector("main")?.dataset.view === "analysis"'), "historical handoff did not reach Analysis");
+  await waitFor(() => ev(`document.querySelector(".fen-line code")?.textContent === ${JSON.stringify(shortMatch.fen)}`), "historical position did not load");
   const navAfterOpen = await ev(`(()=>{return document.querySelector("main")?.dataset.view;})()`);
   const boardLoaded = await ev(`(()=>!!document.querySelector(".board"))()`);
   const handoff = await ev(`({
@@ -157,10 +159,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const backToSimple = await ev(`document.querySelector(".analysis")?.dataset.analysisMode === "simple"
     && document.querySelector(".fen-line code")?.textContent === ${JSON.stringify(shortMatch.fen)}`);
   await clickText(".nav", "Play");
-  await sleep(1500);
+  await waitFor(() => ev(`document.querySelector(".match-card.active")?.dataset.matchId === ${JSON.stringify(shortMatch.id)}
+    && document.querySelectorAll(".match-moves .ply").length === 2`), "live match did not resume");
   const resumed = await ev(`document.querySelector(".match-card.active")?.dataset.matchId`);
-  await clickText("button", "Open in Analysis");
-  await sleep(2200);
+  if (!await clickText(".match-open", "Open in Analysis")) throw new Error("live handoff button missing");
+  await waitFor(() => ev(`document.querySelector(".fen-line code")?.textContent === ${JSON.stringify(shortMatch.latestFen)}`), "latest position did not load");
   const latestFen = await ev(`document.querySelector(".fen-line code")?.textContent`);
 
   await clickText(".nav", "Play");

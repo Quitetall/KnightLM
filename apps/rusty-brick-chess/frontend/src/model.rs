@@ -60,6 +60,16 @@ impl Tab {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct AnalysisPosition {
+    pub workspace: u32,
+    pub board: Option<String>,
+    pub fen: String,
+    pub variant: String,
+    pub ply: usize,
+    pub node: String,
+}
+
 pub fn default_workspace_kind() -> String {
     "analysis".into()
 }

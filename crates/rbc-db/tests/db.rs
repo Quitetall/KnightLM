@@ -162,6 +162,43 @@ fn annotation_replaces_same_ply() {
 }
 
 #[test]
+fn export_includes_saved_annotations_on_their_own_nodes() {
+    let db = Db::open_memory().unwrap();
+    let pgn =
+        "[White \"A\"]\n[Black \"B\"]\n[Result \"*\"]\n\n1. e4 $1 {[%clk 0:04:58]} (1. d4 d5) e5 *";
+    let id = db.import_pgn(pgn, None).unwrap()[0];
+    let original = db.get(id).unwrap().unwrap().movetext;
+    for input in [
+        serde_json::json!({
+            "game_id": id, "ply": 0, "path": "0", "comment": "Main {line}", "nag": 1,
+            "shapes": r#"[{"kind":"arrow","from":"e2","to":"e4","color":"red"},{"kind":"circle","square":"e4","color":"blue"}]"#,
+        }),
+        serde_json::json!({"game_id": id, "ply": 0, "path": "0~0.0", "comment": "Branch", "nag": 5}),
+        serde_json::json!({"game_id": id, "ply": 1, "comment": "Legacy main line", "nag": 2}),
+        serde_json::json!({"game_id": id, "ply": 0, "path": "9~9.0", "comment": "Stale"}),
+    ] {
+        db.add_annotation(&serde_json::from_value(input).unwrap())
+            .unwrap();
+    }
+
+    let exported = db.export_pgn(id).unwrap().unwrap();
+    let tree = knightlm_notation::pgn::parse(&exported).unwrap().movetext;
+    assert_eq!(tree[0].nags, vec![1]);
+    assert_eq!(
+        tree[0].post_comment.as_deref(),
+        Some("[%clk 0:04:58] Main (line) [%cal Re2e4] [%csl Be4]")
+    );
+    assert_eq!(
+        tree[0].variations[0][0].post_comment.as_deref(),
+        Some("Branch")
+    );
+    assert_eq!(tree[0].variations[0][0].nags, vec![5]);
+    assert_eq!(tree[1].post_comment.as_deref(), Some("Legacy main line"));
+    assert!(!exported.contains("Stale"));
+    assert_eq!(db.get(id).unwrap().unwrap().movetext, original);
+}
+
+#[test]
 fn movetext_variations_round_trip_through_export() {
     let db = Db::open_memory().unwrap();
     let pgn = "[Event \"Var\"]\n[White \"A\"]\n[Black \"B\"]\n[Result \"*\"]\n\n1. e4! {best} (1. d4 d5 2. c4) 1... e5 2. Nf3 *\n";

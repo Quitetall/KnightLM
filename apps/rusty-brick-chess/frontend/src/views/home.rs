@@ -369,7 +369,10 @@ pub fn home(ctx: AppCtx) -> impl IntoView {
                     <button on:click=move |_| switch_tab(Tab::Database)>{move || i18n::t(&language.get(), "home.import")}</button>
                     <button on:click=move |_| new_workspace()>{move || i18n::t(&language.get(), "home.new_analysis")}</button>
                     <button on:click=move |_| switch_tab(Tab::Puzzles)>{move || i18n::t(&language.get(), "home.solve")}</button>
-                    <button on:click=move |_| switch_tab(Tab::Openings)>{move || i18n::t(&language.get(), "home.train")}</button>
+                    <button on:click=move |_| {
+                        ctx.opening_mode.set("repertoire".into());
+                        switch_tab(Tab::Openings);
+                    }>{move || i18n::t(&language.get(), "home.train")}</button>
                     <button on:click=move |_| switch_tab(Tab::Settings)>{move || i18n::t(&language.get(), "nav.settings")}</button>
                 </div>
             </div>

@@ -3,7 +3,7 @@ use leptos::prelude::*;
 
 use crate::api::*;
 use crate::board::Keybinds;
-use crate::model::{Tab, TreeItem, Workspace};
+use crate::model::{AnalysisPosition, Tab, TreeItem, Workspace};
 use brick_chess::Shape;
 
 /// Wrap a captured closure in an `UnsyncCallback` so it can live in the (Copy)
@@ -28,6 +28,7 @@ pub struct AppCtx {
     /// The board the assistant is writing to, when it is not the visible one.
     pub ai_target_board: RwSignal<Option<String>>,
     pub analysis: RwSignal<Option<Analysis>>,
+    pub analysis_position: Memo<AnalysisPosition>,
     pub analysis_rep: RwSignal<i64>,
     pub analyzing: RwSignal<bool>,
     pub animate_last_move: RwSignal<bool>,
@@ -196,6 +197,8 @@ pub struct AppCtx {
     pub sound_theme: RwSignal<String>,
     pub sound_volume: RwSignal<u32>,
     pub spar_color: RwSignal<String>,
+    pub spar_player: RwSignal<String>,
+    pub spar_finished: RwSignal<bool>,
     pub spar_fen: RwSignal<String>,
     pub spar_pgn: RwSignal<String>,
     pub spar_play: RwSignal<Option<(u32, String)>>,
