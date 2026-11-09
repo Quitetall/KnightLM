@@ -1549,24 +1549,7 @@ pub fn Board(
 /// header is the shortest honest description of one: the board component parses
 /// it the same way it parses a game from the database.
 pub fn pgn_for(board: &crate::api::BoardInfo, moves: &[String]) -> String {
-    const STANDARD: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    let mut pgn = String::new();
-    if board.start_fen.trim() != STANDARD {
-        pgn.push_str(&format!(
-            "[SetUp \"1\"]\n[FEN \"{}\"]\n\n",
-            board.start_fen.trim()
-        ));
-    }
-    let mut line = String::new();
-    for (index, mv) in moves.iter().enumerate() {
-        if index % 2 == 0 {
-            line.push_str(&format!("{}. ", index / 2 + 1));
-        }
-        line.push_str(mv);
-        line.push(' ');
-    }
-    pgn.push_str(line.trim_end());
-    pgn
+    crate::model::line_pgn(board.start_fen.trim(), moves, &board.variant)
 }
 
 /// Shapes for the arrows and circles a board's content carries.

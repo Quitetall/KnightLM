@@ -500,6 +500,21 @@ pub(crate) fn effective(state: &AppState) -> SettingsResponse {
         engines: get("engines")
             .and_then(|json| serde_json::from_str::<Vec<EngineEntry>>(&json).ok())
             .filter(|v| !v.is_empty())
+            .map(|mut entries| {
+                // Older settings used the localized control labels as UCI keys.
+                for entry in &mut entries {
+                    for (label, key) in [
+                        ("Hilos", "Threads"),
+                        ("Lines to analyse", "MultiPV"),
+                        ("Líneas a analizar", "MultiPV"),
+                    ] {
+                        if let Some(value) = entry.options.remove(label) {
+                            entry.options.entry(key.into()).or_insert(value);
+                        }
+                    }
+                }
+                entries
+            })
             .unwrap_or_else(|| {
                 state
                     .engine_path
@@ -1802,7 +1817,8 @@ pub async fn piece_file(
     State(state): State<AppState>,
     Path((name, code)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
-    let bytes = crate::pieces::read(&state.data_dir, &name, &code)?;
+    let code = code.strip_suffix(".svg").unwrap_or(&code);
+    let bytes = crate::pieces::read(&state.data_dir, &name, code)?;
     Ok((
         [
             (header::CONTENT_TYPE, "image/svg+xml"),

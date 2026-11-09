@@ -25,15 +25,39 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
   const saved=await clickText("button","Save"); await sleep(1200);
   const renamed=await ev(`[...document.querySelectorAll(".dock-tab")].some(x=>x.textContent.includes("Rail rename test"))`);
 
+  await ev(`document.querySelector('button[aria-label="Rename"]').click()`);
+  await sleep(200);
+  await ev(`(() => {
+    const input = document.querySelector('input[aria-label="Rename"]');
+    input.value = "Discarded rename";
+    input.dispatchEvent(new Event("input",{bubbles:true}));
+  })()`);
+  const cancelled=await clickText("button","Cancel");
+  await sleep(250);
+  const keptName=await ev(`!document.querySelector('input[aria-label="Rename"]')
+    && [...document.querySelectorAll(".dock-tab")].some(row=>row.textContent.includes("Rail rename test"))
+    && !document.querySelector(".dock-tab")?.textContent.includes("Discarded rename")`);
+
+  await clickText("button","New chat");
+  await sleep(1100);
+  const switched=await ev(`(() => {
+    const active = document.querySelector(".dock-tab.active");
+    const older = [...document.querySelectorAll(".dock-tab")].find(row=>row.textContent.includes("Rail rename test"));
+    if (!active || !older || active === older) return false;
+    older.click();
+    return true;
+  })()`);
+  await sleep(300);
+  const selected=await ev(`document.querySelector(".dock-tab.active")?.textContent.includes("Rail rename test")`);
   const beforeArchive=await ev(`document.querySelectorAll(".dock-tab").length`);
   // Archive: the × button removes it from the rail.
-  const archived=await ev(`(()=>{const b=document.querySelector('button[aria-label="Archive"]');if(!b)return false;b.click();return true;})()`);
+  const archived=await ev(`(()=>{const b=document.querySelector('.dock-tab.active')?.parentElement.querySelector('button[aria-label="Archive"]');if(!b)return false;b.click();return true;})()`);
   await sleep(1300);
   const remaining=await ev(`document.querySelectorAll(".dock-tab").length`);
 
-  const out={opened,typed,saved,renamed,archived,beforeArchive,remaining};
+  const out={opened,typed,saved,renamed,cancelled,keptName,switched,selected,archived,beforeArchive,remaining};
   console.log(JSON.stringify(out));
-  const ok = opened && typed && saved && renamed && archived && remaining===beforeArchive-1;
+  const ok = opened && typed && saved && renamed && cancelled && keptName && switched && selected && archived && remaining===beforeArchive-1;
   console.log(ok?"AI_RAIL2_PASS":"AI_RAIL2_FAIL");
   ws.close();chrome.kill();process.exit(ok?0:1);
 })().catch(e=>{console.error(e);process.exit(1);});

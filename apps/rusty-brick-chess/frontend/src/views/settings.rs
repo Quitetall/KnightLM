@@ -256,10 +256,7 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
                                                             match api::delete_piece_set(&name).await {
                                                                 Ok(list) => {
                                                                     custom_sets.set(list);
-                                                                    if settings_pieces
-                                                                        .get_untracked()
-                                                                        .starts_with(&format!("custom:{name}"))
-                                                                    {
+                                                                    if settings_pieces.get_untracked() == format!("custom:{name}") {
                                                                         settings_pieces.set("cburnett".into());
                                                                         persist_settings();
                                                                     }
@@ -389,9 +386,9 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
                                 </label>
                             </div>
                             <div class="engine-fields">
-                                {option(i18n::t(&language.get(), "settings.hash_label"), i18n::t(&language.get(), "settings.hash_mb"), true)}
-                                {option(i18n::t(&language.get(), "settings.threads_label"), i18n::t(&language.get(), "settings.threads_label"), true)}
-                                {option(i18n::t(&language.get(), "settings.multipv"), i18n::t(&language.get(), "settings.multipv"), true)}
+                                {option("Hash", i18n::t(&language.get(), "settings.hash_mb"), true)}
+                                {option("Threads", i18n::t(&language.get(), "settings.threads_label"), true)}
+                                {option("MultiPV", i18n::t(&language.get(), "settings.multipv"), true)}
                                 {option("Skill Level", "Skill level", true)}
                                 {option("UCI_Elo", "UCI Elo", true)}
                                 {option("SyzygyPath", "Syzygy path", false)}

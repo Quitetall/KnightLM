@@ -48,9 +48,15 @@ fn clock_text(milliseconds: Option<i64>) -> String {
 
 /// The clock pair from a match payload.
 fn clocks(payload: &serde_json::Value) -> (Option<i64>, Option<i64>) {
-    match payload.get("clock").and_then(|clock| clock.as_array()) {
-        Some(pair) if pair.len() == 2 => (pair[0].as_i64(), pair[1].as_i64()),
-        _ => (None, None),
+    match payload.get("clock") {
+        Some(clock) if clock.is_object() => {
+            (clock["white_ms"].as_i64(), clock["black_ms"].as_i64())
+        }
+        Some(clock) => clock
+            .as_array()
+            .filter(|pair| pair.len() == 2)
+            .map_or((None, None), |pair| (pair[0].as_i64(), pair[1].as_i64())),
+        None => (None, None),
     }
 }
 
@@ -603,7 +609,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                     format!("{state} · {turn} to move")
                                 } else if local_game {
                                     i18n::tf(&language.get(), "play.side_turn", &[(
-                                        "side", i18n::t(&language.get(), if turn == "black" { "play.black" } else { "play.white" }).to_owned()
+                                        "side", i18n::t(&language.get(), if turn == "black" { "common.black" } else { "common.white" }).to_owned()
                                     )])
                                 } else if human_turn {
                                     i18n::t(&language.get(), "play.your_turn").to_owned()

@@ -81,7 +81,7 @@ def check_suite(suite, args, scratch, expected_assets):
                RBC_CDP_URL=base, RBC_CDP_PORT=str(cdp_port), RBC_CDP_PROVIDER_PORT=str(provider_port),
                RBC_CDP_EVIDENCE=str(logs),
                MOCK_REASONING="controls the centre")
-    if suite.stem in {"cdp_engine_preview", "cdp_game_report", "cdp_sparring"} and "STOCKFISH_PATH" not in env:
+    if suite.stem in {"cdp_engine_preview", "cdp_game_report", "cdp_sparring", "cdp_engine_match", "cdp_analysis_engine_play", "cdp_engine_settings"} and "STOCKFISH_PATH" not in env:
         if engine := shutil.which("stockfish"):
             env["STOCKFISH_PATH"] = engine
     no_provider = suite.stem == "cdp_ai_i18n_a11y"
@@ -101,7 +101,7 @@ def check_suite(suite, args, scratch, expected_assets):
             if receipt[asset] != expected_assets[asset]:
                 raise RuntimeError(f"served asset differs from run build: {asset}")
         (logs / "assets.json").write_text(json.dumps(receipt, indent=2) + "\n")
-        if suite.stem == "cdp_session":
+        if suite.stem in {"cdp_session", "cdp_workspace_restore"}:
             with sqlite3.connect(database) as db:
                 db.execute("INSERT INTO legacy_sessions (client, payload, updated) VALUES ('check-legacy','{}',1)")
         test = start(stack, ["node", suite], logs / "test.log", env)
@@ -128,15 +128,6 @@ def main():
     if len(names) != len(set(names)) or set(names) - available.keys():
         parser.error("suite names must be unique existing cdp_* filename stems")
     args.evidence.mkdir(parents=True)
-    with args.server.open("rb") as binary:
-        server_sha256 = hashlib.file_digest(binary, "sha256").hexdigest()
-    assets = {asset: hashlib.sha256((args.static / asset).read_bytes()).hexdigest()
-              for asset in ASSETS}
-    (args.evidence / "run.json").write_text(json.dumps({
-        "server_sha256": server_sha256,
-        "assets": assets,
-        "suites": names,
-    }, indent=2) + "\n")
     failures = 0
     with TemporaryDirectory(prefix="knightlm-cdp-run-", dir="/mnt/4tb/tmp") as scratch:
         run = Path(scratch)
@@ -145,8 +136,22 @@ def main():
         static = run / "public"
         shutil.copytree(args.static, static)
         args.static = static
-        for name in names:
-            fixture = run / name
+        server = run / "rbc-server"
+        shutil.copy2(args.server, server)
+        args.server = server
+        with server.open("rb") as binary:
+            server_sha256 = hashlib.file_digest(binary, "sha256").hexdigest()
+        assets = {asset: hashlib.sha256((static / asset).read_bytes()).hexdigest()
+                  for asset in ASSETS}
+        (args.evidence / "run.json").write_text(json.dumps({
+            "server_sha256": server_sha256,
+            "assets": assets,
+            "suites": names,
+        }, indent=2) + "\n")
+        # Chrome creates Unix sockets under its profile. Keep the per-suite
+        # path short even when a CDP suite has a descriptive filename.
+        for index, name in enumerate(names):
+            fixture = run / str(index)
             fixture.mkdir()
             try:
                 check_suite(scripts / available[name].name, args, fixture, assets)

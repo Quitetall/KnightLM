@@ -344,6 +344,11 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                             "white".to_string()
                         }
                     })
+                    interaction_disabled=Signal::derive(move || {
+                        variant_only.get() || (vs_engine.get() && (thinking.get()
+                            || (fen.get().split_whitespace().nth(1) == Some("b"))
+                                != (play_as.get() == "black")))
+                    })
                     shapes=Signal::derive(move || {
                         let mut list = shapes.get();
                         list.extend(ai_shapes.get());
@@ -519,6 +524,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                         <input
                             type="checkbox"
                             prop:checked=move || vs_engine.get()
+                            disabled=move || variant_only.get()
                             on:change=toggle_vs_engine
                         />
                         {move || i18n::t(&language.get(), "analysis.play_engine")}
@@ -857,16 +863,17 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                 <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.tree")}</div>
                 {tree_nodes}
                 <div class="row-btns">
-                    <button on:click=delete_tree_from_here>
+                    <button on:click=delete_tree_from_here disabled=move || variant_only.get()>
                         {move || i18n::t(&language.get(), "analysis.delete_from")}
                     </button>
-                    <button on:click=promote_selected>
+                    <button on:click=promote_selected disabled=move || variant_only.get()>
                         {move || i18n::t(&language.get(), "analysis.promote")}
                     </button>
                     <label class="checkline">
                         <input
                             type="checkbox"
                             prop:checked=move || record_moves.get()
+                            disabled=move || variant_only.get()
                             on:change=move |ev| record_moves.set(event_target_checked(&ev))
                         />
                         {move || i18n::t(&language.get(), "analysis.record_moves")}
@@ -1066,7 +1073,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                             i18n::t(&language.get(), "analysis.edit_moves")
                         }}
                     </button>
-                    <button on:click=truncate_moves>{move || i18n::t(&language.get(), "analysis.keep_up")}</button>
+                    <button on:click=truncate_moves disabled=move || variant_only.get()>{move || i18n::t(&language.get(), "analysis.keep_up")}</button>
                 </div>
                 {move || {
                     edit_moves_open
@@ -1077,9 +1084,10 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                                     <textarea
                                         placeholder="1. e4 e5 2. Nf3 (2. Bc4 Nf6) …"
                                         prop:value=move || moves_text.get()
+                                        readonly=move || variant_only.get()
                                         on:input=move |ev| moves_text.set(event_target_value(&ev))
                                     ></textarea>
-                                    <button on:click=apply_moves>{move || i18n::t(&language.get(), "analysis.save_moves")}</button>
+                                    <button on:click=apply_moves disabled=move || variant_only.get()>{move || i18n::t(&language.get(), "analysis.save_moves")}</button>
                                 </div>
                             }
                         })

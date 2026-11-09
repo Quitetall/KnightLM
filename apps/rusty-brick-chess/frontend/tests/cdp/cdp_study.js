@@ -1,3 +1,4 @@
+const { waitFor } = require("./browser");
 const { openView } = require("./navigation");
 // The Study tab: create a study, add chapters, reorder and duplicate one, add a
 // board and mark it primary, write notes, and publish.
@@ -125,12 +126,44 @@ function getJson(port, path) {
   await sleep(1500);
   const checkedAfterReload = await ev(`(()=>{const b=document.querySelector(".chapter-done input");return b?b.checked:null;})()`);
 
+  const beforeBoard = await ev(`document.querySelector(".strip-board.selected")?.textContent.trim()`);
+  const switchedBoard = await ev(`(() => {
+    const other = document.querySelector(".strip-board:not(.selected)");
+    if (!other) return false;
+    other.click();
+    return true;
+  })()`);
+  const afterBoard = await ev(`document.querySelector(".strip-board.selected")?.textContent.trim()`);
+  await waitFor(() => ev(`document.querySelectorAll(".move-tree .move-san").length >= 2`), "selected study board did not load");
+
   const published = await click(".study-publish");
   await sleep(1600);
   const lifecycle = await ev(`document.querySelector(".study-lifecycle")?.textContent.trim()`);
   const disabledAfter = await ev(`document.querySelector(".chapter-add")?.disabled`);
 
-  console.log(JSON.stringify({ hasView, created, studies, chapters, duplicated, afterDuplicate, moved, afterMove, boardAdded, boards, primary, primaryMarked, saved, headings, items, bold, tags, seededOk, moves, notesRows, ticked, progressText, boxChecked, checkedAfterReload, boardHtml, published, lifecycle, disabledAfter }));
+  const publishedRecord = await ev(`fetch("/api/studies").then(response => response.json()).then(studies => studies[0])`);
+  const publishedVersion = publishedRecord?.current_version;
+  const editRejected = await ev(`(async () => {
+    const study = (await (await fetch("/api/studies")).json())[0];
+    const response = await fetch("/api/studies/" + study.id + "/chapters", {
+      method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({title:"Rejected change"}),
+    });
+    return !response.ok;
+  })()`);
+
+  // A study board is opened as a separate workspace at its visible ply.
+  await click(".move-tree .move-san");
+  await waitFor(() => ev(`document.querySelector(".study-board-slot .fen-line code")?.textContent.includes(" b ")`), "study replay did not select e4");
+  const studyFen = await ev(`document.querySelector(".study-board-slot .fen-line code")?.textContent`);
+  if (!await click(".board-open")) throw new Error("study handoff control missing");
+  await waitFor(() => ev(`document.querySelector("main")?.dataset.view === "analysis"
+    && document.querySelector(".recorded-board .fen-line code")?.textContent === ${JSON.stringify(studyFen)}`), "Analysis did not open at the selected study ply");
+  await send("Page.reload");
+  await waitFor(() => ev(`performance.getEntriesByType("navigation")[0]?.type === "reload"
+    && document.querySelector("main")?.dataset.view === "analysis"
+    && document.querySelector(".recorded-board .fen-line code")?.textContent === ${JSON.stringify(studyFen)}`), "Analysis did not restore the study ply");
+
+  console.log(JSON.stringify({ hasView, created, studies, chapters, duplicated, afterDuplicate, moved, afterMove, boardAdded, boards, primary, primaryMarked, saved, headings, items, bold, tags, seededOk, moves, notesRows, ticked, progressText, boxChecked, checkedAfterReload, boardHtml, published, lifecycle, disabledAfter, beforeBoard, switchedBoard, afterBoard, publishedVersion, editRejected, studyFen }));
   const ok = hasView && created && studies >= 1
     && chapters.length === 2 && chapters[0] === "Openings"
     && duplicated && afterDuplicate.length === 3 && afterDuplicate.some((t) => t.includes("copy"))
@@ -142,7 +175,7 @@ function getJson(port, path) {
     && ticked === true && /^1\/\d+$/.test(progressText || "")
     && boxChecked === true && checkedAfterReload === true
     && published && lifecycle === "published"
-    && disabledAfter === true;
+    && disabledAfter === true && switchedBoard && beforeBoard !== afterBoard && publishedVersion >= 1 && editRejected;
   console.log(ok ? "AI_STUDY_PASS" : "AI_STUDY_FAIL");
   ws.close(); chrome.kill(); process.exit(ok ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(1); });

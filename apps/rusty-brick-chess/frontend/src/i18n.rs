@@ -285,6 +285,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "Practicar desde aquí",
     ),
     ("practice.spar", "Sparring", "Sparring"),
+    (
+        "practice.position_unavailable",
+        "The match position did not load.",
+        "No se cargó la posición de la partida.",
+    ),
     ("practice.match", "Engine match", "Partida de motores"),
     ("practice.start", "Start", "Empezar"),
     ("practice.pause", "Pause", "Pausa"),

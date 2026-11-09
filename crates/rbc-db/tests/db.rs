@@ -559,6 +559,53 @@ fn studies_copy_chapters_versions_and_progress() {
     assert_eq!(published.current_version, 2);
     assert_eq!(db.study_versions(&study.id).unwrap().len(), 1);
 
+    let original_board_count = db.boards("study_chapter", &chapter.id).unwrap().len();
+    assert!(
+        db.add_chapter(&study.id, "New chapter", &primary.start_fen, "")
+            .is_err()
+    );
+    assert!(
+        db.add_board_to_chapter(
+            &study.id,
+            &chapter.id,
+            "New board",
+            &primary.start_fen,
+            "{}"
+        )
+        .is_err()
+    );
+    assert!(
+        db.update_study(&study.id, Some("Rewritten"), None, None, None)
+            .is_err()
+    );
+    assert!(
+        db.update_chapter(&study.id, &chapter.id, None, Some("changed"))
+            .is_err()
+    );
+    assert!(
+        db.write_study_text(&study.id, Some(&chapter.id), "changed")
+            .is_err()
+    );
+    assert!(db.delete_chapter(&study.id, &chapter.id).is_err());
+    assert!(db.duplicate_chapter(&study.id, &chapter.id).is_err());
+    assert!(
+        db.reorder_chapters(&study.id, std::slice::from_ref(&chapter.id))
+            .is_err()
+    );
+    assert!(
+        db.set_chapter_primary_board(&study.id, &chapter.id, &primary.id)
+            .is_err()
+    );
+    assert_eq!(db.chapters(&study.id).unwrap().len(), 1);
+    assert_eq!(
+        db.boards("study_chapter", &chapter.id).unwrap().len(),
+        original_board_count
+    );
+    assert_eq!(
+        db.study_versions(&study.id).unwrap()[0].bundle_json,
+        version.bundle_json
+    );
+
     let copy = db.copy_study(&study.id).unwrap();
     assert_ne!(copy.id, study.id);
     assert_eq!(copy.lifecycle, "draft");

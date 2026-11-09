@@ -1,11 +1,11 @@
-// RBCUI-AN-06. Compare the UI, Markdown export and written PGN annotations
+// RBCUI-AN-01 and AN-06. Compare the UI, Markdown export and written PGN annotations
 // against a real Stockfish classification of a known mating sequence.
 const { withBrowser, waitFor } = require("./browser");
 
 withBrowser(async ({ command, evaluate, click, clickText, destination, view }) => {
   await view("home");
   const game = await evaluate(`(async () => {
-    const pgn = '[White "Report White"]\\n[Black "Report Black"]\\n[Result "0-1"]\\n\\n1. f3 e5 2. g4 Qh4# 0-1';
+    const pgn = '[White "Report White"]\\n[Black "Report Black"]\\n[Result "0-1"]\\n\\n1. f3 e5 {[%clk 0:02:57]} (1... d5 2. e4 (2. d4 Nf6)) 2. g4 Qh4# 0-1';
     const response = await fetch("/api/games", {
       method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({pgn}),
     });
@@ -48,6 +48,37 @@ withBrowser(async ({ command, evaluate, click, clickText, destination, view }) =
   const labels = await evaluate('[...document.querySelectorAll(".report .mv-list .mv")].map(item => item.classList[1])');
   if (JSON.stringify(labels) !== JSON.stringify(expectedLabels)) throw new Error("move labels did not match report");
   await waitFor(() => evaluate('!!document.querySelector(".eval-graph polyline")'), "cached evaluations did not render");
+
+  const fen = () => evaluate('document.querySelector(".recorded-board .fen-line code")?.textContent');
+  const selected = () => evaluate('document.querySelector(".tree .tnode.current")?.textContent');
+  const hasNode = (san, variation) => evaluate(`[...document.querySelectorAll(".tree .tnode" + (${variation} ? ".variation" : ":not(.variation)"))]
+      .some(node => node.firstChild.textContent.trim().split(/\\s+/).includes(${JSON.stringify(san)}))`);
+  const pick = (san, variation) => evaluate(`[...document.querySelectorAll(".tree .tnode" + (${variation} ? ".variation" : ":not(.variation)"))]
+      .find(node => node.firstChild.textContent.trim().split(/\\s+/).includes(${JSON.stringify(san)})).click()`);
+  await waitFor(() => hasNode("e5", false), "mainline node missing");
+  await pick("e5", false);
+  await waitFor(async () => (await selected())?.includes("e5") && (await fen())?.includes("/4p3/"), "mainline replay missing");
+  const mainlineFen = await fen();
+  if (!await evaluate('document.querySelector(".tree .tnode.current")?.textContent.includes("0:02:57")')) throw new Error("clock comment missing from selected mainline move");
+
+  await waitFor(() => hasNode("Nf6", true), "nested variation node missing");
+  await pick("Nf6", true);
+  await waitFor(async () => (await selected())?.includes("Nf6") && (await fen())?.includes("/5n2/"), "nested variation did not update the board");
+  const nestedFen = await fen();
+  await click('[data-analysis-view="simple"]');
+  await click('[data-analysis-view="detailed"]');
+  if (await fen() !== nestedFen || !(await selected())?.includes("Nf6")) throw new Error("mode switch lost the nested variation");
+
+  await evaluate(`(() => {
+    const svg = document.querySelector(".eval-svg");
+    const bounds = svg.getBoundingClientRect();
+    const row = svg.querySelector("polyline").getAttribute("points").trim().split(" ")[1];
+    const x = Number(row.split(",")[0]);
+    svg.dispatchEvent(new MouseEvent("mousemove", {bubbles:true,clientX:bounds.left + x * bounds.width / 100,clientY:bounds.top + bounds.height / 2}));
+  })()`);
+  await waitFor(() => evaluate('document.querySelector(".eval-readout")?.textContent.includes("ply 1 e5")'), "cached graph hover did not identify the mainline move");
+  await evaluate('document.querySelector(".eval-svg").dispatchEvent(new MouseEvent("click", {bubbles:true}))');
+  await waitFor(async () => await fen() === mainlineFen && (await selected())?.includes("e5"), "cached graph did not jump back to the recorded mainline");
 
   await clickText(".detailed-analysis button", "Export report");
   await waitFor(() => evaluate('window.reportName?.endsWith("-report.md") && !!window.reportText'), "Markdown export missing");

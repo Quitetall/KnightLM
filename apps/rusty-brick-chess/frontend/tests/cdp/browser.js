@@ -11,7 +11,7 @@ async function waitFor(check, label) {
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
     try { if (await check()) return; } catch (error) {
-      if (error.message !== "Runtime.evaluate failed") throw error;
+      if (!error.message.startsWith("Runtime.evaluate failed")) throw error;
     }
     await sleep(100);
   }
@@ -52,7 +52,10 @@ async function withBrowser(test) {
       pending.set(request, (reply) => {
         clearTimeout(timer);
         pending.delete(request);
-        if (reply.error || reply.result?.exceptionDetails) reject(new Error(method + " failed"));
+        if (reply.error || reply.result?.exceptionDetails) {
+          const detail = reply.error?.message || reply.result.exceptionDetails.exception?.description || reply.result.exceptionDetails.text;
+          reject(new Error(method + " failed: " + detail));
+        }
         else resolve(reply.result);
       });
       ws.send(JSON.stringify({ id: request, method, params }));
