@@ -104,6 +104,25 @@ def check_suite(suite, args, scratch, expected_assets):
         if suite.stem in {"cdp_session", "cdp_workspace_restore"}:
             with sqlite3.connect(database) as db:
                 db.execute("INSERT INTO legacy_sessions (client, payload, updated) VALUES ('check-legacy','{}',1)")
+        if suite.stem == "cdp_leaderboard":
+            env["RBC_CDP_SEEDED_LEADERBOARD"] = "1"
+            with sqlite3.connect(database) as db:
+                db.executemany("INSERT INTO ratings VALUES (?, ?, ?, 0.06, ?, 1, 1)",
+                               [("llm:fixture:Quartz", 1701, 50, 8),
+                                ("llm:fixture:Zinc", 1550, 110, 4)])
+                db.executemany(
+                    "INSERT INTO ai_turns (id, session_id, seq, role, model_json, tokens_in, tokens_out, created)"
+                    " VALUES (?, 'leaderboard-fixture', ?, 'assistant', ?, ?, ?, 1)",
+                    [("q1", 1, '{"model":"Quartz"}', 23, 7), ("q2", 2, '{"model":"Quartz"}', 17, 3)],
+                )
+                db.execute(
+                    "INSERT INTO ai_matches (id, white_json, black_json, state_json, created)"
+                    " VALUES ('leaderboard-fixture', ?, ?, ?, 1)",
+                    ('{"model":"Quartz"}', '{"model":"Zinc"}', json.dumps({"moves": [
+                        {"color": "white", "attempts": 1}, {"color": "black", "attempts": 1},
+                        {"color": "white", "attempts": 2},
+                    ]})),
+                )
         test = start(stack, ["node", suite], logs / "test.log", env)
         status = test.wait(timeout=120)
         output = (logs / "test.log").read_text(errors="replace")

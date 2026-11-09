@@ -33,6 +33,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(2200);
   const rows = await ev(`document.querySelectorAll(".tournament-list .tournament-row").length`);
 
+  const readMatches = () => ev('fetch("/api/ai/matches").then(r=>r.json()).then(rows=>rows.map(row=>row.id))');
+  const beforeStep = await readMatches();
   const stepped = await clickText("Step");
   await sleep(1600);
   const pairings = await ev(`[...document.querySelectorAll(".pairings .pairing")].map(p=>p.textContent.trim())`);
@@ -61,7 +63,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     return window.__downloaded;
   })()`);
 
-  console.log(JSON.stringify({ named, typed, created, rows, stepped, pairings, standings, log, paused, pausedLog, exportClicked, exported }));
+  // Pairing scheduling can pass this smoke check without starting an actual match.
+  const afterStep = await readMatches();
+  const newMatchIds = afterStep.filter(id => !beforeStep.includes(id));
+  console.log(JSON.stringify({ named, typed, created, rows, stepped, pairings, standings, log, paused, pausedLog, exportClicked, exported, newMatchIds }));
   const ok = named && typed && created && rows >= 1 && stepped
     && pairings.length >= 2 && standings >= 4
     && log.join(" ").includes("created UI cup")

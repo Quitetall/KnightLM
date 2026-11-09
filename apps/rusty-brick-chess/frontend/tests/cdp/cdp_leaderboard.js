@@ -24,19 +24,38 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const ev = async (x) => (await send("Runtime.evaluate", { expression: x, returnByValue: true, awaitPromise: true })).result?.value;
   const clickText = async (text) => await ev(`(()=>{const b=[...document.querySelectorAll("button")].find(x=>x.textContent.trim()===${JSON.stringify(text)});if(!b)return false;b.click();return true;})()`);
 
-  // Seed a rated game so the ladder has a row to show.
-  const seeded = await ev(`(async()=>{
-    const post = (p, b) => fetch(p, {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(b||{})}).then(r=>r.json());
-    const white = 'llm:a:v1', black = 'llm:b:v1';
-    const period = Date.now();
-    await post('/api/debug/stage-rating', {period, white, black});
-    return true;
-  })()`).catch(() => false);
-
   if (!await openView(ev, "workbench", "tournaments")) throw new Error("tournaments destination unavailable");
   await sleep(1500);
   const hasBoard = await ev(`!!document.querySelector(".leaderboard")`);
   const hasTournaments = await ev(`!!document.querySelector(".tournaments")`);
+
+  // The harness supplies independently known ratings, turns and move attempts.
+  if (process.env.RBC_CDP_SEEDED_LEADERBOARD === "1") {
+    const ladderRows = () => ev(`[...document.querySelectorAll(".leaderboard-table tbody tr")].map(row=>
+      [...row.cells].map(cell=>cell.textContent.trim()))`);
+    const filter = value => ev(`(() => {
+      const input = document.querySelector(".board-filter");
+      input.value = ${JSON.stringify(value)};
+      input.dispatchEvent(new Event("input",{bubbles:true}));
+    })()`);
+    const quartz = ["llm:fixture:Quartz","1701","50","1601","8","50%","2","50"];
+    const zinc = ["llm:fixture:Zinc","1550","110","1330","4","100%","0","0"];
+    const assertRows = async (expected, label) => {
+      for (let i = 0; i < 30; i++) {
+        if (JSON.stringify(await ladderRows()) === JSON.stringify(expected)) return;
+        await sleep(100);
+      }
+      throw new Error(label + ": " + JSON.stringify(await ladderRows()));
+    };
+    await assertRows([quartz,zinc], "fixture ratings or usage differ");
+    await filter("qUaRtZ");
+    await assertRows([quartz], "case-insensitive filter");
+    await filter("unmatched model");
+    await assertRows([], "empty filtered ladder");
+    await filter("");
+    await assertRows([quartz,zinc], "filter clear");
+    console.log("Verified seeded ratings, usage, filter, and empty state");
+  }
 
   // The create control is a form now (name, format, competitors) rather than a
   // button with four hardcoded models, so fill it before creating.
