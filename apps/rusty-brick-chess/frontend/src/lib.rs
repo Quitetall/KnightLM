@@ -250,24 +250,31 @@ pub fn App() -> impl IntoView {
     let engine_test = RwSignal::new(None::<api::EngineInfo>);
     let engine_test_busy = RwSignal::new(false);
 
+    let library_request = RwSignal::new(0_u64);
     let reload = move || {
         let q = query.get();
         let collection = active_collection.get();
         let event = event_filter.get();
+        let request = library_request.get_untracked() + 1;
+        library_request.set(request);
+        let filters = api::Filters {
+            player: q,
+            event,
+            collection,
+            date_from: filter_date_from.get_untracked(),
+            date_to: filter_date_to.get_untracked(),
+            result: filter_result.get_untracked(),
+            elo_min: filter_elo_min.get_untracked(),
+            elo_max: filter_elo_max.get_untracked(),
+            variant: filter_variant.get_untracked(),
+            sort: sort_by.get_untracked(),
+        };
         spawn_local(async move {
-            let filters = api::Filters {
-                player: q.clone(),
-                event: event.clone(),
-                collection,
-                date_from: filter_date_from.get_untracked(),
-                date_to: filter_date_to.get_untracked(),
-                result: filter_result.get_untracked(),
-                elo_min: filter_elo_min.get_untracked(),
-                elo_max: filter_elo_max.get_untracked(),
-                variant: filter_variant.get_untracked(),
-                sort: sort_by.get_untracked(),
-            };
-            match api::list_games(&filters).await {
+            let result = api::list_games(&filters).await;
+            if library_request.get_untracked() != request {
+                return;
+            }
+            match result {
                 Ok((g, t)) => {
                     games.set(g);
                     total.set(t);
@@ -427,10 +434,16 @@ pub fn App() -> impl IntoView {
         if f.trim().is_empty() {
             return;
         }
+        let request = library_request.get_untracked() + 1;
+        library_request.set(request);
+        let partial = partial_search.get_untracked();
+        let variant = position_variant.get_untracked();
         spawn_local(async move {
-            let partial = partial_search.get_untracked();
-            let variant = position_variant.get_untracked();
-            match api::search_position(&f, partial, &variant).await {
+            let result = api::search_position(&f, partial, &variant).await;
+            if library_request.get_untracked() != request {
+                return;
+            }
+            match result {
                 Ok(found) => {
                     total.set(found.len() as i64);
                     games.set(found);

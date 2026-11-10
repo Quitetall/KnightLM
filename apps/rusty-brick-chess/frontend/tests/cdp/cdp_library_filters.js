@@ -33,6 +33,29 @@ withBrowser(async ({ command, evaluate, click, clickText, setField, destination,
   const variant = '.filters select:has(option[value="atomic"])';
   const result = '.filters select:has(option[value="1-0"])';
   await expect([d,c,b,a], "newest ordering wrong");
+  // Delay a completed response, then submit a newer filter before releasing it.
+  await evaluate(`(() => {
+    const original = window.fetch.bind(window);
+    window.delayLibraryResponse = true;
+    window.fetch = async (...args) => {
+      const response = await original(...args);
+      if (new URL(args[0].url || args[0], location.href).pathname === "/api/games" && window.delayLibraryResponse) {
+        window.delayLibraryResponse = false;
+        await new Promise(resolve=>{window.releaseLibraryResponse=resolve});
+      }
+      return response;
+    };
+  })()`);
+  await apply();
+  await waitFor(() => evaluate('!!window.releaseLibraryResponse'), "old library response did not arrive");
+  await setField(variant, "atomic", "change");
+  await apply();
+  await expect([c], "new filter did not apply");
+  await evaluate("window.releaseLibraryResponse()");
+  await evaluate("new Promise(resolve=>setTimeout(resolve, 200))");
+  if ((await rows()).join(",") !== String(c)) throw new Error("late response overwrote the newer Library filter");
+  await clear();
+  await expect([d,c,b,a], "clear did not restore after delayed response");
   for (const [kind,order] of [
     ["oldest",[a,b,c,d]],["date",[c,a,d,b]],["white",[b,d,c,a]],
     ["black",[c,a,d,b]],["length",[a,c,b,d]],["newest",[d,c,b,a]],
