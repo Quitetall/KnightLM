@@ -217,6 +217,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("play.wins", "W", "V"),
     ("play.tournaments", "Tournaments", "Torneos"),
     (
+        "play.tournament_step_hint",
+        "Advance this game from the tournament.",
+        "Avanza esta partida desde el torneo.",
+    ),
+    (
         "play.new_tournament",
         "New round robin",
         "Nuevo round robin",

@@ -2997,6 +2997,10 @@ pub fn App() -> impl IntoView {
     };
 
     let open_editor = move |_| {
+        if editor_open.get_untracked() {
+            editor_open.set(false);
+            return;
+        }
         let position = fen.get_untracked();
         let fields: Vec<&str> = position.split_whitespace().collect();
         editor_pieces.set(pieces_from_fen(&position));
@@ -3014,9 +3018,24 @@ pub fn App() -> impl IntoView {
             &editor_castling.get_untracked(),
             &editor_ep.get_untracked(),
         );
+        let variant = editor_variant.get_untracked();
+        let mut candidate = brick_chess::Widget::new();
+        let mut events = candidate.apply(brick_chess::Command::SetVariant {
+            variant: variant.clone(),
+        });
+        events.extend(candidate.apply(brick_chess::Command::LoadFen {
+            fen: position.clone(),
+        }));
+        if let Some(brick_chess::Event::Error { detail, .. }) = events
+            .iter()
+            .find(|event| matches!(event, brick_chess::Event::Error { .. }))
+        {
+            vision_msg.set(detail.clone());
+            return;
+        }
         let seq = load_seq.get_untracked() + 1;
         load_seq.set(seq);
-        load_fen_sig.set(Some((seq, position, editor_variant.get_untracked())));
+        load_fen_sig.set(Some((seq, position, variant)));
         vs_engine.set(false);
         play_uci.set(None);
         thinking.set(false);
@@ -3616,6 +3635,7 @@ pub fn App() -> impl IntoView {
         event_filter,
         events,
         fen,
+        board_variant,
         filter_date_from,
         filter_date_to,
         filter_elo_max,
@@ -3963,7 +3983,7 @@ pub fn App() -> impl IntoView {
                 </details>
                 <div class="side-foot">"AGPL-3.0 · BrickChess"</div>
             </aside>
-            <main class="main" id="app-main" data-view=move || tab_name(tab.get())>
+            <main class="main" id="app-main" tabindex="-1" data-view=move || tab_name(tab.get())>
                 <header class="topbar">
                     <Show when=move || tab.get() == Tab::Database>
                     <input

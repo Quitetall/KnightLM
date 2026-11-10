@@ -118,12 +118,12 @@ function getJson(port, path) {
 
   // Progress: tick the first chapter, and the header count follows.
   const ticked = await ev(`(()=>{const box=document.querySelector(".chapter-done input");if(!box)return false;box.click();return true;})()`);
-  await sleep(1400);
+  await waitFor(() => ev('(document.querySelector(".study-progress")?.textContent.trim() || "").startsWith("1/")'), "chapter progress did not save");
   const progressText = await ev(`document.querySelector(".study-progress")?.textContent.trim()`);
   const boxChecked = await ev(`document.querySelector(".chapter-done input")?.checked`);
   // It survives a reload of the study, because it is stored per user.
   await ev(`document.querySelector(".study-row")?.click()`);
-  await sleep(1500);
+  await waitFor(() => ev('document.querySelector(".chapter-done input")?.checked === true'), "chapter progress did not restore");
   const checkedAfterReload = await ev(`(()=>{const b=document.querySelector(".chapter-done input");return b?b.checked:null;})()`);
 
   const beforeBoard = await ev(`document.querySelector(".strip-board.selected")?.textContent.trim()`);
@@ -137,7 +137,7 @@ function getJson(port, path) {
   await waitFor(() => ev(`document.querySelectorAll(".move-tree .move-san").length >= 2`), "selected study board did not load");
 
   const published = await click(".study-publish");
-  await sleep(1600);
+  await waitFor(() => ev('document.querySelector(".study-lifecycle")?.textContent.trim() === "published" && document.querySelector(".chapter-add")?.disabled === true'), "published study did not become read-only");
   const lifecycle = await ev(`document.querySelector(".study-lifecycle")?.textContent.trim()`);
   const disabledAfter = await ev(`document.querySelector(".chapter-add")?.disabled`);
 

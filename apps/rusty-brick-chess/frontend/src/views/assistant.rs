@@ -279,6 +279,16 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
         palette.set(None);
     };
 
+    // A person can type a mention before the reference requests finish.
+    let refresh_references_palette = refresh_palette.clone();
+    Effect::new(move |_| {
+        reference_source.track();
+        let text = draft.get_untracked();
+        if text.contains('@') {
+            refresh_references_palette(&text);
+        }
+    });
+
     // Apply the highlighted entry: a command replaces the draft, a mention
     // becomes a chip and is removed from the text.
     let pick_palette = move |key: &str| {

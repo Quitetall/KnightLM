@@ -451,6 +451,7 @@ pub fn state_from_env() -> anyhow::Result<(api::AppState, String)> {
         console: std::sync::Arc::new(std::sync::Mutex::new(None)),
         turn_cancels: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         lamu_child: Default::default(),
+        tournament_actions: Default::default(),
     };
     Ok((state, db_path))
 }

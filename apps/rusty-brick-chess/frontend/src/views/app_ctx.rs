@@ -78,6 +78,7 @@ pub struct AppCtx {
     pub event_filter: RwSignal<Option<String>>,
     pub events: RwSignal<Vec<EventRow>>,
     pub fen: RwSignal<String>,
+    pub board_variant: RwSignal<String>,
     pub filter_date_from: RwSignal<String>,
     pub filter_date_to: RwSignal<String>,
     pub filter_elo_max: RwSignal<String>,

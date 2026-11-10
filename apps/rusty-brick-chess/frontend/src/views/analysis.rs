@@ -69,6 +69,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
         clock_inc,
         clock_inc_input,
         cloud,
+        board_variant,
         collections,
         console_busy,
         console_cmd,
@@ -328,6 +329,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                     pgn=selected_pgn
                     title=Signal::derive(move || selected_title.get())
                     on_position=Callback::new(move |f: String| fen.set(f))
+                    on_variant=Callback::new(move |variant: String| board_variant.set(variant))
                     on_ply=Callback::new(move |p: usize| tree_ply.set(p))
                     goto=Signal::derive(move || goto_sig.get())
                     play=Signal::derive(move || play_uci.get())

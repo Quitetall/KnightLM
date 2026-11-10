@@ -1928,6 +1928,29 @@ impl Db {
         self.ai_match(&id)?.context("AI match just inserted")
     }
 
+    /// Store an initialized match for a tournament board. The stable ID makes
+    /// retries safe even if a request stops after creating only part of a batch.
+    pub fn ensure_tournament_match(
+        &self,
+        id: &str,
+        white_json: &str,
+        black_json: &str,
+        config_json: &str,
+        state_json: &str,
+        pgn: &str,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().expect("db lock");
+        let inserted = conn.execute(
+            &format!(
+                "INSERT INTO ai_matches
+                 (id, white_json, black_json, config_json, state_json, pgn, created)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, {NOW}) ON CONFLICT(id) DO NOTHING"
+            ),
+            params![id, white_json, black_json, config_json, state_json, pgn],
+        )?;
+        Ok(inserted != 0)
+    }
+
     /// Recent matches, newest first. A match list is what the Play tab shows,
     /// so it comes from the database rather than from whatever this browser
     /// happens to remember.
@@ -1968,7 +1991,7 @@ impl Db {
                 &format!(
                     "UPDATE ai_matches SET state_json = ?1, pgn = ?2, result_json = ?3,
                      termination = ?4,
-                     ended = CASE WHEN ?5 THEN {NOW} ELSE ended END
+                     ended = CASE WHEN ?5 THEN COALESCE(ended, {NOW}) ELSE NULL END
                      WHERE id = ?6"
                 ),
                 params![state_json, pgn, result_json, termination, ended as i64, id],

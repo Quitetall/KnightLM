@@ -32,6 +32,7 @@ pub struct AppState {
     pub engine_path: Option<String>,
     pub model_url: Option<String>,
     pub lamu_child: Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>,
+    pub tournament_actions: Arc<tokio::sync::Mutex<()>>,
     pub default_depth: u32,
     /// Persistent UCI session used by the engine console.
     pub console: Arc<Mutex<Option<crate::console::Console>>>,
@@ -409,6 +410,7 @@ pub async fn create_database(
     Json(body): Json<DatabaseBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let path = database_path(&state, &body.name)?;
+    let _action = state.tournament_actions.lock().await;
     state.db.switch_to(&path)?;
     Ok(Json(serde_json::json!({
         "name": body.name.trim(),
@@ -424,6 +426,7 @@ pub async fn switch_database(
     if !path.exists() {
         return Err(ApiError::NotFound);
     }
+    let _action = state.tournament_actions.lock().await;
     state.db.switch_to(&path)?;
     Ok(Json(serde_json::json!({
         "name": body.name.trim(),

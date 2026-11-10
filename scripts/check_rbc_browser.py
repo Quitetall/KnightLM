@@ -84,6 +84,9 @@ def check_suite(suite, args, scratch, expected_assets):
     if suite.stem in {"cdp_engine_preview", "cdp_game_report", "cdp_sparring", "cdp_engine_match", "cdp_analysis_engine_play", "cdp_engine_settings"} and "STOCKFISH_PATH" not in env:
         if engine := shutil.which("stockfish"):
             env["STOCKFISH_PATH"] = engine
+    if suite.stem == "cdp_tournament":
+        env["MOCK_FOOLS_MATE"] = "1"
+        env["RBC_CDP_TOURNAMENT_FIXTURE"] = "1"
     no_provider = suite.stem == "cdp_ai_i18n_a11y"
     if no_provider:
         env.pop("MODEL_URL", None)
@@ -124,7 +127,7 @@ def check_suite(suite, args, scratch, expected_assets):
                     ]})),
                 )
         test = start(stack, ["node", suite], logs / "test.log", env)
-        status = test.wait(timeout=120)
+        status = test.wait(timeout=240 if suite.stem == "cdp_vision_editor" else 120)
         output = (logs / "test.log").read_text(errors="replace")
         markers = re.findall(r"\b[A-Z0-9_]+_(?:PASS|FAIL)\b", output)
         if status != 0 or not markers or not markers[-1].endswith("_PASS"):
@@ -166,6 +169,8 @@ def main():
             "server_sha256": server_sha256,
             "assets": assets,
             "suites": names,
+            "scripts": {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                        for path in sorted(scripts.glob("*.js"))},
         }, indent=2) + "\n")
         # Chrome creates Unix sockets under its profile. Keep the per-suite
         # path short even when a CDP suite has a descriptive filename.

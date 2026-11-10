@@ -553,6 +553,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         let white = seat_label(&payload["white"]);
                         let black = seat_label(&payload["black"]);
                         let watching = payload["white"]["kind"] == "model" && payload["black"]["kind"] == "model";
+                        let tournament_game = payload["tournament"] == true;
                         let human_turn = payload[turn.as_str()]["kind"] == "human";
                         let human_color = ["white", "black"].into_iter().find(|color| payload[*color]["kind"] == "human");
                         let pgn = payload
@@ -655,7 +656,10 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             </ol>
 
                             <div class="match-actions">
-                                {watching.then(|| view! {
+                                {tournament_game.then(|| view! {
+                                    <p>{move || i18n::t(&language.get(), "play.tournament_step_hint")}</p>
+                                })}
+                                {(watching && !tournament_game).then(|| view! {
                                 <button
                                     class="match-step"
                                     disabled=move || busy.get() || finished
@@ -697,6 +701,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 })}
                                 <button
                                     class="match-takeback"
+                                    disabled=tournament_game
                                     on:click=move |_| act("takeback", serde_json::json!({}))
                                 >
                                     {move || i18n::t(&language.get(), "play.takeback")}
@@ -710,6 +715,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 </button>
                                 <button
                                     class="match-reset"
+                                    disabled=tournament_game
                                     on:click=move |_| act("watch/reset", serde_json::json!({}))
                                 >
                                     {move || i18n::t(&language.get(), "play.reset")}
@@ -829,6 +835,7 @@ pub fn tournaments(ctx: AppCtx) -> impl IntoView {
     let tour_format = RwSignal::new("double-round-robin".to_string());
     let tour_competitors = RwSignal::new(String::new());
     let tour_log = RwSignal::new(Vec::<String>::new());
+    let tour_busy = RwSignal::new(false);
 
     let reload_board = move || {
         spawn_local(async move {
@@ -848,15 +855,72 @@ pub fn tournaments(ctx: AppCtx) -> impl IntoView {
         });
     };
 
+    let load_tournament = move |id: String| {
+        spawn_local(async move {
+            let detail = ai_api::tournament_detail(&id).await;
+            if tournament_id.get_untracked().as_deref() == Some(&id) {
+                match detail {
+                    Ok(detail) => tournament_detail.set(Some(detail)),
+                    Err(error) => message.set(error),
+                }
+            }
+        });
+    };
+    let act = move |action: &'static str| {
+        if tour_busy.get_untracked() {
+            return;
+        }
+        let Some(id) = tournament_id.get_untracked() else {
+            return;
+        };
+        tour_busy.set(true);
+        spawn_local(async move {
+            let response = ai_api::tournament_action(&id, action).await;
+            if tournament_id.get_untracked().as_deref() == Some(&id) {
+                match response {
+                    Ok(value) => {
+                        let status = value["status"].as_str().unwrap_or_default();
+                        let line = if action == "step" {
+                            let started = value["started"].as_array().map_or(0, Vec::len);
+                            let advanced = value["advanced"].as_u64().unwrap_or_default();
+                            let completed = value["completed"].as_u64().unwrap_or_default();
+                            format!(
+                                "step: started {started} game(s), advanced {advanced}, completed {completed}"
+                            )
+                        } else {
+                            format!("{action}: {status}")
+                        };
+                        let errors: Vec<_> = value["errors"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(serde_json::Value::as_str)
+                            .collect();
+                        message.set(if errors.is_empty() {
+                            line.clone()
+                        } else {
+                            errors.join(" · ")
+                        });
+                        tour_log.update(|lines| {
+                            lines.push(line);
+                            lines.extend(errors.into_iter().map(str::to_owned));
+                        });
+                        load_tournament(id);
+                    }
+                    Err(error) => message.set(error),
+                }
+            }
+            reload_tournaments();
+            tour_busy.set(false);
+        });
+    };
+
     Effect::new(move |_| reload_board());
     Effect::new(move |_| reload_tournaments());
     Effect::new(move |_| {
         if let Some(id) = tournament_id.get() {
-            spawn_local(async move {
-                if let Ok(detail) = ai_api::tournament_detail(&id).await {
-                    tournament_detail.set(Some(detail));
-                }
-            });
+            tournament_detail.set(None);
+            load_tournament(id);
         }
     });
 
@@ -985,37 +1049,14 @@ pub fn tournaments(ctx: AppCtx) -> impl IntoView {
                             >
                                 {move || i18n::t(&language.get(), "play.new_tournament")}
                             </button>
-                            <button class="tournament-step" on:click=move |_| {
-                                if let Some(id) = tournament_id.get_untracked() {
-                                    spawn_local(async move {
-                                        if let Ok(value) = ai_api::tournament_action(&id, "step").await {
-                                            let started = value.get("started").and_then(|s| s.as_array()).map(|a| a.len()).unwrap_or(0);
-                                            message.set(format!("started {started} game(s)"));
-                                            tour_log.update(|lines| lines.push(format!("step: started {started} game(s)")));
-                                            if let Ok(detail) = ai_api::tournament_detail(&id).await {
-                                                tournament_detail.set(Some(detail));
-                                            }
-                                        }
-                                        reload_tournaments();
-                                    });
-                                }
-                            }>
+                            <button class="tournament-step"
+                                disabled=move || tour_busy.get() || tournament_id.get().is_none()
+                                on:click=move |_| act("step")>
                                 {move || i18n::t(&language.get(), "play.step")}
                             </button>
-                            <button class="tournament-pause" on:click=move |_| {
-                                if let Some(id) = tournament_id.get_untracked() {
-                                    spawn_local(async move {
-                                        if let Ok(value) = ai_api::tournament_action(&id, "pause").await {
-                                            let status = value.get("status").and_then(|s| s.as_str()).unwrap_or("").to_string();
-                                            message.set(format!("tournament {status}"));
-                                            tour_log.update(|lines| lines.push(format!("pause: {status}")));
-                                            if let Ok(detail) = ai_api::tournament_detail(&id).await {
-                                                tournament_detail.set(Some(detail));
-                                            }
-                                        }
-                                    });
-                                }
-                            }>
+                            <button class="tournament-pause"
+                                disabled=move || tour_busy.get() || tournament_id.get().is_none()
+                                on:click=move |_| act("pause")>
                                 {move || i18n::t(&language.get(), "play.pause")}
                             </button>
                             <button class="tournament-export" on:click=move |_| {
@@ -1030,20 +1071,9 @@ pub fn tournaments(ctx: AppCtx) -> impl IntoView {
                             }>
                                 {move || i18n::t(&language.get(), "play.export")}
                             </button>
-                            <button class="tournament-resume" on:click=move |_| {
-                                if let Some(id) = tournament_id.get_untracked() {
-                                    spawn_local(async move {
-                                        if let Ok(value) = ai_api::tournament_action(&id, "resume").await {
-                                            let status = value.get("status").and_then(|s| s.as_str()).unwrap_or("").to_string();
-                                            message.set(format!("tournament {status}"));
-                                            tour_log.update(|lines| lines.push(format!("resume: {status}")));
-                                            if let Ok(detail) = ai_api::tournament_detail(&id).await {
-                                                tournament_detail.set(Some(detail));
-                                            }
-                                        }
-                                    });
-                                }
-                            }>
+                            <button class="tournament-resume"
+                                disabled=move || tour_busy.get() || tournament_id.get().is_none()
+                                on:click=move |_| act("resume")>
                                 {move || i18n::t(&language.get(), "play.resume")}
                             </button>
                         </div>

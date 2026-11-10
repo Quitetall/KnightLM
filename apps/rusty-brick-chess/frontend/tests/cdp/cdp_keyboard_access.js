@@ -1,0 +1,52 @@
+const assert = require("node:assert/strict");
+const { withBrowser, waitFor } = require("./browser");
+
+withBrowser(async ({ command, evaluate, click, clickText, setField, destination, view }) => {
+  const key = async (key, code = key) => {
+    await command("Input.dispatchKeyEvent", {type:"keyDown",key,code,text:key === "Enter" ? "\r" : "",unmodifiedText:key === "Enter" ? "\r" : "",windowsVirtualKeyCode:({Enter:13,Tab:9,Escape:27}[key] || 0)});
+    await command("Input.dispatchKeyEvent", {type:"keyUp",key,code,windowsVirtualKeyCode:({Enter:13,Tab:9,Escape:27}[key] || 0)});
+  };
+  await view("home");
+  await evaluate('document.querySelector(".skip-link").focus()');
+  await key("Enter");
+  assert.equal(await evaluate("document.activeElement.id"), "app-main", "skip link did not focus main");
+  await key("Tab");
+  assert.ok(await evaluate('document.activeElement.closest("main") !== null'), "skip link did not skip navigation");
+  await destination("workbench");
+  await click('[data-open-view="analysis"]');
+  await view("analysis");
+  await click('[data-analysis-view="detailed"]');
+  const focus = name => evaluate(`document.querySelector('.recorded-board [data-square="${name}"]').focus()`);
+  await focus("e2");
+  await key("Enter");
+  await waitFor(() => evaluate('document.querySelector(\'.recorded-board [data-square="e2"]\').classList.contains("selected")'), "keyboard did not select square");
+  await focus("e4");
+  await key("Enter");
+  await waitFor(() => evaluate('document.querySelector(".recorded-board .fen-line code")?.textContent.includes("/4P3/")'), "keyboard did not play move");
+  await waitFor(() => evaluate('document.activeElement.dataset.square === "e4"'), "move lost keyboard focus");
+  const tree = await command("Accessibility.getFullAXTree");
+  assert.ok(tree.nodes.some(node => node.role?.value === "button" && node.name?.value?.includes("e4") && node.name.value.includes("pawn")), "board square missing from accessibility tree");
+  await setField(".recorded-board .load input", "7k/P7/8/8/8/8/8/7K w - - 0 1");
+  await click(".recorded-board .load button");
+  await focus("a7");
+  await key("Enter");
+  await focus("a8");
+  await key("Enter");
+  await waitFor(() => evaluate('document.activeElement.classList.contains("promo-btn")'), "promotion did not receive focus");
+  const promotionTree = await command("Accessibility.getFullAXTree");
+  assert.ok(promotionTree.nodes.some(node => node.role?.value === "dialog"), "promotion dialog role missing");
+  assert.ok(promotionTree.nodes.some(node => node.role?.value === "button" && node.name?.value?.includes("queen")), "promotion choice unnamed");
+  await key("Escape");
+  await waitFor(() => evaluate('!document.querySelector(".promo-overlay") && document.activeElement.dataset.square === "a7"'), "cancelled promotion did not restore focus");
+  await focus("a8");
+  await key("Enter");
+  await waitFor(() => evaluate('document.activeElement.classList.contains("promo-btn")'), "promotion did not reopen");
+  await key("Enter");
+  await waitFor(() => evaluate('document.querySelector(".recorded-board .fen-line code")?.textContent.startsWith("Q6k/")'), "keyboard promotion did not apply");
+  await waitFor(() => evaluate('document.activeElement.dataset.square === "a8"'), "promotion lost keyboard focus");
+  console.log("RBC_KEYBOARD_ACCESS_PASS");
+}).catch(error => {
+  console.error(error);
+  console.log("RBC_KEYBOARD_ACCESS_FAIL");
+  process.exitCode = 1;
+});

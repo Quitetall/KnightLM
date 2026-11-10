@@ -965,6 +965,7 @@ pub struct CreateMatch {
 fn match_payload(id: &str, game: &Match) -> serde_json::Value {
     serde_json::json!({
         "id": id,
+        "tournament": id.starts_with("tour-"),
         "state": game.state(),
         "white": &game.config().white,
         "black": &game.config().black,
@@ -1009,6 +1010,16 @@ pub async fn create_match(
     Ok(Json(match_payload(&row.id, &game)))
 }
 
+fn interactive_match(state: &AppState, id: &str) -> Result<rbc_db::AiMatch, ApiError> {
+    let row = state.db.ai_match(id)?.ok_or(ApiError::NotFound)?;
+    if id.starts_with("tour-") {
+        return Err(ApiError::BadRequest(
+            "use Tournament Step to advance this match".into(),
+        ));
+    }
+    Ok(row)
+}
+
 pub async fn get_match(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1029,7 +1040,7 @@ pub async fn play_match_move(
     Path(id): Path<String>,
     Json(body): Json<MatchMoveBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let row = interactive_match(&state, &id)?;
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     // A timed match is charged against the wall clock; an untimed one ignores
@@ -1066,7 +1077,7 @@ pub async fn resign_match(
     Path(id): Path<String>,
     Json(body): Json<ResignBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let row = interactive_match(&state, &id)?;
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     let color = match body.color.as_str() {
@@ -1415,7 +1426,7 @@ pub async fn model_match_move(
     options: Option<Json<ModelMoveOptions>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let settings = crate::api::effective(&state);
-    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let row = interactive_match(&state, &id)?;
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     let mut policy = play_policy(&game);
@@ -1487,7 +1498,7 @@ pub async fn takeback_match_move(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let row = interactive_match(&state, &id)?;
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     let policy = play_policy(&game);
@@ -1626,19 +1637,31 @@ pub async fn watch_step(
     Path(id): Path<String>,
     body: Option<Json<WatchRunBody>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let settings = crate::api::effective(&state);
-    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
-    let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
-    let mut game = Match::from_snapshot(snapshot)?;
-    let seats = watch_seats_or_refuse(&game)?;
-    let white_url = move_endpoint(&state, settings.model_url.as_deref(), &seats.white).await?;
-    let black_url = move_endpoint(&state, settings.model_url.as_deref(), &seats.black).await?;
+    let row = interactive_match(&state, &id)?;
+    let game = Match::from_snapshot(serde_json::from_str(&row.state_json)?)?;
     let plies = body
         .and_then(|Json(body)| body.plies)
         .unwrap_or(1)
         .clamp(1, 20);
+    let (game, steps) = watch_match_steps(&state, game, plies).await?;
+    save_match_after(&state, &id, &game)?;
+    Ok(Json(serde_json::json!({
+        "match": match_payload(&id, &game),
+        "steps": steps,
+    })))
+}
 
-    let played = tokio::task::spawn_blocking(move || {
+async fn watch_match_steps(
+    state: &AppState,
+    mut game: Match,
+    plies: u32,
+) -> Result<(Match, Vec<rbc_ai::play::WatchStep>), ApiError> {
+    let settings = crate::api::effective(state);
+    let seats = watch_seats_or_refuse(&game)?;
+    let white_url = move_endpoint(state, settings.model_url.as_deref(), &seats.white).await?;
+    let black_url = move_endpoint(state, settings.model_url.as_deref(), &seats.black).await?;
+
+    tokio::task::spawn_blocking(move || {
         let cancel = rbc_ai::provider::Cancellation::new();
         let mut steps = Vec::new();
         for _ in 0..plies {
@@ -1668,14 +1691,7 @@ pub async fn watch_step(
     })
     .await
     .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?
-    .map_err(ApiError::BadRequest)?;
-
-    let (game, steps) = played;
-    save_match_after(&state, &id, &game)?;
-    Ok(Json(serde_json::json!({
-        "match": match_payload(&id, &game),
-        "steps": steps,
-    })))
+    .map_err(ApiError::BadRequest)
 }
 
 /// `POST /api/ai/matches/{id}/watch/pause` and `/watch/resume`.
@@ -1683,7 +1699,7 @@ pub async fn watch_pause(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let row = interactive_match(&state, &id)?;
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     let changed = game.pause();
@@ -1700,7 +1716,7 @@ pub async fn watch_resume(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let row = interactive_match(&state, &id)?;
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     let changed = game.resume();
@@ -1721,7 +1737,7 @@ pub async fn watch_reset(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let row = state.db.ai_match(&id)?.ok_or(ApiError::NotFound)?;
+    let row = interactive_match(&state, &id)?;
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     if !game.reset() {
@@ -1797,12 +1813,19 @@ pub async fn create_tournament(
             "a tournament needs at least two competitors".into(),
         ));
     }
+    let unique: std::collections::HashSet<_> =
+        body.competitors.iter().map(|id| id.trim()).collect();
+    if unique.contains("") || unique.len() != body.competitors.len() {
+        return Err(ApiError::BadRequest(
+            "choose distinct tournament competitors".into(),
+        ));
+    }
     let format = parse_format(&body.format, body.rounds, body.competitors.len())?;
     let entrants: Vec<Entrant> = body
         .competitors
         .iter()
         .enumerate()
-        .map(|(index, competitor)| Entrant::model(competitor.clone(), index as u32 + 1))
+        .map(|(index, competitor)| Entrant::model(competitor.trim(), index as u32 + 1))
         .collect();
     let schedule = Tournament::new(format, entrants);
     let id = format!(
@@ -1818,6 +1841,7 @@ pub async fn create_tournament(
     if let Some(concurrency) = body.concurrency {
         running.concurrency = concurrency.max(1);
     }
+    let _action = state.tournament_actions.lock().await;
     rbc_ai::tournament_store::save(&state.db, &running, "")?;
     Ok(Json(running))
 }
@@ -1842,19 +1866,119 @@ pub async fn get_tournament(
     })))
 }
 
+fn tournament_seat(competitor: &str) -> rbc_ai::game::Player {
+    let identity = competitor
+        .strip_prefix("llm:")
+        .and_then(|value| value.rsplit_once(':'))
+        .map_or(competitor, |(identity, _version)| identity);
+    let split = if let Some(local) = identity.strip_prefix("local:") {
+        local.find(':').map(|index| index + "local:".len())
+    } else {
+        identity.find(':')
+    };
+    let (provider, model) = split
+        .map(|index| (&identity[..index], &identity[index + 1..]))
+        .unwrap_or(("local", identity));
+    rbc_ai::game::Player::Model {
+        provider: provider.into(),
+        model: model.into(),
+    }
+}
+
+fn tournament_match_id(id: &str, round: u32, board: usize) -> String {
+    format!("{id}-r{round}-b{}", board + 1)
+}
+
 /// `POST /api/ai/tournaments/{id}/{action}` — step, pause, resume.
 pub async fn tournament_action(
     State(state): State<AppState>,
     Path((id, action)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let _action = state.tournament_actions.lock().await;
     let mut running = rbc_ai::tournament_store::load(&state.db, &id)?.ok_or(ApiError::NotFound)?;
     let mut started = Vec::new();
+    let mut advanced = 0;
+    let mut completed = 0;
+    let mut errors = Vec::new();
     match action.as_str() {
         "pause" => running.pause(),
         "resume" => running.resume(),
         "step" => {
-            // One batch of ready pairings, then persist what the schedule now is.
-            started = running.next_batch();
+            let batch = running.next_batch();
+            // Persist the round before inserting any match. A retry uses the
+            // same round and board IDs even if only some inserts succeeded.
+            rbc_ai::tournament_store::save(&state.db, &running, "")?;
+            let mut results = Vec::new();
+            if let Some(round) = running.schedule.rounds.last() {
+                for (board, pairing) in round.games.iter().enumerate() {
+                    if pairing.outcome.is_some()
+                        || !batch
+                            .iter()
+                            .any(|p| p.white == pairing.white && p.black == pairing.black)
+                    {
+                        continue;
+                    }
+                    let match_id = tournament_match_id(&id, round.number, board);
+                    if let Some(row) = state.db.ai_match(&match_id)? {
+                        let mut game =
+                            Match::from_snapshot(serde_json::from_str(&row.state_json)?)?;
+                        if game.result().is_none() {
+                            match watch_match_steps(&state, game, 1).await {
+                                Ok((played, _)) => {
+                                    game = played;
+                                    save_match_after(&state, &match_id, &game)?;
+                                    advanced += 1;
+                                }
+                                Err(error) => {
+                                    let message = match error {
+                                        ApiError::BadRequest(message) => message,
+                                        ApiError::Unavailable(message) => message.into(),
+                                        _ => "match could not advance".into(),
+                                    };
+                                    errors.push(format!(
+                                        "{} vs {}: {message}",
+                                        pairing.white, pairing.black
+                                    ));
+                                    continue;
+                                }
+                            }
+                        }
+                        if let Some(result) = game.result() {
+                            use rbc_ai::tournament::Outcome;
+                            let outcome = match result.score.as_str() {
+                                "1-0" => Outcome::White,
+                                "0-1" => Outcome::Black,
+                                _ => Outcome::Draw,
+                            };
+                            results.push((pairing.white.clone(), pairing.black.clone(), outcome));
+                        }
+                    } else {
+                        let game = Match::new(MatchConfig {
+                            white: tournament_seat(&pairing.white),
+                            black: tournament_seat(&pairing.black),
+                            ..MatchConfig::default()
+                        })?;
+                        let config = game.config();
+                        if state.db.ensure_tournament_match(
+                            &match_id,
+                            &serde_json::to_string(&config.white)?,
+                            &serde_json::to_string(&config.black)?,
+                            &serde_json::to_string(config)?,
+                            &serde_json::to_string(&game.snapshot())?,
+                            &game.pgn(),
+                        )? {
+                            started.push(serde_json::json!({
+                                "white": pairing.white,
+                                "black": pairing.black,
+                                "match_id": match_id,
+                            }));
+                        }
+                    }
+                }
+            }
+            for (white, black, outcome) in results {
+                completed += usize::from(running.finish(&white, &black, outcome, 0, 0.0));
+            }
         }
         other => return Err(ApiError::BadRequest(format!("unknown action {other}"))),
     }
@@ -1862,6 +1986,9 @@ pub async fn tournament_action(
     Ok(Json(serde_json::json!({
         "status": running.status.as_str(),
         "started": started,
+        "advanced": advanced,
+        "completed": completed,
+        "errors": errors,
         "tournament": running,
     })))
 }
@@ -1872,10 +1999,29 @@ pub async fn tournament_pgn(
     Path(id): Path<String>,
 ) -> Result<String, ApiError> {
     let running = rbc_ai::tournament_store::load(&state.db, &id)?.ok_or(ApiError::NotFound)?;
+    let mut moves = Vec::new();
+    for round in &running.schedule.rounds {
+        let mut board_moves = Vec::new();
+        for (board, _) in round.games.iter().enumerate() {
+            let match_id = tournament_match_id(&id, round.number, board);
+            let movetext = state.db.ai_match(&match_id)?.and_then(|row| {
+                let (_, text) = row.pgn.split_once("\n\n")?;
+                // The exporter supplies the result from the tournament schedule.
+                Some(
+                    text.trim()
+                        .rsplit_once(' ')
+                        .map_or("", |(moves, _)| moves)
+                        .to_owned(),
+                )
+            });
+            board_moves.push(movetext.unwrap_or_default());
+        }
+        moves.push(board_moves);
+    }
     Ok(rbc_ai::tournament::combined_pgn(
         &running.name,
         &running.schedule.rounds,
-        &[],
+        &moves,
     ))
 }
 

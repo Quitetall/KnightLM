@@ -30,6 +30,7 @@ fn state() -> rusty_brick_chess::api::AppState {
         console: Default::default(),
         turn_cancels: Default::default(),
         lamu_child: Default::default(),
+        tournament_actions: Default::default(),
     }
 }
 

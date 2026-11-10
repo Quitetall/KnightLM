@@ -62,6 +62,16 @@ class Handler(BaseHTTPRequestHandler):
             # specific opening; anything else falls back to the first legal move.
             side = "black" if "Your side: black" in system else "white"
             opening = "e5" if side == "black" else "e4"
+            if os.environ.get("MOCK_FOOLS_MATE") == "1":
+                fen = re.search(r"^FEN: (.+)$", system, re.MULTILINE)
+                number = int(fen.group(1).split()[-1]) if fen else 0
+                opening = {
+                    (1, "white"): "f3",
+                    (1, "black"): "e5",
+                    (2, "white"): "g4",
+                    (2, "black"): "Qh4#",
+                }.get((number, side), opening)
+
             text = forced or (opening if opening in moves else (moves[0] if moves else "e4"))
             if "Think briefly" in system:
                 reasoning = os.environ.get("MOCK_REASONING", "a reasonable move")
