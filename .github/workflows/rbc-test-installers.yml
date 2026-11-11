@@ -88,7 +88,7 @@ jobs:
           {
             echo "commit $GITHUB_SHA"
             sha256sum index.html pkg/rbc-frontend.js pkg/rbc-frontend_bg.wasm
-          } > ../../../rbc-build-receipt.txt
+          } > "$GITHUB_WORKSPACE/rbc-build-receipt.txt"
 
       - uses: actions/upload-artifact@v4
         with:
