@@ -9,7 +9,16 @@ withBrowser(async ({ base, evaluate, click, clickText, destination, setField, vi
   mkdirSync(directory);
   for (const [type,file] of [["wdl","KQvK.rtbw"],["dtz","KQvK.rtbz"]]) {
     const url = "https://tablebase.lichess.ovh/tables/standard/3-4-5-" + type + "/" + file;
-    const response = await fetch(url, {signal:AbortSignal.timeout(15000)});
+    let response;
+    for (let attempt=0; attempt<2; attempt++) {
+      try {
+        response=await fetch(url, {signal:AbortSignal.timeout(15000)});
+        break;
+      } catch (error) {
+        if (attempt===1) throw error;
+        console.log("Retrying tablebase download after transport failure: " + file);
+      }
+    }
     assert.ok(response.ok, file + " download failed");
     const bytes = Buffer.from(await response.arrayBuffer());
     writeFileSync(join(directory,file),bytes);

@@ -251,7 +251,9 @@ pub fn App() -> impl IntoView {
     let engine_test_busy = RwSignal::new(false);
 
     let library_request = RwSignal::new(0_u64);
+    let home_refresh = RwSignal::new(0_u64);
     let reload = move || {
+        home_refresh.update(|epoch| *epoch += 1);
         let q = query.get();
         let collection = active_collection.get();
         let event = event_filter.get();
@@ -530,9 +532,12 @@ pub fn App() -> impl IntoView {
     });
 
     Effect::new(move |_| {
+        let request = home_refresh.get();
         if tab.get() == Tab::Home {
             spawn_local(async move {
-                if let Ok((list, _)) = api::list_games(&api::Filters::default()).await {
+                if let Ok((list, _)) = api::list_games(&api::Filters::default()).await
+                    && home_refresh.get_untracked() == request
+                {
                     home_recent.set(list.into_iter().take(6).collect());
                 }
                 if let Ok(list) = api::accounts().await {
@@ -2428,16 +2433,26 @@ pub fn App() -> impl IntoView {
         _ => {}
     };
 
+    let chat_request = RwSignal::new(0_u64);
     let send_chat = move || {
         let message = chat_text.get_untracked();
         if message.trim().is_empty() {
             return;
         }
-        let position = fen.get_untracked();
+        let position = analysis_position.get_untracked();
+        let request = chat_request.get_untracked() + 1;
+        chat_request.set(request);
         chat_messages.update(|list| list.push(("user".into(), message.clone())));
         chat_text.set(String::new());
         spawn_local(async move {
-            match api::chat(&position, &message).await {
+            let result = api::chat(&position.fen, &message).await;
+            if tab.get_untracked() != Tab::Analysis
+                || analysis_position.get_untracked() != position
+                || chat_request.get_untracked() != request
+            {
+                return;
+            }
+            match result {
                 Ok(reply) => {
                     chat_messages
                         .update(|list| list.push(("assistant".into(), reply.reply.clone())));

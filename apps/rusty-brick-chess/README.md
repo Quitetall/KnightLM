@@ -475,3 +475,23 @@ AGPL-3.0-only. Backend design inspired by En Croissant (GPL-3.0) and Lichess
 (AGPL-3.0); move-classification thresholds and accuracy follow Lichess's
 published model; Expected Points is an independent implementation of the
 public model shape, not chess.com's proprietary code.
+
+## Redesign parity verification
+
+[The plan](UI-REDESIGN-PLAN.md) maps all 60 current-function checks. [The checkpoint](UI-REDESIGN-STATUS.md) records coverage and the remaining cutover blockers.
+
+From the repository root, use a matching built server and deployed frontend:
+
+```bash
+priority-build make check-apps
+python3 -B scripts/check_rbc_browser.py \
+  --server apps/rusty-brick-chess/target/debug/rusty-brick-chess \
+  --static apps/rusty-brick-chess/frontend/public \
+  --evidence /mnt/4tb/artifacts/KnightLM/keep/NEW-RUN
+```
+
+The harness copies the binary/assets/scripts, verifies served hashes, and owns its databases, ports and process groups. Do not start it while `frontend/deploy.sh` is rebuilding `public/`. Optional suite stems select a smaller slice. Stockfish must be installed for engine checks; provider discovery checks need a responsive local endpoint.
+
+`live_model_controls` and `live_online_accounts` are explicit opt-ins, omitted from the default suite. The first needs installed LAMU, the registered KnightLM model and enough free VRAM; it starts a private gateway and unloads only a verified test-owned runtime. The second imports public games from Lichess/Chess.com into a disposable database. Neither supplies an authenticated Lichess token or qualifies inaccessible live explorer/audio/platform paths.
+
+Validate the evidence ledger with `python3 scripts/check_rbc_ui_parity.py LEDGER --build FINGERPRINT`; repeat `--id RBCUI-…` to check a verified slice. A full cutover requires all 60 rows to pass for the candidate fingerprint. Deterministic fixtures establish only their named UI contracts.

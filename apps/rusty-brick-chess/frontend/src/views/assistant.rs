@@ -344,6 +344,7 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
     // rebuilding it against today's position.
     let inspector_open = RwSignal::new(false);
     let inspector = RwSignal::new(None::<ai_api::AiCompiledContext>);
+    let legacy_context = RwSignal::new(None::<String>);
     let replay = RwSignal::new(None::<serde_json::Value>);
     // Pinned shows the exact context that was sent; live rebuilds it for the
     // position on the board right now, which is how drift becomes visible.
@@ -411,10 +412,28 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
         turns.set(Vec::new());
         error.set(String::new());
         last_ctx.set(None);
+        inspector.set(None);
+        legacy_context.set(None);
         spawn_local(async move {
             match ai_api::list_ai_turns(&id).await {
                 // Ignore a late response for a session the user already left.
                 Ok(list) if selected.get_untracked().as_deref() == Some(id.as_str()) => {
+                    if let Some(turn) = list
+                        .iter()
+                        .rev()
+                        .find(|turn| turn.role == "assistant" && !turn.context_sha256.is_empty())
+                        && let Ok(data) =
+                            serde_json::from_str::<serde_json::Value>(&turn.context_json)
+                    {
+                        if let Ok(packet) = serde_json::from_value::<ai_api::AiCompiledContext>(
+                            data["_rbc_packet"].clone(),
+                        ) {
+                            last_ctx.set(Some((packet.sha256.clone(), packet.tokens)));
+                            inspector.set(Some(packet));
+                        } else if data.is_object() {
+                            legacy_context.set(serde_json::to_string_pretty(&data).ok());
+                        }
+                    }
                     turns.set(list)
                 }
                 Ok(_) => {}
@@ -1071,8 +1090,9 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                             <button on:click=move |_| {
                                 let Some(id) = id.clone() else { return };
                                 let replay = replay;
+                                let position = fen.get_untracked();
                                 spawn_local(async move {
-                                    match ai_api::replay_ai_turn(&id, seq).await {
+                                    match ai_api::replay_ai_turn(&id, seq, &position).await {
                                         Ok(value) => replay.set(Some(value)),
                                         Err(error) => replay.set(Some(serde_json::json!({"error": error}))),
                                     }
@@ -1314,9 +1334,18 @@ pub fn assistant(ctx: AppCtx) -> impl IntoView {
                                         <pre style="white-space:pre-wrap;">{canonical}</pre>
                                     </details>
                                 }.into_any()
-                                }).unwrap_or_else(|| view! {
-                                    <div class="muted">{move || i18n::t(&language.get(), "assistant.no_context")}</div>
-                                }.into_any())
+                                }).unwrap_or_else(|| {
+                                    if let Some(data) = legacy_context.get() {
+                                        view! {
+                                            <div class="muted">{move || i18n::t(&language.get(), "assistant.legacy_context")}</div>
+                                            <pre style="white-space:pre-wrap;">{data}</pre>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <div class="muted">{move || i18n::t(&language.get(), "assistant.no_context")}</div>
+                                        }.into_any()
+                                    }
+                                })
                             }}
                             {move || replay.get().map(|value| {
                                 let identical = value.get("diff")

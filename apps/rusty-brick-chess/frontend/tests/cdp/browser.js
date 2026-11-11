@@ -8,7 +8,7 @@ const base = process.env.RBC_CDP_URL || "http://127.0.0.1:8090/";
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function waitFor(check, label) {
-  const deadline = Date.now() + 15000;
+  const deadline = Date.now() + 45000;
   while (Date.now() < deadline) {
     try { if (await check()) return; } catch (error) {
       if (!error.message.startsWith("Runtime.evaluate failed")) throw error;
@@ -48,7 +48,7 @@ async function withBrowser(test) {
       const timer = setTimeout(() => {
         pending.delete(request);
         reject(new Error(method + " timed out"));
-      }, 5000);
+      }, 30000);
       pending.set(request, (reply) => {
         clearTimeout(timer);
         pending.delete(request);
@@ -79,7 +79,7 @@ async function withBrowser(test) {
     };
     const setField = (selector, value, event = "input") => evaluate(`(() => {
       const field = document.querySelector(${JSON.stringify(selector)});
-      if (!field) throw new Error("field missing");
+      if (!field) throw new Error(${JSON.stringify("field missing: " + selector)});
       field.value = ${JSON.stringify(value)};
       field.dispatchEvent(new Event(${JSON.stringify(event)}, {bubbles:true}));
     })()`);

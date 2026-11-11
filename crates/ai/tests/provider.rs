@@ -27,6 +27,8 @@ enum Reply {
     Sse(Vec<String>),
     /// An SSE stream whose connection dies before the terminator.
     BrokenSse(Vec<String>),
+    /// One visible chunk followed by an open, silent socket.
+    StalledSse,
     /// One JSON document with no streaming.
     Json(String),
 }
@@ -140,6 +142,15 @@ fn serve(stream: &mut TcpStream, reply: Reply) -> std::io::Result<()> {
             }
             stream.write_all(b"0\r\n\r\n")?;
             stream.flush()
+        }
+        Reply::StalledSse => {
+            stream.write_all(
+                b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n",
+            )?;
+            write_chunk(stream, &delta("first"))?;
+            stream.set_read_timeout(Some(Duration::from_secs(3)))?;
+            let _ = stream.read(&mut [0]);
+            Ok(())
         }
         Reply::BrokenSse(frames) => {
             stream.write_all(
@@ -552,6 +563,54 @@ fn provider_stops_mid_stream_when_cancelled() {
     let error = result.expect_err("cancelled mid-stream");
     assert_eq!(error.code, error_code::CANCELLED);
     assert_eq!(mock.requests(), 1, "cancelling is not a retryable failure");
+}
+
+#[test]
+fn cancellation_interrupts_a_silent_stream_read() {
+    let mock = Mock::start(vec![Reply::StalledSse]);
+    let provider = provider(&mock, RetryPolicy::none());
+    let cancel = Cancellation::new();
+    let started = std::time::Instant::now();
+    let mut cancelling = None;
+    let result = provider.complete(&ask(Vec::new()), &cancel, &mut |event| {
+        if matches!(event, ProviderEvent::ContentDelta(_)) && cancelling.is_none() {
+            let cancel = cancel.clone();
+            cancelling = Some(thread::spawn(move || {
+                thread::sleep(Duration::from_millis(100));
+                cancel.cancel();
+            }));
+        }
+    });
+    cancelling.expect("the first chunk arrived").join().unwrap();
+    assert_eq!(result.unwrap_err().code, error_code::CANCELLED);
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "cancellation waited on the silent socket"
+    );
+    assert_eq!(mock.requests(), 1);
+}
+
+#[test]
+fn polling_preserves_the_configured_body_timeout() {
+    let mock = Mock::start(vec![Reply::StalledSse]);
+    let provider = OpenAiProvider::new(
+        ProviderConfig::openai_compatible(&mock.url, "mock", "m")
+            .with_retry(RetryPolicy::none())
+            .with_timeouts(
+                Duration::from_secs(1),
+                Duration::from_millis(350),
+                Duration::from_secs(2),
+            ),
+    )
+    .unwrap();
+    let started = std::time::Instant::now();
+    let (result, _) = run(&provider, &ask(Vec::new()), &Cancellation::new());
+    assert_eq!(result.unwrap_err().code, error_code::TIMEOUT);
+    assert!(
+        started.elapsed() >= Duration::from_millis(300),
+        "polling shortened the configured timeout"
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
 }
 
 // --- configuration ---------------------------------------------------------

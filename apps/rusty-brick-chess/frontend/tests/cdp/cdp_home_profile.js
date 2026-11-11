@@ -11,6 +11,8 @@ withBrowser(async ({ command, evaluate, click, clickText, setField, destination,
     return (await response.json()).imported?.[0];
   })()`);
   if (!game) throw new Error("could not seed recent game");
+  await evaluate('window.dispatchEvent(new CustomEvent("rbc-imported", {detail:"native import fixture"}))');
+  await waitFor(() => evaluate('document.querySelector(".home .row.game")?.textContent.includes("Recent fixture")'), "native import did not refresh Home recent games");
   await command("Page.reload");
   await waitFor(() => evaluate('performance.getEntriesByType("navigation")[0]?.type === "reload" && document.querySelector(".home .row.game")?.textContent.includes("Recent fixture")'), "recent game missing after reload");
   await waitFor(() => evaluate(`[...document.querySelectorAll(".home-stat")].map(stat => stat.textContent.trim()).join(" ").replace(/\\s+/g, "").includes("1games")`), "Home game count missing");

@@ -1,63 +1,30 @@
-const { openView } = require("./navigation");
-const { spawn } = require("child_process");
-const http = require("http");
-const PORT = Number(process.env.RBC_CDP_PORT || 9532);
-function get(p){return new Promise((res,rej)=>{http.get({host:"127.0.0.1",port:PORT,path:p},r=>{let d="";r.on("data",c=>d+=c);r.on("end",()=>res(JSON.parse(d)));}).on("error",rej);});}
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-(async()=>{
-  const chrome=spawn("google-chrome",["--headless=new","--disable-gpu","--no-sandbox",`--remote-debugging-port=${PORT}`,`--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-rail2-${Date.now()}`,"--remote-allow-origins=*","--window-size=1500,1000",(process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")],{stdio:["ignore","ignore","ignore"]});
-  let t;for(let i=0;i<40;i++){await sleep(300);try{t=await get("/json/list");break;}catch{}}
-  const ws=new WebSocket(t.find(x=>x.type==="page").webSocketDebuggerUrl);
-  let id=0;const pend=new Map();const send=(m,pr={})=>new Promise(r=>{const i=++id;pend.set(i,r);ws.send(JSON.stringify({id:i,method:m,params:pr}));});
-  ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&pend.has(m.id)){pend.get(m.id)(m.result);pend.delete(m.id);}};
-  await new Promise(r=>ws.onopen=r); await send("Runtime.enable"); await sleep(2800);
-  const ev=async(x)=>{const r=await send("Runtime.evaluate",{expression:x,returnByValue:true,awaitPromise:true});return r.result?.value;};
-  const clickText=async(sel,txt)=>await ev(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(sel)})].find(x=>x.textContent.trim()===${JSON.stringify(txt)});e&&e.click();return !!e;})()`);
+const assert = require("node:assert/strict");
+const { withBrowser, waitFor } = require("./browser");
 
-  await openView(ev, "workbench", "assistant"); await sleep(900);
-  await clickText("button","New chat"); await sleep(1500);
-
-  // Rename: the ✎ button opens an input; save writes it back to the rail.
-  const opened=await ev(`(()=>{const b=document.querySelector('button[aria-label="Rename"]');if(!b)return false;b.click();return true;})()`);
-  await sleep(400);
-  const typed=await ev(`(()=>{const i=document.querySelector('input[aria-label="Rename"]');if(!i)return false;i.value="Rail rename test";i.dispatchEvent(new Event("input",{bubbles:true}));return true;})()`);
-  await sleep(200);
-  const saved=await clickText("button","Save"); await sleep(1200);
-  const renamed=await ev(`[...document.querySelectorAll(".dock-tab")].some(x=>x.textContent.includes("Rail rename test"))`);
-
-  await ev(`document.querySelector('button[aria-label="Rename"]').click()`);
-  await sleep(200);
-  await ev(`(() => {
-    const input = document.querySelector('input[aria-label="Rename"]');
-    input.value = "Discarded rename";
-    input.dispatchEvent(new Event("input",{bubbles:true}));
-  })()`);
-  const cancelled=await clickText("button","Cancel");
-  await sleep(250);
-  const keptName=await ev(`!document.querySelector('input[aria-label="Rename"]')
-    && [...document.querySelectorAll(".dock-tab")].some(row=>row.textContent.includes("Rail rename test"))
-    && !document.querySelector(".dock-tab")?.textContent.includes("Discarded rename")`);
-
-  await clickText("button","New chat");
-  await sleep(1100);
-  const switched=await ev(`(() => {
-    const active = document.querySelector(".dock-tab.active");
-    const older = [...document.querySelectorAll(".dock-tab")].find(row=>row.textContent.includes("Rail rename test"));
-    if (!active || !older || active === older) return false;
-    older.click();
-    return true;
-  })()`);
-  await sleep(300);
-  const selected=await ev(`document.querySelector(".dock-tab.active")?.textContent.includes("Rail rename test")`);
-  const beforeArchive=await ev(`document.querySelectorAll(".dock-tab").length`);
-  // Archive: the × button removes it from the rail.
-  const archived=await ev(`(()=>{const b=document.querySelector('.dock-tab.active')?.parentElement.querySelector('button[aria-label="Archive"]');if(!b)return false;b.click();return true;})()`);
-  await sleep(1300);
-  const remaining=await ev(`document.querySelectorAll(".dock-tab").length`);
-
-  const out={opened,typed,saved,renamed,cancelled,keptName,switched,selected,archived,beforeArchive,remaining};
-  console.log(JSON.stringify(out));
-  const ok = opened && typed && saved && renamed && cancelled && keptName && switched && selected && archived && remaining===beforeArchive-1;
-  console.log(ok?"AI_RAIL2_PASS":"AI_RAIL2_FAIL");
-  ws.close();chrome.kill();process.exit(ok?0:1);
-})().catch(e=>{console.error(e);process.exit(1);});
+withBrowser(async ({ evaluate, click, clickText, setField, destination, view }) => {
+  await view("home");
+  await destination("workbench");
+  await click('[data-open-view="assistant"]');
+  await view("assistant");
+  await clickText("button", "New chat");
+  await waitFor(() => evaluate('!!document.querySelector(".dock-tab.active")'), "new chat missing");
+  await click('button[aria-label="Rename"]');
+  await setField('input[aria-label="Rename"]', "Rail rename test");
+  await clickText("button", "Save");
+  await waitFor(() => evaluate('document.querySelector(".dock-tab.active")?.textContent.includes("Rail rename test")'), "rename did not persist");
+  await click('button[aria-label="Rename"]');
+  await setField('input[aria-label="Rename"]', "Discarded rename");
+  await clickText("button", "Cancel");
+  await waitFor(() => evaluate('!document.querySelector(\'input[aria-label="Rename"]\')'), "cancel did not close rename");
+  assert.ok(await evaluate('document.querySelector(".dock-tab.active")?.textContent.includes("Rail rename test")'));
+  assert.equal(await evaluate('document.querySelector(".dock-tab.active").textContent.includes("Discarded rename")'), false);
+  const count = await evaluate('document.querySelectorAll(".dock-tab").length');
+  await clickText("button", "New chat");
+  await waitFor(() => evaluate(`document.querySelectorAll(".dock-tab").length === ${count + 1} && !document.querySelector(".dock-tab.active")?.textContent.includes("Rail rename test")`), "new chat did not become active");
+  await clickText(".dock-tab", await evaluate('[...document.querySelectorAll(".dock-tab")].find(row=>row.textContent.includes("Rail rename test")).textContent.trim()'));
+  await waitFor(() => evaluate('document.querySelector(".dock-tab.active")?.textContent.includes("Rail rename test")'), "older chat was not selected");
+  await click('.dock-tab.active ~ button[aria-label="Archive"]');
+  await waitFor(() => evaluate(`document.querySelectorAll(".dock-tab").length === ${count}`), "archive did not remove selected chat");
+  assert.equal(await evaluate('[...document.querySelectorAll(".dock-tab")].some(row=>row.textContent.includes("Rail rename test"))'),false);
+  console.log("AI_RAIL2_PASS");
+}).catch(error => { console.error(error); console.log("AI_RAIL2_FAIL"); process.exitCode = 1; });

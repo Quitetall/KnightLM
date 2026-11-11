@@ -68,6 +68,43 @@ def serve_ready(proc, base):
     raise RuntimeError("app health check timed out")
 
 
+def cleanup_live_model(server_pid, port, receipt):
+    from urllib.request import Request
+
+    children = set()
+    for task in Path(f"/proc/{server_pid}/task").glob("*/children"):
+        try:
+            children.update(task.read_text().split())
+        except OSError:
+            continue
+    owned = False
+    for child in children:
+        try:
+            args = Path(f"/proc/{child}/cmdline").read_bytes().split(b"\0")
+            owned |= b"serve" in args and str(port).encode() in args
+        except OSError:
+            continue
+    result = {"owned_runtime": owned, "model_unloaded": None}
+    if owned:
+        base = f"http://127.0.0.1:{port}/v1"
+        try:
+            request = Request(base + "/admin/models/unload", data=json.dumps({"model": "knightlm-smolvlm-500m"}).encode(),
+                              headers={"content-type": "application/json"})
+            try:
+                with urlopen(request, timeout=10) as response:
+                    response.read()
+            except OSError:
+                # Already unloaded is acceptable; verify residency below.
+                pass
+            with urlopen(base + "/admin/vram", timeout=5) as response:
+                state = json.load(response)
+            result["model_unloaded"] = not any(row.get("model") == "knightlm-smolvlm-500m"
+                                               and row.get("state") == "loaded" for row in state.get("loaded", []))
+        except OSError as error:
+            result["error"] = type(error).__name__
+    receipt.write_text(json.dumps(result, indent=2) + "\n")
+
+
 def check_suite(suite, args, scratch, expected_assets):
     logs = args.evidence / suite.stem
     logs.mkdir()
@@ -87,6 +124,17 @@ def check_suite(suite, args, scratch, expected_assets):
     if suite.stem == "cdp_tournament":
         env["MOCK_FOOLS_MATE"] = "1"
         env["RBC_CDP_TOURNAMENT_FIXTURE"] = "1"
+    if suite.stem == "cdp_analysis_dock":
+        env["MOCK_ANALYSIS_TOOLS"] = "1"
+    if suite.stem == "cdp_provider_settings":
+        env["MOCK_PROVIDER_REGISTRY"] = "1"
+        env["RBC_PARITY_PROVIDER_KEY"] = os.urandom(24).hex()
+        env.pop("RBC_PARITY_PROVIDER_KEY_MISSING", None)
+    if suite.stem == "live_model_controls":
+        runtime = shutil.which("lamu")
+        if not runtime:
+            raise RuntimeError("LAMU is not installed")
+        env["RBC_LAMU_BIN"] = runtime
     no_provider = suite.stem == "cdp_ai_i18n_a11y"
     if no_provider:
         env.pop("MODEL_URL", None)
@@ -96,6 +144,8 @@ def check_suite(suite, args, scratch, expected_assets):
                   logs / "provider.log", env)
         server = start(stack, [args.server], logs / "server.log", env)
         serve_ready(server, base)
+        if suite.stem == "live_model_controls":
+            stack.callback(cleanup_live_model, server.pid, lamu_port, logs / "runtime-cleanup.json")
         receipt = {}
         for asset in ASSETS:
             with urlopen(base + ("" if asset == "index.html" else asset), timeout=5) as response:
@@ -127,7 +177,7 @@ def check_suite(suite, args, scratch, expected_assets):
                     ]})),
                 )
         test = start(stack, ["node", suite], logs / "test.log", env)
-        status = test.wait(timeout=240 if suite.stem == "cdp_vision_editor" else 120)
+        status = test.wait(timeout=240 if suite.stem in {"cdp_vision_editor", "live_model_controls", "live_online_accounts"} else 120)
         output = (logs / "test.log").read_text(errors="replace")
         markers = re.findall(r"\b[A-Z0-9_]+_(?:PASS|FAIL)\b", output)
         if status != 0 or not markers or not markers[-1].endswith("_PASS"):
@@ -146,7 +196,8 @@ def main():
     args.static = args.static.resolve()
     args.evidence = args.evidence.resolve()
     available = {p.stem: p for p in sorted(CDP.glob("cdp_*.js"))}
-    names = args.suites or list(available)
+    available.update({p.stem: p for p in sorted(CDP.glob("live_*.js"))})
+    names = args.suites or [name for name in available if name.startswith("cdp_")]
     if len(names) != len(set(names)) or set(names) - available.keys():
         parser.error("suite names must be unique existing cdp_* filename stems")
     args.evidence.mkdir(parents=True)

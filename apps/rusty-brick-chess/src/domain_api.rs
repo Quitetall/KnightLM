@@ -653,13 +653,16 @@ pub async fn send_ai_turn(
         ..Default::default()
     };
     let compiled = rbc_context::compile(&spec, &input)?;
+    let mut stored_context = compiled.data.clone();
+    stored_context["_rbc_packet"] = serde_json::to_value(&compiled)?;
+    let stored_context_json = serde_json::to_string(&stored_context)?;
 
     let user_turn = state.db.append_ai_turn(
         &id,
         &rbc_db::AiTurnInput {
             role: "user".into(),
             content: body.message.clone(),
-            context_json: serde_json::to_string(&compiled.data).unwrap_or_default(),
+            context_json: stored_context_json.clone(),
             context_sha256: compiled.sha256.clone(),
             spec_version: format!("{}@{}", compiled.spec_id, compiled.spec_version),
             template_version: "rbc-prompt-v1".into(),
@@ -785,7 +788,7 @@ pub async fn send_ai_turn(
                 &id,
                 &rbc_db::AiTurnInput {
                     role: "assistant".into(),
-                    context_json: serde_json::to_string(&compiled.data).unwrap_or_default(),
+                    context_json: stored_context_json.clone(),
                     context_sha256: compiled.sha256.clone(),
                     spec_version: format!("{}@{}", compiled.spec_id, compiled.spec_version),
                     template_version: "rbc-prompt-v1".into(),
@@ -825,7 +828,7 @@ pub async fn send_ai_turn(
             tool_calls_json: serde_json::to_string(&calls).unwrap_or_else(|_| "[]".into()),
             tool_results_json: serde_json::to_string(&outcome.tool_results)
                 .unwrap_or_else(|_| "[]".into()),
-            context_json: serde_json::to_string(&compiled.data).unwrap_or_default(),
+            context_json: stored_context_json.clone(),
             context_sha256: compiled.sha256.clone(),
             spec_version: format!("{}@{}", compiled.spec_id, compiled.spec_version),
             template_version: "rbc-prompt-v1".into(),
@@ -908,9 +911,15 @@ fn history_messages(
     messages
 }
 
+#[derive(Deserialize, Default)]
+pub struct ReplayPosition {
+    pub fen: Option<String>,
+}
+
 pub async fn replay_ai_turn(
     State(state): State<AppState>,
     Path((id, seq)): Path<(String, i64)>,
+    Query(position): Query<ReplayPosition>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let session = state.db.ai_session(&id)?.ok_or(ApiError::NotFound)?;
     let turn = state
@@ -923,13 +932,19 @@ pub async fn replay_ai_turn(
         .target_board_id
         .as_deref()
         .or(session.home_board_id.as_deref());
-    let fen = match board_id {
-        Some(board_id) => state
-            .db
-            .board(board_id)?
-            .map(|board| board.start_fen)
-            .unwrap_or_else(|| "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into()),
-        None => "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into(),
+    let fen = if let Some(fen) = position.fen.filter(|fen| !fen.trim().is_empty()) {
+        fen
+    } else {
+        match board_id {
+            Some(board_id) => state
+                .db
+                .board(board_id)?
+                .map(|board| board.start_fen)
+                .unwrap_or_else(|| {
+                    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into()
+                }),
+            None => "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into(),
+        }
     };
     let compiled = rbc_context::compile(
         &rbc_context::ContextSpec::chat_v1(),
@@ -938,8 +953,11 @@ pub async fn replay_ai_turn(
             ..Default::default()
         },
     )?;
-    let stored_context: serde_json::Value =
+    let mut stored_context: serde_json::Value =
         serde_json::from_str(&turn.context_json).unwrap_or(serde_json::Value::Null);
+    if let Some(data) = stored_context.as_object_mut() {
+        data.remove("_rbc_packet");
+    }
     let diff = rbc_ai::context_diff::diff_contexts(&stored_context, &compiled.data);
     Ok(Json(serde_json::json!({
         "seq": seq,

@@ -1207,6 +1207,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("assistant.context", "Context", "Contexto"),
     ("assistant.replay", "Replay", "Reproducir"),
     ("assistant.canonical", "Canonical prompt", "Prompt canónico"),
+    (
+        "assistant.legacy_context",
+        "Saved context data. The full prompt was not stored for this older turn.",
+        "Datos de contexto guardados. El prompt completo no se guardó para este turno antiguo.",
+    ),
     ("assistant.sent", "Sent", "Enviado"),
     ("assistant.live", "Live", "En vivo"),
     (

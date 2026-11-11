@@ -1,89 +1,51 @@
-const { openView } = require("./navigation");
-// Cross-board addressing: the shell knows which board the assistant is writing
-// to, marks it, and points at it with a badge when it is off screen.
-const { spawn } = require("child_process");
-const http = require("http");
-const PORT = Number(process.env.RBC_CDP_PORT || 9539);
-function getJson(port, path) {
-  return new Promise((res, rej) => {
-    http.get({ host: "127.0.0.1", port, path }, (r) => {
-      let d = ""; r.on("data", (c) => (d += c)); r.on("end", () => res(JSON.parse(d)));
-    }).on("error", rej);
-  });
-}
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-(async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-xb-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
-  let t; for (let i = 0; i < 40; i++) { await sleep(300); try { t = await getJson(PORT, "/json/list"); break; } catch {} }
-  const ws = new WebSocket(t.find((x) => x.type === "page").webSocketDebuggerUrl);
-  let id = 0; const pend = new Map();
-  const send = (m, p = {}) => new Promise((r) => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method: m, params: p })); });
-  ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m.result); pend.delete(m.id); } };
-  await new Promise((r) => (ws.onopen = r));
-  await send("Runtime.enable"); await sleep(2600);
-  const ev = async (x) => (await send("Runtime.evaluate", { expression: x, returnByValue: true, awaitPromise: true })).result?.value;
-  const clickText = async (sel, text) => await ev(`(()=>{const b=[...document.querySelectorAll(${JSON.stringify(sel)})].find(x=>x.textContent.trim()===${JSON.stringify(text)});if(!b)return false;b.click();return true;})()`);
+// Board target markers, off-screen target badge, and the sidebar board tree.
+const assert = require("node:assert/strict");
+const { withBrowser, waitFor } = require("./browser");
 
-  // A workspace with at least two boards, made through the strip itself: the
-  // client's workspace list only knows about boards it created.
-  await openView(ev, "workbench", "analysis");
-  await sleep(1200);
-  const setup = await ev(`(()=>{
-    const pick = document.querySelector("select.ws-new");
-    if (!pick) return false;
-    pick.value = "analysis";
-    pick.dispatchEvent(new Event("change", {bubbles: true}));
-    return true;
+withBrowser(async ({ evaluate, click, clickText, setField, destination, view }) => {
+  const open = async name => {
+    await destination("workbench");
+    await click(`[data-open-view="${name}"]`);
+    await view(name);
+  };
+  await view("home");
+  await open("analysis");
+  await evaluate(`(() => {
+    const original=window.fetch.bind(window);
+    window.fetch=async (...args)=>{
+      const request=args[0] instanceof Request ? args[0] : new Request(...args);
+      const response=await original(...args);
+      if (request.method==="POST" && new URL(request.url).pathname==="/api/workspaces") {
+        while (!window.releaseWorkspaceReply) await new Promise(resolve=>setTimeout(resolve,50));
+      }
+      return response;
+    };
   })()`);
-  await sleep(1800);
-  for (let i = 0; i < 3; i++) {
-    const added = await ev(`(()=>{const b=[...document.querySelectorAll(".boards button")].find(x=>x.textContent.trim()==="New board");if(!b)return false;b.click();return true;})()`);
-    if (!added) break;
-    await sleep(1200);
+  await setField("select.ws-new", "analysis", "change");
+  assert.ok(await evaluate('[...document.querySelectorAll(".boards button")].find(button=>button.textContent.trim()==="New board")?.disabled'), "New board must wait for workspace creation");
+  await evaluate('window.releaseWorkspaceReply=true');
+  await waitFor(() => evaluate('[...document.querySelectorAll(".boards button")].some(button=>button.textContent.trim()==="New board" && !button.disabled)'), "workspace board controls missing");
+  for (let i=0; i<3; i++) {
+    const before = await evaluate('document.querySelectorAll(".board-chip").length');
+    await clickText(".boards button", "New board");
+    await waitFor(() => evaluate(`document.querySelectorAll(".board-chip").length === ${before+1}`), "new board did not appear");
   }
-
-  // The Assistant needs a session so there is something to target.
-  await openView(ev, "workbench", "assistant");
-  await sleep(1200);
+  await open("assistant");
   await clickText("button", "New chat");
-  await sleep(1500);
-
-  // Back to Analysis, where the strip lives.
-  await openView(ev, "workbench", "analysis");
-  await sleep(1500);
-  const chips = await ev(`[...document.querySelectorAll(".board-chip")].map(c=>c.textContent.trim())`);
-
-  // Target the first board.
-  const setTarget = await ev(`(()=>{const b=[...document.querySelectorAll(".board-set-target")];return b.length ? (b[0].click(), true) : false;})()`);
-  await sleep(1400);
-  const markedAfterSet = await ev(`[...document.querySelectorAll(".board-chip.target")].map(c=>c.textContent.trim())`);
-
-  // Switch to the other board: the badge must point back at the target.
-  const switched = await ev(`(()=>{const chips=[...document.querySelectorAll(".board-chip")];const other=chips.find(c=>!c.classList.contains("active"));if(!other)return false;other.click();return true;})()`);
-  await sleep(1200);
-  const badge = await ev(`(()=>{const e=document.querySelector(".board-target-badge");return e?e.textContent.trim():"";})()`);
-
-  // Clicking the badge focuses the target board.
-  const badgeClicked = await ev(`(()=>{const e=document.querySelector(".board-target-badge");if(!e)return false;e.click();return true;})()`);
-  await sleep(1200);
-  const badgeAfter = await ev(`!!document.querySelector(".board-target-badge")`);
-  const activeChip = await ev(`(()=>{const c=document.querySelector(".board-chip.active");return c?c.textContent.trim():"";})()`);
-
-  // The left-rail board tree lists the same boards and selects them.
-  const tree = await ev(`[...document.querySelectorAll(".board-tree .tree-board")].map(b=>b.textContent.trim())`);
-  const treeWorkspaces = await ev(`document.querySelectorAll(".board-tree .tree-ws").length`);
-  const treeClicked = await ev(`(()=>{const boards=[...document.querySelectorAll(".board-tree .tree-board")];const other=boards.find(b=>!b.classList.contains("active"));if(!other)return false;other.click();return true;})()`);
-  await sleep(1000);
-  const activeChipAfterTree = await ev(`(()=>{const c=document.querySelector(".board-chip.active");return c?c.textContent.trim():"";})()`);
-
-  console.log(JSON.stringify({ tree, treeWorkspaces, treeClicked, activeChipAfterTree, setup, chips, setTarget, markedAfterSet, switched, badge, badgeClicked, badgeAfter, activeChip }));
-  const ok = chips && chips.length >= 2 && setTarget && markedAfterSet.length === 1
-    && /AI target/.test(markedAfterSet[0] || "")
-    && switched && /AI → /.test(badge)
-    && badgeClicked && badgeAfter === false
-    && /AI target/.test(activeChip || "")
-    && tree.length >= 2 && treeWorkspaces >= 1 && treeClicked
-    && activeChipAfterTree !== activeChip;
-  console.log(ok ? "AI_CROSS_BOARD_PASS" : "AI_CROSS_BOARD_FAIL");
-  ws.close(); chrome.kill(); process.exit(ok ? 0 : 1);
-})().catch((e) => { console.error(e); process.exit(1); });
+  await waitFor(() => evaluate('!!document.querySelector(".dock-tab.active")'), "target session did not appear");
+  await open("analysis");
+  assert.ok(await evaluate('document.querySelectorAll(".board-chip").length >= 2'));
+  await click(".board-set-target");
+  await waitFor(() => evaluate('document.querySelectorAll(".board-chip.target").length === 1'), "target marker missing");
+  assert.ok(await evaluate('document.querySelector(".board-chip.target").textContent.includes("AI target")'));
+  await evaluate('[...document.querySelectorAll(".board-chip")].find(board=>!board.classList.contains("active")).click()');
+  await waitFor(() => evaluate('document.querySelector(".board-target-badge")?.textContent.includes("AI → ")'), "off-screen target badge missing");
+  await click(".board-target-badge");
+  await waitFor(() => evaluate('!document.querySelector(".board-target-badge") && document.querySelector(".board-chip.active")?.classList.contains("target")'), "badge did not focus target board");
+  const target = await evaluate('document.querySelector(".board-chip.active").textContent.trim()');
+  assert.ok(target.includes("AI target"));
+  assert.ok(await evaluate('document.querySelectorAll(".board-tree .tree-board").length >= 2 && document.querySelectorAll(".board-tree .tree-ws").length >= 1'));
+  await evaluate('[...document.querySelectorAll(".board-tree .tree-board")].find(board=>!board.classList.contains("active")).click()');
+  await waitFor(() => evaluate(`!!document.querySelector(".board-chip.active") && document.querySelector(".board-chip.active").textContent.trim() !== ${JSON.stringify(target)}`), "sidebar tree did not select the other board");
+  console.log("AI_CROSS_BOARD_PASS");
+}).catch(error => { console.error(error); console.log("AI_CROSS_BOARD_FAIL"); process.exitCode = 1; });

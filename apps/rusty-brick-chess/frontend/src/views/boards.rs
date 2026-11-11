@@ -116,7 +116,7 @@ pub fn boards_bar(ctx: AppCtx) -> impl IntoView {
             </span>
             <button
                 class="board-action"
-                disabled=move || boards_busy.get()
+                disabled=move || boards_busy.get() || current().is_none_or(|ws| ws.backend().is_none())
                 on:click=move |_| new_board.run(())
             >
                 {move || i18n::t(&language.get(), "boards.new")}

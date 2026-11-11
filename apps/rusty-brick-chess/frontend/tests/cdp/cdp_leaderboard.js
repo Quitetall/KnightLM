@@ -69,7 +69,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(1500);
   const stepped = await ev(`(()=>{const e=[...document.querySelectorAll(".tournament-log li")].map(x=>x.textContent.trim()).filter(Boolean);return e.join(" | ")})()`);
   const paused = await clickText("Pause");
-  await sleep(1200);
+  for (let i=0; i<150; i++) {
+    if (await ev(`[...document.querySelectorAll(".tournament-log li")].some(row=>/paused/.test(row.textContent))`)) break;
+    await sleep(100);
+  }
   const afterPause = await ev(`(()=>{const e=[...document.querySelectorAll(".tournament-log li")].map(x=>x.textContent.trim()).filter(Boolean);return e.join(" | ")})()`);
   const standings = await ev(`document.querySelectorAll(".standings-table tbody tr").length`);
   const columns = await ev(`[...document.querySelectorAll(".leaderboard-table thead th")].map(t=>t.textContent.trim())`);

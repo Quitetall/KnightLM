@@ -169,7 +169,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({title:"After revocation"})
   }).then(r=>r.json()).then(row=>row.id)`);
   await type("please play e4 after revocation");
-  if (!await clickText(".chat-input button", "Send")) throw new Error("revoked turn could not be sent");
+  const readyAfterRevoke = await waitFor(() => ev(`[...document.querySelectorAll(".chat-input button")].some(button=>button.textContent.trim()==="Send" && !button.disabled)`),15000);
+  if (!readyAfterRevoke || !await clickText(".chat-input button", "Send")) throw new Error("revoked turn could not be sent");
   const queuedAfterRevoke = await waitFor(() => ev(`fetch("/api/ai/approvals").then(r=>r.json())
     .then(data=>data.pending.some(request=>request.target_id===${JSON.stringify(testTargetBoard)}))`), 15000);
   const unchangedAfterRevoke = await ev(`fetch("/api/boards/" + ${JSON.stringify(testTargetBoard)})

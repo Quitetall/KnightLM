@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::protocol::{ErrorInfo, ModelRef, ProviderKind, StopReason, ToolCall, TurnRole, Usage};
 
+mod cancel_transport;
 pub mod openai;
 pub mod sse;
 

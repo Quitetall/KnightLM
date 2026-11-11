@@ -493,7 +493,7 @@ pub fn Board(
     let promotion_ref = NodeRef::<Div>::new();
     let focus_square = move |idx: usize| {
         Timeout::new(0, move || {
-            if let Some(board) = board_ref.get_untracked()
+            if let Some(board) = board_ref.try_get_untracked().flatten()
                 && let Ok(Some(square)) =
                     board.query_selector(&format!("[data-square='{}']", index_to_name(idx)))
                 && let Ok(square) = square.dyn_into::<web_sys::HtmlElement>()
@@ -506,7 +506,7 @@ pub fn Board(
     Effect::new(move |_| {
         if promo.get().is_some() {
             Timeout::new(0, move || {
-                if let Some(dialog) = promotion_ref.get_untracked()
+                if let Some(dialog) = promotion_ref.try_get_untracked().flatten()
                     && let Ok(Some(button)) = dialog.query_selector("button")
                     && let Ok(button) = button.dyn_into::<web_sys::HtmlElement>()
                 {
@@ -1198,6 +1198,22 @@ pub fn Board(
                                 event.prevent_default();
                                 promo.set(None);
                                 focus_square(from);
+                            } else if event.key() == "Tab" {
+                                let (boundary, destination) = if event.shift_key() {
+                                    (".promo-btn:first-child", ".promo-btn:last-child")
+                                } else {
+                                    (".promo-btn:last-child", ".promo-btn:first-child")
+                                };
+                                if let Some(dialog) = promotion_ref.try_get_untracked().flatten()
+                                    && let Some(target) = event.target().and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+                                    && let Ok(Some(edge)) = dialog.query_selector(boundary)
+                                    && target == edge
+                                    && let Ok(Some(next)) = dialog.query_selector(destination)
+                                    && let Ok(next) = next.dyn_into::<web_sys::HtmlElement>()
+                                {
+                                    event.prevent_default();
+                                    let _ = next.focus();
+                                }
                             }
                         }>
                         <div class="promo-title">

@@ -316,8 +316,9 @@ pub fn stream_url(id: &str) -> String {
 }
 
 /// Rebuild a stored turn's context and compare it with what was sent.
-pub async fn replay_ai_turn(id: &str, seq: i64) -> Result<serde_json::Value, String> {
+pub async fn replay_ai_turn(id: &str, seq: i64, fen: &str) -> Result<serde_json::Value, String> {
     let resp = Request::get(&format!("/api/ai/sessions/{id}/replay/{seq}"))
+        .query([("fen", fen)])
         .send()
         .await
         .map_err(|e| e.to_string())?;

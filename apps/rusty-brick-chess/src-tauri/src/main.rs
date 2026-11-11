@@ -6,7 +6,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
@@ -46,7 +46,9 @@ fn main() {
             let new_window = MenuItemBuilder::with_id("new_window", "New window")
                 .accelerator("CmdOrCtrl+N")
                 .build(handle)?;
-            let quit = PredefinedMenuItem::quit(handle, Some("Quit"))?;
+            let quit = MenuItemBuilder::with_id("quit", "Quit")
+                .accelerator("CmdOrCtrl+Q")
+                .build(handle)?;
             let file = SubmenuBuilder::new(handle, "File")
                 .item(&open_pgn)
                 .item(&open_db)
@@ -65,9 +67,21 @@ fn main() {
         .on_menu_event(|app, event| {
             let port = server_port();
             match event.id().0.as_str() {
-                "open_pgn" => open_pgn(app, port),
-                "open_db" => open_database(app, port),
+                "open_pgn" | "open_db" => {
+                    // The blocking picker dispatches back to the UI thread.
+                    // Keep that thread free to show the dialog and handle input.
+                    let app = app.clone();
+                    let database = event.id().0 == "open_db";
+                    std::thread::spawn(move || {
+                        if database {
+                            open_database(&app, port);
+                        } else {
+                            open_pgn(&app, port);
+                        }
+                    });
+                }
                 "new_window" => open_window(app),
+                "quit" => app.exit(0),
                 "reload" => {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.eval("window.location.reload()");
@@ -143,7 +157,7 @@ fn wait_for_server(port: u16) {
 fn notify(app: &AppHandle, message: &str) {
     if let Some(window) = app.get_webview_window("main") {
         let detail = serde_json::to_string(message).unwrap_or_else(|_| "\"\"".into());
-        let _ = window.eval(&format!(
+        let _ = window.eval(format!(
             "window.dispatchEvent(new CustomEvent('rbc-imported', {{ detail: {detail} }}))"
         ));
     }
@@ -174,7 +188,10 @@ fn open_pgn(app: &AppHandle, port: u16) {
                         .map(|ids| ids.len())
                 })
                 .unwrap_or(0);
-            notify(app, &format!("imported {imported} game(s) from {}", path.display()));
+            notify(
+                app,
+                &format!("imported {imported} game(s) from {}", path.display()),
+            );
         }
         Err(error) => notify(app, &format!("import failed: {error}")),
     }
@@ -184,13 +201,48 @@ fn open_database(app: &AppHandle, port: u16) {
     let Some(path) = pick_file(app, "SQLite database", &["db", "sqlite", "sqlite3"]) else {
         return;
     };
-    let Some(name) = path.file_name().and_then(|name| name.to_str()).map(str::to_owned) else {
+    let Some(name) = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+    else {
         notify(app, "database file has no name");
         return;
     };
-    let target = rusty_brick_chess::db_dir_from_env().join(&name);
-    if target != path {
-        if let Err(error) = std::fs::copy(&path, &target) {
+    let name = name.trim();
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == ' ')
+    {
+        notify(
+            app,
+            "database names may use letters, digits, spaces, '-' and '_'",
+        );
+        return;
+    }
+    // The server takes a stem and manages .db files, including when the
+    // selected external file uses .sqlite or .sqlite3.
+    let target = rusty_brick_chess::db_dir_from_env().join(format!("{name}.db"));
+    let same_file = match (std::fs::canonicalize(&path), std::fs::canonicalize(&target)) {
+        (Ok(source), Ok(target)) => source == target,
+        _ => false,
+    };
+    if !same_file {
+        let copy = || -> std::io::Result<()> {
+            let mut source = std::fs::File::open(&path)?;
+            // Import must never overwrite an existing user database.
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)?;
+            if let Err(error) = std::io::copy(&mut source, &mut output) {
+                let _ = std::fs::remove_file(&target);
+                return Err(error);
+            }
+            Ok(())
+        };
+        if let Err(error) = copy() {
             notify(app, &format!("could not copy database: {error}"));
             return;
         }
