@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from model.serve.holdout import read_holdout
+from model.corpus.pipeline import read_corpus
 from model.serve.inference import Predictor
 
 
@@ -20,7 +20,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     predictor = Predictor(args.base_dir, args.adapter_dir)
-    rows = read_holdout(args.corpus, args.count)
+    rows = read_corpus(args.corpus)[1][:args.count]
     totals = {"raw": 0, "constrained": 0, "raw_match": 0, "constrained_match": 0, "empty_reply": 0}
     with args.output.open("x") as stream:
         for row in rows:

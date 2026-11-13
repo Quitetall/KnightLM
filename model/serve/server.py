@@ -30,24 +30,22 @@ ROOT = Path(__file__).resolve().parents[1]
 class MoveRequest(BaseModel):
     packet: dict
     packet_format_version: int
+    mode: str | None = None  # "raw" | "constrained"; defaults to the server's --mode
 
 
 class MoveResponse(BaseModel):
     move: str
     manifest_hash: str
+    legal: bool = True
+    raw_reply: str | None = None
 
 
 def build_manifest(predictor, mode):
-    base = predictor.base_dir
     manifest = {
         "packet_format_version": PACKET_FORMAT_VERSION,
-        "mode": mode,
+        "default_mode": mode,
         "engine_access": False,
-        "base_sha256": predictor.base_sha256,
-        "adapter_sha256": predictor.adapter_sha256 or "none",
-        "prompt_sha256": sha256_file(ROOT / "prompt.py"),
-        "tokenizer_sha256": sha256_file(base / "tokenizer.json"),
-        "chat_template_sha256": sha256_file(base / "chat_template.json"),
+        **predictor.manifest(),
     }
     canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
     manifest["manifest_hash"] = hashlib.sha256(canonical.encode()).hexdigest()
@@ -55,6 +53,7 @@ def build_manifest(predictor, mode):
 
 
 def create_app(predictor, mode="constrained"):
+    default_mode = mode
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}")
     manifest = build_manifest(predictor, mode)
@@ -69,18 +68,26 @@ def create_app(predictor, mode="constrained"):
         return manifest
 
     @app.post("/v1/move", response_model=MoveResponse)
-    def move_endpoint(req: MoveRequest):
+    def move_endpoint(req: MoveRequest, mode: str | None = None):
         if req.packet_format_version != manifest["packet_format_version"]:
             raise HTTPException(400, "packet format version mismatch")
         if not req.packet.get("legal_moves"):
             raise HTTPException(422, "packet has no legal_moves")
+        chosen = mode or req.mode or default_mode  # query overrides body overrides --mode
+        explicit_raw = chosen == "raw" and (mode or req.mode) is not None
+        if chosen not in MODES:
+            raise HTTPException(422, f"mode must be one of {MODES}")
         try:
-            prediction = predictor.predict(req.packet, mode)
+            prediction = predictor.predict(req.packet, chosen)
         except Exception as error:  # surfaced, never replaced by a guess
             raise HTTPException(500, f"inference failed: {error}") from error
-        if not prediction.legal:
+        if not prediction.legal and not explicit_raw:
+            # Default path (knightlm-uci): an illegal move is never emitted.
             raise HTTPException(502, f"model produced illegal move: {prediction.raw_reply!r}")
-        return MoveResponse(move=prediction.move, manifest_hash=manifest["manifest_hash"])
+        # A client that explicitly asks for mode=raw (the evaluation) gets the
+        # untouched reply and legal=false in a 200, so illegal is a record, not an error.
+        return MoveResponse(move=prediction.move, manifest_hash=manifest["manifest_hash"],
+                            legal=prediction.legal, raw_reply=prediction.raw_reply)
 
     return app
 

@@ -62,9 +62,15 @@ class FakePredictor:
     def __init__(self, reply):
         self.reply = reply
 
+    def manifest(self):
+        return {"base_sha256": self.base_sha256, "adapter_sha256": "none", "prompt_sha256": "p",
+                "tokenizer_sha256": "t", "chat_template_sha256": "c"}
+
     def predict(self, packet, mode):
         if mode not in MODES:
             raise ValueError("bad mode")
+        if mode == "constrained":
+            return Prediction("e2e4", " e2e4", True, 10, 3, 1.0)
         return Prediction(self.reply.strip(), self.reply, self.reply.strip() in packet["legal_moves"], 10, 3, 1.0)
 
 
@@ -94,13 +100,33 @@ class ServerContractTests(unittest.TestCase):
             body = {"packet": PACKET, "packet_format_version": 1}
             response = client.post("/v1/move", json=body)
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json(), {"move": "e2e4", "manifest_hash": manifest["manifest_hash"]})
+            self.assertEqual(response.json(), {"move": "e2e4", "manifest_hash": manifest["manifest_hash"],
+                                               "legal": True, "raw_reply": "e2e4"})
+
+    def test_per_request_mode_and_explicit_raw_illegal_is_a_200_record(self):
+        import tempfile
+        from pathlib import Path
+        import model.serve.server as server
+        with tempfile.TemporaryDirectory() as tmp:
+            client = self.client("zzzz", tmp)  # server default mode raw
+            body = {"packet": PACKET, "packet_format_version": 1}
+            r = client.post("/v1/move?mode=raw", json=body)
+            self.assertEqual((r.status_code, r.json()["legal"], r.json()["raw_reply"]), (200, False, "zzzz"))
+            r = client.post("/v1/move", json=dict(body, mode="raw"))
+            self.assertEqual((r.status_code, r.json()["legal"]), (200, False))
+            r = client.post("/v1/move?mode=constrained", json=body)
+            self.assertEqual((r.status_code, r.json()["move"], r.json()["legal"]), (200, "e2e4", True))
+            self.assertEqual(client.post("/v1/move?mode=bogus", json=body).status_code, 422)
+            self.assertEqual(client.post("/v1/move", json=body).status_code, 502)  # implicit default stays strict
 
     def test_errors_are_http_errors_never_a_guess(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             client = self.client("zzzz", tmp)
-            self.assertEqual(client.post("/v1/move", json={"packet": PACKET, "packet_format_version": 1}).status_code, 502)
+            body0 = {"packet": PACKET, "packet_format_version": 1}
+            self.assertEqual(client.post("/v1/move", json=body0).status_code, 502)
+            # Default (constrained here is "raw" server): illegal never emitted without an explicit raw ask.
+            self.assertEqual(client.post("/v1/move", json=dict(body0, mode="constrained")).json()["move"], "e2e4")
             self.assertEqual(client.post("/v1/move", json={"packet": PACKET, "packet_format_version": 2}).status_code, 400)
             self.assertEqual(client.post("/v1/move", json={"packet": {"fen": "x"}, "packet_format_version": 1}).status_code, 422)
             self.assertEqual(client.post("/v1/move", json={"packet": "str", "packet_format_version": 1}).status_code, 422)
@@ -121,6 +147,9 @@ class GpuPredictorTests(unittest.TestCase):
         self.assertIn(constrained.move, PACKET["legal_moves"])
         self.assertTrue(constrained.legal)
         self.assertEqual(raw.legal, raw.move in PACKET["legal_moves"])
+        manifest = predictor.manifest()
+        self.assertEqual(manifest["adapter_sha256"], "none")
+        self.assertEqual(len(manifest["base_sha256"]), 64)
         self.assertGreater(raw.input_tokens, 20)
         self.assertGreaterEqual(raw.output_tokens, 1)
         with self.assertRaises(ValueError):
