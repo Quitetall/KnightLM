@@ -393,7 +393,8 @@ pub fn Board(
         }
     };
     let move_cb = on_move;
-    let input_disabled = move || read_only || interaction_disabled.is_some_and(|signal| signal.get_untracked());
+    let input_disabled =
+        move || read_only || interaction_disabled.is_some_and(|signal| signal.get_untracked());
 
     // Load a PGN pushed by the parent (e.g. a game picked in the database).
     Effect::new(move |_| {
@@ -499,7 +500,9 @@ pub fn Board(
     };
 
     let attempt = move |from: usize, to: usize| {
-        if input_disabled() { return; }
+        if input_disabled() {
+            return;
+        }
         let cands = widget.with(|w| candidates(w, from, to));
         if cands.is_empty() {
             return;
