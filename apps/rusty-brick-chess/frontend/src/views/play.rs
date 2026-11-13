@@ -67,12 +67,15 @@ fn result_text(payload: &serde_json::Value, language: &str) -> Option<String> {
     if result.is_null() {
         return None;
     }
-    let label = i18n::t(language, match result["score"].as_str() {
-        Some("1-0") => "db.white_wins",
-        Some("0-1") => "db.black_wins",
-        Some("1/2-1/2") => "db.draw",
-        _ => "play.ended",
-    });
+    let label = i18n::t(
+        language,
+        match result["score"].as_str() {
+            Some("1-0") => "db.white_wins",
+            Some("0-1") => "db.black_wins",
+            Some("1/2-1/2") => "db.draw",
+            _ => "play.ended",
+        },
+    );
     let termination = result["termination"].as_str().unwrap_or_default();
     if termination.is_empty() {
         Some(label.to_owned())
@@ -130,16 +133,23 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
         spawn_local(async move {
             match db_api::scan_local_providers().await {
                 Ok(endpoints) => {
-                    let models = endpoints.into_iter().filter(|endpoint| endpoint.responding)
+                    let models = endpoints
+                        .into_iter()
+                        .filter(|endpoint| endpoint.responding)
                         .flat_map(|endpoint| {
                             let label = endpoint.label;
-                            endpoint.models.into_iter().map(move |model| (label.clone(), model))
-                        }).filter(|(label, model)| label != "LAMU" || model != KNIGHTLM_MODEL)
+                            endpoint
+                                .models
+                                .into_iter()
+                                .map(move |model| (label.clone(), model))
+                        })
+                        .filter(|(label, model)| label != "LAMU" || model != KNIGHTLM_MODEL)
                         .collect::<Vec<_>>();
                     let selected = opponent.get_untracked();
                     let next = selected.checked_sub(2).map(|index| {
                         let previous = local_models.with_untracked(|old| old.get(index).cloned());
-                        previous.and_then(|seat| models.iter().position(|model| *model == seat))
+                        previous
+                            .and_then(|seat| models.iter().position(|model| *model == seat))
                             .map_or(1, |index| index + 2)
                     });
                     local_models.set(models);
@@ -177,7 +187,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     let load_detail = move |id: String| {
         spawn_local(async move {
             match ai_api::get_ai_match(&id).await {
-                Ok(value) if selected.get_untracked().as_deref() == Some(&id) => detail.set(Some(value)),
+                Ok(value) if selected.get_untracked().as_deref() == Some(&id) => {
+                    detail.set(Some(value))
+                }
                 Ok(_) => {}
                 Err(error) => message.set(error),
             }
@@ -232,22 +244,27 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
         }
     });
 
-    let lamu_model = move || {
-        match opponent.get() {
-            1 => Some(KNIGHTLM_MODEL.to_owned()),
-            index => index.checked_sub(2).and_then(|index| {
-                local_models.with(|models| models.get(index)
+    let lamu_model = move || match opponent.get() {
+        1 => Some(KNIGHTLM_MODEL.to_owned()),
+        index => index.checked_sub(2).and_then(|index| {
+            local_models.with(|models| {
+                models
+                    .get(index)
                     .filter(|(label, _)| label == "LAMU")
-                    .map(|(_, model)| model.clone()))
-            }),
-        }
+                    .map(|(_, model)| model.clone())
+            })
+        }),
     };
 
     let manage_model = move |action: &'static str| {
         let Some(model) = lamu_model() else { return };
         busy.set(true);
         message.set(String::new());
-        model_status.set(if action == "load" { format!("Loading {model}…") } else { format!("Unloading {model}…") });
+        model_status.set(if action == "load" {
+            format!("Loading {model}…")
+        } else {
+            format!("Unloading {model}…")
+        });
         spawn_local(async move {
             match ai_api::manage_lamu_model(action, &model).await {
                 Ok(()) if action == "load" => {
@@ -273,16 +290,21 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             let result = async {
                 if let Some(model) = ["white", "black"].into_iter().find_map(|color| {
                     let seat = &config[color];
-                    (seat["provider"] == "local:LAMU").then(|| seat["model"].as_str()).flatten()
+                    (seat["provider"] == "local:LAMU")
+                        .then(|| seat["model"].as_str())
+                        .flatten()
                 }) {
                     model_status.set(format!("Preparing {model}…"));
                     ai_api::manage_lamu_model("load", model).await?;
-                    if local_models.with_untracked(|models| !models.iter().any(|(label, _)| label == "LAMU")) {
+                    if local_models
+                        .with_untracked(|models| !models.iter().any(|(label, _)| label == "LAMU"))
+                    {
                         scan_local();
                     }
                 }
                 ai_api::create_ai_match(config).await
-            }.await;
+            }
+            .await;
             model_status.set(String::new());
             match result {
                 Ok(value) => {
@@ -304,11 +326,13 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             0 if !settings_model.get_untracked().trim().is_empty() => {
                 serde_json::json!({"kind": "model", "provider": "local", "model": "assistant"})
             }
-            1 => serde_json::json!({"kind": "model", "provider": "local:LAMU", "model": KNIGHTLM_MODEL}),
+            1 => {
+                serde_json::json!({"kind": "model", "provider": "local:LAMU", "model": KNIGHTLM_MODEL})
+            }
             choice => {
-                let Some((label, model)) = choice.checked_sub(2)
-                    .and_then(|index| local_models.with_untracked(|models| models.get(index).cloned()))
-                else {
+                let Some((label, model)) = choice.checked_sub(2).and_then(|index| {
+                    local_models.with_untracked(|models| models.get(index).cloned())
+                }) else {
                     return;
                 };
                 serde_json::json!({"kind": "model", "provider": format!("local:{label}"), "model": model})
@@ -336,7 +360,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
 
     // An action that changes the match, then refreshes the list and the detail.
     let act = move |action: &'static str, body: serde_json::Value| {
-        if busy.get_untracked() { return; }
+        if busy.get_untracked() {
+            return;
+        }
         let Some(id) = selected.get_untracked() else {
             return;
         };
@@ -348,16 +374,26 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             "knightlm_samples": knightlm_samples.get_untracked(),
             "knightlm_temperature": knightlm_temperature.get_untracked(),
         });
-        let body = if action == "model-move" { model_options.clone() } else { body };
+        let body = if action == "model-move" {
+            model_options.clone()
+        } else {
+            body
+        };
         spawn_local(async move {
             match ai_api::match_action(&id, action, body).await {
                 Ok(value) => {
                     // A route may answer with the match itself or wrap it.
-                    let vote = value.get("knightlm_vote").filter(|vote| !vote.is_null()).cloned();
+                    let vote = value
+                        .get("knightlm_vote")
+                        .filter(|vote| !vote.is_null())
+                        .cloned();
                     let next = value.get("match").cloned().unwrap_or(value);
                     if next.get("id").is_some() {
-                        let model_reply = action == "move" && next["result"].is_null()
-                            && next["turn"].as_str().is_some_and(|turn| next[turn]["kind"] == "model");
+                        let model_reply = action == "move"
+                            && next["result"].is_null()
+                            && next["turn"]
+                                .as_str()
+                                .is_some_and(|turn| next[turn]["kind"] == "model");
                         if selected.get_untracked().as_deref() == Some(&id) {
                             knightlm_vote.set(vote);
                             detail.set(Some(next));
@@ -365,7 +401,12 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         if model_reply {
                             match ai_api::match_action(&id, "model-move", model_options).await {
                                 Ok(reply) if selected.get_untracked().as_deref() == Some(&id) => {
-                                    knightlm_vote.set(reply.get("knightlm_vote").filter(|vote| !vote.is_null()).cloned());
+                                    knightlm_vote.set(
+                                        reply
+                                            .get("knightlm_vote")
+                                            .filter(|vote| !vote.is_null())
+                                            .cloned(),
+                                    );
                                     detail.set(reply.get("match").cloned());
                                 }
                                 Err(error) if selected.get_untracked().as_deref() == Some(&id) => {
