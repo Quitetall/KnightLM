@@ -9,18 +9,21 @@ import random
 import time
 
 from model.corpus.pipeline import read_corpus, sha256_file
+from model.prompt import user_chat
 
 PROFILE = Path(__file__).resolve().parents[1] / "configs/models/smolvlm-500m.json"
 WEIGHTS_SHA256 = "d05b567eeaf534e83d375551f068ed57b5f52d37c657197f644af5ef9db091a2"
 LORA_TARGETS = r"model\.text_model\.layers\.\d+\.self_attn\.[qv]_proj"
 
 
+def lora_config():
+    import peft
+    return peft.LoraConfig(r=8, lora_alpha=16, target_modules=LORA_TARGETS, bias="none")
+
+
 def encode(row, processor):
     tokenizer = processor.tokenizer
-    packet = json.dumps(row["packet"], sort_keys=True, separators=(",", ":"))
-    chat = [{"role": "user", "content": [{"type": "text", "text": (
-        "Choose a legal chess move. Reply with just the UCI move.\n" + packet
-    )}]}]
+    chat = user_chat(row["packet"])
     prompt = processor.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
     chat.append({"role": "assistant", "content": [{"type": "text", "text": row["target"]}]})
     answer = processor.apply_chat_template(chat, tokenize=False)
@@ -94,7 +97,7 @@ def train(args, train_rows, holdout_rows):
         return loss
 
     args.output.mkdir()
-    config = peft.LoraConfig(r=8, lora_alpha=16, target_modules=LORA_TARGETS, bias="none")
+    config = lora_config()
     model = peft.get_peft_model(load_base(), config)
     parameters = [param for param in model.parameters() if param.requires_grad]
     initial = [param.detach().cpu().clone() for param in parameters]
