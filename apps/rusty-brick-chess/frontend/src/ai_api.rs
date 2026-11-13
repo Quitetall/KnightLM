@@ -434,7 +434,10 @@ pub async fn manage_lamu_model(action: &str, model: &str) -> Result<(), String> 
         return Ok(());
     }
     let body: serde_json::Value = response.json().await.map_err(|error| error.to_string())?;
-    Err(body["error"].as_str().unwrap_or("LAMU refused the request").to_owned())
+    Err(body["error"]
+        .as_str()
+        .unwrap_or("LAMU refused the request")
+        .to_owned())
 }
 
 /// Create a match from a config.
