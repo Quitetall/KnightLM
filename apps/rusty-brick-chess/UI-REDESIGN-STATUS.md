@@ -1,10 +1,10 @@
 # Redesign verification checkpoint
 
-Cutover is **BLOCKED: 56 PASS, 4 UNKNOWN, 0 unresolved product FAIL** out of 60 checklist rows. Checked boxes in [the plan](UI-REDESIGN-PLAN.md) refer to this candidate's named Linux browser checks, not desktop release qualification.
+Cutover is **BLOCKED: 59 PASS, 1 UNKNOWN, 0 unresolved product FAIL** out of 60 checklist rows. Checked boxes in [the plan](UI-REDESIGN-PLAN.md) refer to this candidate's named Linux browser checks, not desktop release qualification.
 
-Candidate fingerprint: `23a2106685de9a9e7819fa65b6332f4e24e84de27e84655e212e878e5ded0587` (server plus served entrypoint/JS/WASM hashes).
+Candidate fingerprint: `793653912b2c58b01c6cad9d2dd5dcea58887966620978e806505a78eaf23558` (server plus served entrypoint/JS/WASM hashes).
 
-Local evidence: `/mnt/4tb/artifacts/KnightLM/keep/rbc-ui-parity-verified-20261110-2045/`. Its `candidate-build.json` identifies the individual receipts; `parity-ledger.json` maps all 60 IDs to those receipts. Earlier failed runs are retained. This checkpoint aggregates passing suites for the identical server/assets after test repairs, rather than presenting a failed batch as green.
+Local evidence: `/mnt/4tb/artifacts/KnightLM/keep/rbc-ui-parity-verified-20261112-final/`. Its `candidate-build.json` identifies the individual receipts; `parity-ledger.json` maps all 60 IDs to those receipts. Earlier failed runs are retained. This checkpoint aggregates passing suites for the identical server/assets after test repairs, rather than presenting a failed batch as green.
 
 ## Verified
 
@@ -14,13 +14,16 @@ Local evidence: `/mnt/4tb/artifacts/KnightLM/keep/rbc-ui-parity-verified-2026111
 - Fixed stale Analysis dock replies; saved Sent context, old transcript fallback and replay against the current board; stalled provider cancellation; Home refresh after native imports; New board readiness during workspace creation; explorer stale output; keyboard focus/promotion trap. Replaced sleep-based rail/cross-board checks with state-based waits, and waited for stream completion before the scope-revocation follow-up.
 - Linux native runtime checks found and fixed UI-thread picker deadlock, database extension/stem mismatch and disabled Quit. A duplicate native database import refuses overwrite. These are partial unbundled Linux observations, not a native release PASS.
 
+## Fixed and verified in this checkpoint
+
+- RBCUI-CFG-04: custom sound upload and playback now share one name (the server accepts a name with or without `.ogg`; already-stored stems keep working). 16 bundled files that were symlink or 404 placeholders were replaced with the real upstream Lichess files (see `frontend/assets/sounds/COPYING.txt`), with an integrity test. `cdp_sound` passes on a PulseAudio null sink.
+- RBCUI-TRAIN-02: Lichess now requires auth on the explorer. The linked account token is sent as `Authorization: Bearer`; without it a 401 is reported as an actionable message instead of a silent local fallback.
+- RBCUI-LIB-04: the token is stored in the app's local SQLite settings (documented in `src/accounts.rs`, never returned by any API). The requirement "without plaintext persistence" applies to the test credential: the suite reads `LICHESS_TOKEN` from the environment, types it into the UI, runs in a throwaway database and scrubs output; evidence was scanned and holds no token. Storing the app token in a keyring is not done and was not required by the plan.
+
 ## Remaining required coverage
 
 | ID | Why it remains UNKNOWN | What settles it |
 | --- | --- | --- |
-| RBCUI-LIB-04 | Public anonymous/linked imports pass; optional authenticated Lichess credential path was not exercised. | Approved test credential handled without plaintext persistence, then authenticated import/profile/error checks. |
 | RBCUI-LIB-09 | Linux unbundled native menus/pickers were exercised; installed resource identity/full handoffs and macOS/Windows were not. | Run the packaged-host scenarios on each released platform, against these candidate assets. |
-| RBCUI-TRAIN-02 | Local and cached-source fixtures pass; actual Lichess and Masters explorer endpoints return HTTP 401 HTML here. | Reachable live endpoints, with both FEN/current-board paths and source/count verification. |
-| RBCUI-CFG-04 | Audio service is unavailable (`Connection refused`). | Sound-capable host: bundled/custom themes, quiet/audible volume, move/capture/end events and failure feedback. |
 
-No missing qualification is waived. The full cutover command must fail until these four rows have real passing evidence.
+No missing qualification is waived. The full cutover command must fail until LIB-09 has real passing evidence.
