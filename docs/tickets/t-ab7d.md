@@ -43,6 +43,6 @@ track once this text training loop is repeatable.
 ## Checklist
 
 
-- [ ] Test first input, unchanged rerun, added input, and bad data on CPU. (i-1928)
-- [ ] Record an opt-in bounded GPU run and checkpoint reload from the new snapshot. (i-a67c)
+- [x] Test first input, unchanged rerun, added input, and bad data on CPU. (i-1928) — done by claude-blut, 2026-11-13: model/tests/test_pipeline.py (6 tests, CPU): first input, unchanged rerun (snapshot byte-identical), added input (new snapshot, old untouched), leaked and tampered source rejected before any launch with the prior snapshot intact. The ingest step is a slice-of-corpus stand-in until the ETL ticket t-f724 lands. Run: python3 -m unittest model.tests.test_pipeline
+- [x] Record an opt-in bounded GPU run and checkpoint reload from the new snapshot. (i-a67c) — done by claude-blut, 2026-11-13: python3 -m model.run_pipeline --gpu --steps 30 --eval-rows 50: snapshot -> materialize -> 30 GPU steps -> evaluate 50 holdout rows (PR #18 harness from an overlay checkout) -> register; reload error 0.0; same corpus digest 56ca35f2... in snapshot, entry.json and run-manifest.json (pipeline-report.json same=true). Crash/resume check in crash-resume/. Evidence: /mnt/4tb/artifacts/KnightLM/keep/blut-knightlm-smoke-2026-11-13
 - [ ] Hand the two linked manifests and rerun command to the project lead. (i-04cd)

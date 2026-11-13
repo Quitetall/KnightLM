@@ -305,7 +305,7 @@
 
 ## docs/tickets/t-ab7d.md
 > Prove that adding a source produces a new audited snapshot and that a single command can train from it.
-- t-ab7d · ticket · open · MLOps/CV Engineer — Test the joined source-to-training loop · docs/tickets/t-ab7d.md:1
+- t-ab7d · ticket · in_progress · MLOps/CV Engineer — Test the joined source-to-training loop · docs/tickets/t-ab7d.md:1
 
 ## docs/tickets/t-b1ab.md
 > Bind the read-only chess tools to existing engine/database services.
@@ -385,7 +385,7 @@
 
 ## docs/tickets/t-ea98.md
 > Provide one reproducible training entry point that validates the supplied corpus and invokes the existing LoRA trainer.
-- t-ea98 · ticket · open · MLOps/CV Engineer — Make the trainer runnable from a corpus manifest · docs/tickets/t-ea98.md:1
+- t-ea98 · ticket · done · MLOps/CV Engineer — Make the trainer runnable from a corpus manifest · docs/tickets/t-ea98.md:1
 
 ## docs/tickets/t-f26f.md
 > Render the match panel in the Assistant center pane.

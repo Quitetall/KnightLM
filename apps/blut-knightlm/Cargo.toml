@@ -1,0 +1,44 @@
+# blut-knightlm: the KnightLM cookbook for BLUT. It lives in the KnightLM repo
+# (apps/* is excluded from the KnightLM workspace, so this crate carries its own
+# [workspace] and Cargo.lock, like apps/rusty-brick-chess) and is symlinked into
+# the blut-cookbooks tree as `knightlm`.
+[workspace]
+
+[package]
+name = "blut-cookbook-knightlm"
+version = "0.1.0"
+edition = "2024"
+authors = ["Brian Lam"]
+license = "AGPL-3.0-only"
+description = "KnightLM cookbook for BLUT: corpus materialization, image-text LoRA training, evaluation and registration."
+rust-version = "1.88"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "blut-knightlm"
+path = "src/main.rs"
+
+[dependencies]
+# ENGINE: the published blut that blut-cookbook-standard itself requires
+# (`=0.2.0-alpha.1`). lamu and lamquant still pin the git rev e1bb077 (blut
+# 1.0.0-era); mixing that rev with the standard cookbook on `main` of
+# blut-cookbooks would link two different `blut` crates whose Stage and Recipe
+# types do not unify. One engine only: whatever blut-cookbook-standard resolves.
+blut = { version = "=0.2.0-alpha.1", default-features = false }
+# STANDARD COOKBOOK: pinned to the tip of blut-cookbooks PR #3
+# (agent/hf-trainer-image-text), which adds arch = "image_text" to hf_sft_train
+# and merge_lora. RE-PIN to the PR #3 merge commit on blut-cookbooks `main`
+# once it lands; this SHA belongs to a branch that is deleted on merge.
+blut-backends = { package = "blut-cookbook-standard", git = "https://github.com/Quitetall/blut-cookbooks.git", rev = "125482dc88c6d20c0deeb1f03a83e31ff4798480" }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "0.8"
+async-trait = "0.1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

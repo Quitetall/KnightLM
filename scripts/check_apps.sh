@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Lint and test the two crates the wheel actually turns on.
+# Lint and test the application crates the workspace excludes: the app (server and
+# wasm frontend) and the BLUT cookbook.
 #
 # They live under `apps/`, which the workspace excludes, so `cargo clippy
 # --workspace` never sees them and `cargo test --workspace` never runs them. That
@@ -26,5 +27,11 @@ step "frontend crate: fmt, clippy (wasm), tests"
 (cd "$APP/frontend" && cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings) \
   || fail "frontend clippy"
 (cd "$APP/frontend" && cargo test) || fail "frontend tests"
+
+step "BLUT cookbook crate: fmt, clippy, tests"
+BLUT="$ROOT/apps/blut-knightlm"
+(cd "$BLUT" && cargo fmt --all -- --check) || fail "blut-knightlm fmt"
+(cd "$BLUT" && cargo clippy --locked --all-targets -- -D warnings) || fail "blut-knightlm clippy"
+(cd "$BLUT" && cargo test --locked) || fail "blut-knightlm tests"
 
 printf '\nAPPS_PASS\n'
