@@ -50,6 +50,10 @@
 > -
 - doc:docs/contributors/work/README.md · document · - · Contributor work orders · docs/contributors/work/README.md:1
 
+## docs/contributors/work/training-loop.md
+> -
+- doc:docs/contributors/work/training-loop.md · document · - · Four-person training plan · docs/contributors/work/training-loop.md:1
+
 ## docs/model/contracts.md
 > -
 - doc:docs/model/contracts.md · document · - · Version 1 contracts · docs/model/contracts.md:1
@@ -211,6 +215,10 @@
 > Run the full RBC browser suite with an isolated database, mock providers, and test-owned processes.
 - t-5b6e · ticket · open · QA Engineer — Isolate the RBC browser release gate · docs/tickets/t-5b6e.md:1
 
+## docs/tickets/t-5cd8.md
+> Define the versioned corpus manifest and a small shared fixture so the data builder and trainer can work independently.
+- t-5cd8 · ticket · open · Representation/Evaluation Engineer — Agree on the corpus-to-trainer contract · docs/tickets/t-5cd8.md:1
+
 ## docs/tickets/t-5ede.md
 > Pin the study product end to end.
 - t-5ede · ticket · done · Study tests: CRUD, round-trip, progress, authoring · docs/tickets/t-5ede.md:1
@@ -295,6 +303,10 @@
 > Create/running/finished tournament views and standings.
 - t-a994 · ticket · done · Tournament UI and end-to-end tests · docs/tickets/t-a994.md:1
 
+## docs/tickets/t-ab7d.md
+> Prove that adding a source produces a new audited snapshot and that a single command can train from it.
+- t-ab7d · ticket · open · MLOps/CV Engineer — Test the joined source-to-training loop · docs/tickets/t-ab7d.md:1
+
 ## docs/tickets/t-b1ab.md
 > Bind the read-only chess tools to existing engine/database services.
 - t-b1ab · ticket · done · Read tools: position, engine, openings, database, tablebase · docs/tickets/t-b1ab.md:1
@@ -326,6 +338,10 @@
 ## docs/tickets/t-c168.md
 > Cancel a stalled Assistant turn promptly and return the composer to a usable state.
 - t-c168 · ticket · open · Frontend Engineer — Make Stop responsive during a provider stall · docs/tickets/t-c168.md:1
+
+## docs/tickets/t-c199.md
+> Score baseline and trained model predictions under the same rules and retain the evidence for the project lead.
+- t-c199 · ticket · open · Representation/Evaluation Engineer — Implement the held-out scorecard · docs/tickets/t-c199.md:1
 
 ## docs/tickets/t-c5a4.md
 > Measure 1M DB, long sessions, SSE and 16-model tournaments.
@@ -367,6 +383,10 @@
 > Create the AI domain crate with session/turn persistence and protocol DTOs.
 - t-e833 · ticket · done · rbc-ai crate, protocol, store and sessions · docs/tickets/t-e833.md:1
 
+## docs/tickets/t-ea98.md
+> Provide one reproducible training entry point that validates the supplied corpus and invokes the existing LoRA trainer.
+- t-ea98 · ticket · open · MLOps/CV Engineer — Make the trainer runnable from a corpus manifest · docs/tickets/t-ea98.md:1
+
 ## docs/tickets/t-f26f.md
 > Render the match panel in the Assistant center pane.
 - t-f26f · ticket · done · Match UI: cards, clocks, result and handoff · docs/tickets/t-f26f.md:1
@@ -378,6 +398,10 @@
 ## docs/tickets/t-f44e.md
 > Pin legal/illegal/timeout/provider-error/resign/checkmate flows.
 - t-f44e · ticket · done · Match tests with scripted mock models · docs/tickets/t-f44e.md:1
+
+## docs/tickets/t-f724.md
+> Ingest a new chess source into a reproducible, audited corpus snapshot that the training entry point can consume.
+- t-f724 · ticket · open · Data Engineer — Build a repeatable chess ETL loop · docs/tickets/t-f724.md:1
 
 ## docs/warrants/KLM-WAR-0001/manifest.toml
 > Adopt OpenWarrant in KnightLM
