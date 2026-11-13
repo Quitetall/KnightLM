@@ -37,7 +37,7 @@ timeout 300 hf download HuggingFaceTB/SmolVLM-500M-Instruct \
   chat_template.json tokenizer.json tokenizer_config.json special_tokens_map.json model.safetensors \
   --revision a7da5b986cb59b408707209984f360a5f4ad7e47 \
   --local-dir "$MODEL_DIR"
-timeout 220 "$PYTHON" -m model.corpus.pipeline --pgn "$LICHESS_PGN" --output "$CORPUS_DIR"
+timeout 220 "$PYTHON" -m model.corpus.pipeline build --pgn "$LICHESS_PGN" --output "$CORPUS_DIR"
 timeout 600 "$PYTHON" -u -m model.train.harness --corpus "$CORPUS_DIR" \
   --model-dir "$MODEL_DIR" --output "$RUN_DIR"
 ```
@@ -46,17 +46,35 @@ Set `PYTHON` to the interpreter in the CUDA environment and `LICHESS_PGN` to
 the existing monthly `.pgn.zst`. The builder uses a bounded prefix of the
 stream and compiles one decision at ply 24 for each selected rated standard
 blitz or rapid game with both players rated 1600 or above. It writes 1,000
-training games and 100 strictly later holdout games by default. The reader
-rechecks shard hashes and refuses game ID, ECO-prefix and scored-position
-leakage across the split.
+training games and 100 strictly later holdout games by default, in shards of
+`--shard-games` games, and records the source file's size and SHA-256, the
+compiler's SHA-256, each shard's hash and game count, and each split's months
+and time range in `manifest.json`. The reader rechecks shard hashes and counts,
+refuses shards the manifest does not list, and refuses game ID, ECO-prefix and
+scored-position leakage across the split. Re-check a finished corpus without
+rebuilding it:
+
+```sh
+"$PYTHON" -m model.corpus.pipeline audit "$CORPUS_DIR"
+```
+
+Run 1 is 200,000 training games and 10,000 later holdout games drawn from a
+400,000-candidate prefix of the monthly file:
+
+```sh
+"$PYTHON" -m model.corpus.pipeline build --pgn "$LICHESS_PGN" --output "$CORPUS_DIR" \
+  --train-games 200000 --holdout-games 10000 --candidates 400000
+```
+
+Keep the shards in the artifact store, not in git.
 
 The trainer uses the checkpoint's chat template and masks loss on the prompt
 and padding. It runs one epoch, checks for finite gradients and adapter updates,
 then reloads the adapter and checks logits on a holdout prompt. The run manifest
 binds the adapter and predictions to the base revision and corpus. The pilot
 uses played moves as targets and supplies the compiler's legal-move list in the
-prompt. Holdout generation is unconstrained. Teacher labels, the full Run 1
-corpus, strength testing and image inputs are outside the pilot.
+prompt. Holdout generation is unconstrained. Teacher labels, strength testing and
+image inputs are outside the pilot.
 
 Use `--batch-size 4` or lower if GPU memory is limited.
 
