@@ -78,6 +78,41 @@ image inputs are outside the pilot.
 
 Use `--batch-size 4` or lower if GPU memory is limited.
 
+## Talking to a checkpoint (serving)
+
+`model/serve` loads the pinned base plus an optional LoRA adapter, so the
+untrained base (a freshly initialised, no-op adapter) and trained checkpoints
+go through one path. The prompt lives in `model/prompt.py` and is shared with
+the trainer. Nothing in `model/serve` reaches an engine.
+
+```sh
+# one-off: environment and base weights (keep caches on /mnt/4tb)
+uv venv /mnt/4tb/venvs/knightlm-serve
+uv pip install --python /mnt/4tb/venvs/knightlm-serve/bin/python -r model/train/requirements.txt   torch torchvision fastapi uvicorn httpx accelerate pillow num2words huggingface_hub
+hf download HuggingFaceTB/SmolVLM-500M-Instruct config.json generation_config.json processor_config.json   preprocessor_config.json chat_template.json tokenizer.json tokenizer_config.json special_tokens_map.json   model.safetensors --revision a7da5b986cb59b408707209984f360a5f4ad7e47   --local-dir /mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98
+
+# serve (constrained: always a legal move; --mode raw: free decode, illegal reply is an HTTP 502)
+BASE=/mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98
+CKPT=/mnt/4tb/artifacts/KnightLM/keep/model-provisional-base-2026-11-13
+/mnt/4tb/venvs/knightlm-serve/bin/python -m model.serve.server \
+  --base-dir $BASE --adapter-dir $CKPT/adapter --mode constrained --port 8000
+
+# UCI engine for a GUI (point the GUI's engine command at this line)
+timeout 600 cargo build --release -p knightlm-cli --bin knightlm-uci --bin knightlm-match
+target/release/knightlm-uci --player model --model http://127.0.0.1:8000/v1/move
+
+# or a headless game against the random player
+target/release/knightlm-match --white model --black random --model http://127.0.0.1:8000/v1/move \
+  --games 1 --max-plies 100 --pgn /path/to/new/game.pgn
+```
+
+`GET /v1/manifest` reports the base, adapter, prompt, tokenizer and chat-template
+hashes and the manifest hash returned with every move. `model/serve/make_provisional.py`
+writes a no-op adapter and proves it equals the base; `model/serve/probe_holdout.py`
+records raw and constrained behaviour on holdout positions. Tests:
+`python -m unittest model.serve.test_serve` (the real-model test runs only with
+`KNIGHTLM_BASE_DIR` set and CUDA present).
+
 ## KnightLM development checks
 
 `make check` exercises the Rust workspace, Python packet checks, and fixture
