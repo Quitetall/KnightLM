@@ -129,6 +129,9 @@ withBrowser(async ({ base, command, evaluate, click, clickText, setField, destin
     for (const source of ["lichess","masters"]) {
       const explorer=await api(`openings?fen=${fen}&source=${source}`);
       assert.ok(explorer.continuations.length>0,source+" explorer returned no continuations with the token");
+      const total=explorer.continuations.reduce((sum,move)=>sum+move.games,0);
+      assert.ok(explorer.continuations.every(move=>move.games===move.white+move.draw+move.black),source+" counts do not add up");
+      assert.ok(total>1000 && explorer.continuations.some(move=>move.san==="c5"),source+" live counts implausible for 1.e4: "+total);
     }
     await command("Page.reload");
     await view("home");
