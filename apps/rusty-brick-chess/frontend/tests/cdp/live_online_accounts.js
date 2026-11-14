@@ -71,7 +71,7 @@ withBrowser(async ({ base, command, evaluate, click, clickText, setField, destin
     await observeOnline();
     const card=`.account-card:nth-child(${index})`;
     const field=provider==="lichess" ? "Lichess username" : "Chess.com username";
-    if (provider==="lichess") assert.equal(await evaluate(`document.querySelector('${card} input[type=password]').value`),"");
+    if (provider==="lichess") assert.equal(await evaluate(`document.querySelector('${card} .account-form input:nth-of-type(2)').value`),"");
     await setField(`${card} input[placeholder="${field}"]`,user);
     await clickText(card+" button","Link");
     await wait(async ()=>(await accounts()).some(account=>account.provider===provider && account.linked),"profile did not link");

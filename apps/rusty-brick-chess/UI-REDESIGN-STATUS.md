@@ -2,9 +2,9 @@
 
 Cutover is **BLOCKED: 59 PASS, 1 UNKNOWN, 0 unresolved product FAIL** out of 60 checklist rows. Checked boxes in [the plan](UI-REDESIGN-PLAN.md) refer to this candidate's named Linux browser checks, not desktop release qualification.
 
-Candidate fingerprint: `793653912b2c58b01c6cad9d2dd5dcea58887966620978e806505a78eaf23558` (server plus served entrypoint/JS/WASM hashes).
+Candidate fingerprint: `de86a9aa91c4f080f842a25657a9b30fdbf552f2568c60877cbd5d4757fda9f4` (server plus served entrypoint/JS/WASM hashes).
 
-Local evidence: `/mnt/4tb/artifacts/KnightLM/keep/rbc-ui-parity-verified-20261112-final/`. Its `candidate-build.json` identifies the individual receipts; `parity-ledger.json` maps all 60 IDs to those receipts. Earlier failed runs are retained. This checkpoint aggregates passing suites for the identical server/assets after test repairs, rather than presenting a failed batch as green.
+Local evidence: `/mnt/4tb/artifacts/KnightLM/keep/rbc-ui-parity-verified-20261113-token-ref/`. Its `candidate-build.json` identifies the individual receipts; `parity-ledger.json` maps all 60 IDs to those receipts. Earlier failed runs are retained. This checkpoint aggregates passing suites for the identical server/assets after test repairs, rather than presenting a failed batch as green.
 
 ## Verified
 
