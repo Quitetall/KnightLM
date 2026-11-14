@@ -1,0 +1,15 @@
+{
+ "format": "knightlm-lichess-v2",
+ "note": "six real Run 1 holdout rows; fixture for the worked scoring example, not a corpus",
+ "shards": {
+  "holdout": {
+   "files": [
+    {
+     "file": "holdout-00000.jsonl",
+     "games": 6,
+     "sha256": "4240a3d700792789a68d0dbca307c9057f86ed5edb0c0d29ce05d769312ce4a1"
+    }
+   ]
+  }
+ }
+}

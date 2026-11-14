@@ -341,7 +341,7 @@
 
 ## docs/tickets/t-c199.md
 > Score baseline and trained model predictions under the same rules and retain the evidence for the project lead.
-- t-c199 · ticket · open · Representation/Evaluation Engineer — Implement the held-out scorecard · docs/tickets/t-c199.md:1
+- t-c199 · ticket · in_progress · Representation/Evaluation Engineer — Implement the held-out scorecard · docs/tickets/t-c199.md:1
 
 ## docs/tickets/t-c5a4.md
 > Measure 1M DB, long sessions, SSE and 16-model tournaments.
@@ -365,7 +365,7 @@
 
 ## docs/tickets/t-e135.md
 > Draft a small repeatable evaluation that separates legal move generation from playing strength.
-- t-e135 · ticket · open · Research Contributor — Define a KnightLM strength baseline · docs/tickets/t-e135.md:1
+- t-e135 · ticket · done · Research Contributor — Define a KnightLM strength baseline · docs/tickets/t-e135.md:1
 
 ## docs/tickets/t-e4fa.md
 > Slash commands, @-mentions, attachments, context chips, model picker, stop/regenerate.
