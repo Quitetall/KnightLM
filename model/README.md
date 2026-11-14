@@ -37,7 +37,7 @@ timeout 300 hf download HuggingFaceTB/SmolVLM-500M-Instruct \
   chat_template.json tokenizer.json tokenizer_config.json special_tokens_map.json model.safetensors \
   --revision a7da5b986cb59b408707209984f360a5f4ad7e47 \
   --local-dir "$MODEL_DIR"
-timeout 220 "$PYTHON" -m model.corpus.pipeline --pgn "$LICHESS_PGN" --output "$CORPUS_DIR"
+timeout 220 "$PYTHON" -m model.corpus.pipeline build --pgn "$LICHESS_PGN" --output "$CORPUS_DIR"
 timeout 600 "$PYTHON" -u -m model.train.harness --corpus "$CORPUS_DIR" \
   --model-dir "$MODEL_DIR" --output "$RUN_DIR"
 ```
@@ -46,19 +46,72 @@ Set `PYTHON` to the interpreter in the CUDA environment and `LICHESS_PGN` to
 the existing monthly `.pgn.zst`. The builder uses a bounded prefix of the
 stream and compiles one decision at ply 24 for each selected rated standard
 blitz or rapid game with both players rated 1600 or above. It writes 1,000
-training games and 100 strictly later holdout games by default. The reader
-rechecks shard hashes and refuses game ID, ECO-prefix and scored-position
-leakage across the split.
+training games and 100 strictly later holdout games by default, in shards of
+`--shard-games` games, and records the source file's size and SHA-256, the
+compiler's SHA-256, each shard's hash and game count, and each split's months
+and time range in `manifest.json`. The reader rechecks shard hashes and counts,
+refuses shards the manifest does not list, and refuses game ID, ECO-prefix and
+scored-position leakage across the split. Re-check a finished corpus without
+rebuilding it:
+
+```sh
+"$PYTHON" -m model.corpus.pipeline audit "$CORPUS_DIR"
+```
+
+Run 1 is 200,000 training games and 10,000 later holdout games drawn from a
+400,000-candidate prefix of the monthly file:
+
+```sh
+"$PYTHON" -m model.corpus.pipeline build --pgn "$LICHESS_PGN" --output "$CORPUS_DIR" \
+  --train-games 200000 --holdout-games 10000 --candidates 400000
+```
+
+Keep the shards in the artifact store, not in git.
 
 The trainer uses the checkpoint's chat template and masks loss on the prompt
 and padding. It runs one epoch, checks for finite gradients and adapter updates,
 then reloads the adapter and checks logits on a holdout prompt. The run manifest
 binds the adapter and predictions to the base revision and corpus. The pilot
 uses played moves as targets and supplies the compiler's legal-move list in the
-prompt. Holdout generation is unconstrained. Teacher labels, the full Run 1
-corpus, strength testing and image inputs are outside the pilot.
+prompt. Holdout generation is unconstrained. Teacher labels, strength testing and
+image inputs are outside the pilot.
 
 Use `--batch-size 4` or lower if GPU memory is limited.
+
+## Talking to a checkpoint (serving)
+
+`model/serve` loads the pinned base plus an optional LoRA adapter, so the
+untrained base (a freshly initialised, no-op adapter) and trained checkpoints
+go through one path. The prompt lives in `model/prompt.py` and is shared with
+the trainer. Nothing in `model/serve` reaches an engine.
+
+```sh
+# one-off: environment and base weights (keep caches on /mnt/4tb)
+uv venv /mnt/4tb/venvs/knightlm-serve
+uv pip install --python /mnt/4tb/venvs/knightlm-serve/bin/python -r model/train/requirements.txt   torch torchvision fastapi uvicorn httpx accelerate pillow num2words huggingface_hub
+hf download HuggingFaceTB/SmolVLM-500M-Instruct config.json generation_config.json processor_config.json   preprocessor_config.json chat_template.json tokenizer.json tokenizer_config.json special_tokens_map.json   model.safetensors --revision a7da5b986cb59b408707209984f360a5f4ad7e47   --local-dir /mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98
+
+# serve (constrained: always a legal move; --mode raw: free decode, illegal reply is an HTTP 502)
+BASE=/mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98
+CKPT=/mnt/4tb/artifacts/KnightLM/keep/model-provisional-base-2026-11-13
+/mnt/4tb/venvs/knightlm-serve/bin/python -m model.serve.server \
+  --base-dir $BASE --adapter-dir $CKPT/adapter --mode constrained --port 8000
+
+# UCI engine for a GUI (point the GUI's engine command at this line)
+timeout 600 cargo build --release -p knightlm-cli --bin knightlm-uci --bin knightlm-match
+target/release/knightlm-uci --player model --model http://127.0.0.1:8000/v1/move
+
+# or a headless game against the random player
+target/release/knightlm-match --white model --black random --model http://127.0.0.1:8000/v1/move \
+  --games 1 --max-plies 100 --pgn /path/to/new/game.pgn
+```
+
+`GET /v1/manifest` reports the base, adapter, prompt, tokenizer and chat-template
+hashes and the manifest hash returned with every move. `model/serve/make_provisional.py`
+writes a no-op adapter and proves it equals the base; `model/serve/probe_holdout.py`
+records raw and constrained behaviour on holdout positions. Tests:
+`python -m unittest model.serve.test_serve` (the real-model test runs only with
+`KNIGHTLM_BASE_DIR` set and CUDA present).
 
 ## KnightLM development checks
 
