@@ -40,5 +40,5 @@ the entry point with a fixture on CPU.
 ## Checklist
 
 
-- [ ] Document and implement the manifest-to-training entry point. (i-50f7)
-- [ ] Show CPU preflight refusal and a bounded GPU checkpoint reload. (i-7e6d)
+- [x] Document and implement the manifest-to-training entry point. (i-50f7) — done by claude-blut, 2026-11-13: model/train/run.py: CPU preflight (corpus audit, base digest, prompt parity with model.prompt, trainer-vs-harness token equality on 64 rows, step/time/VRAM estimate, 2 CPU optimiser steps, config sanity); --gpu launches the blut-knightlm knightlm_lora recipe; entry.json records command, corpus digest, model revision, seed, settings, status. Documented in model/README.md. harness.py stays the pilot/reference trainer. Evidence: /mnt/4tb/artifacts/KnightLM/keep/blut-knightlm-smoke-2026-11-13
+- [x] Show CPU preflight refusal and a bounded GPU checkpoint reload. (i-7e6d) — done by claude-blut, 2026-11-13: Preflight: valid slice exit 0 and one-byte-tampered shard REFUSED exit 2 (preflight/valid.txt, tampered.txt; fixture is the Run 1 slice, not the t-5cd8 contract fixture which does not exist yet). Bounded GPU run: 30 optimizer steps via model.run_pipeline --gpu, adapter reloaded on a fresh base with max logit error 0.0 (pipeline/run-manifest.json), peak 4.5 GB on the shared RTX 4090. Exact command in pipeline/entry.json.
