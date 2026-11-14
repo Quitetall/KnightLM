@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 
 from model.corpus.pipeline import sha256_file
-from model.serve.holdout import read_holdout
+from model.corpus.pipeline import read_corpus
 from model.prompt import user_chat
 from model.train.harness import PROFILE, WEIGHTS_SHA256, lora_config
 
@@ -50,7 +50,7 @@ def main():
     b_norm = max(float(p.detach().abs().max()) for n, p in peft_model.named_parameters() if "lora_B" in n)
     peft_model = peft_model.eval()
 
-    holdout = read_holdout(args.corpus, args.probes)
+    holdout = read_corpus(args.corpus)[1][:args.probes]
     deltas = []
     for row in holdout[:args.probes]:
         text = base.processor.apply_chat_template(

@@ -86,6 +86,16 @@ class Predictor:
         self.model = model.eval()
         self._torch = torch
 
+    def manifest(self):
+        """Hashes identifying exactly what answers: base, adapter, prompt, tokenizer, chat template."""
+        return {
+            "base_sha256": self.base_sha256,
+            "adapter_sha256": self.adapter_sha256 or "none",
+            "prompt_sha256": sha256_file(Path(__file__).resolve().parents[1] / "prompt.py"),
+            "tokenizer_sha256": sha256_file(self.base_dir / "tokenizer.json"),
+            "chat_template_sha256": sha256_file(self.base_dir / "chat_template.json"),
+        }
+
     def _prompt_ids(self, packet):
         text = self.processor.apply_chat_template(
             user_chat(packet), tokenize=False, add_generation_prompt=True)
