@@ -126,7 +126,7 @@ pub fn last_json_line(stdout: &str) -> Result<Value, StageError> {
 /// Short revision of the blut-cookbook-standard checkout this crate is pinned
 /// to (the directory name cargo uses under `~/.cargo/git/checkouts`). A test
 /// keeps it equal to the `rev` in Cargo.toml.
-pub const STANDARD_REV_SHORT: &str = "125482d";
+pub const STANDARD_REV_SHORT: &str = "e679790";
 
 /// Where the standard cookbook's `hf_trainer_runner.py` (and its sibling
 /// modules) live when this binary is built from git: the cargo checkout of the

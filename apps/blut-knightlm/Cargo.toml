@@ -27,11 +27,10 @@ path = "src/main.rs"
 # blut-cookbooks would link two different `blut` crates whose Stage and Recipe
 # types do not unify. One engine only: whatever blut-cookbook-standard resolves.
 blut = { version = "=0.2.0-alpha.1", default-features = false }
-# STANDARD COOKBOOK: pinned to the tip of blut-cookbooks PR #3
-# (agent/hf-trainer-image-text), which adds arch = "image_text" to hf_sft_train
-# and merge_lora. RE-PIN to the PR #3 merge commit on blut-cookbooks `main`
-# once it lands; this SHA belongs to a branch that is deleted on merge.
-blut-backends = { package = "blut-cookbook-standard", git = "https://github.com/Quitetall/blut-cookbooks.git", rev = "125482dc88c6d20c0deeb1f03a83e31ff4798480" }
+# STANDARD COOKBOOK: pinned to the merge commit of blut-cookbooks PR #3 on
+# `main`, which adds arch = "image_text" to hf_sft_train and merge_lora, the
+# image-text venv profile (with torchvision) and the runner-path fallback.
+blut-backends = { package = "blut-cookbook-standard", git = "https://github.com/Quitetall/blut-cookbooks.git", rev = "e67979019f5d22277800710b70e40e21bdb3ba77" }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
