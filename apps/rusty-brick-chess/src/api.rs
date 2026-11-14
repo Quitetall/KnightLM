@@ -999,13 +999,7 @@ fn lichess_auth_hint(error: &anyhow::Error, what: &str, has_token: bool) -> Opti
 }
 
 fn stored_lichess_token(state: &AppState) -> Option<String> {
-    state
-        .db
-        .settings()
-        .ok()?
-        .get("lichess_token")
-        .map(|t| t.trim().to_owned())
-        .filter(|t| !t.is_empty())
+    crate::accounts::resolve_lichess_token(&state.db.settings().ok()?)
 }
 
 fn fetch_lichess_pgn(username: &str, max: u32, token: Option<&str>) -> anyhow::Result<String> {
@@ -1966,7 +1960,7 @@ pub struct AccountView {
 
 fn accounts_view(state: &AppState) -> Vec<AccountView> {
     let stored = state.db.settings().unwrap_or_default();
-    let view = |provider: &str, user_key: &str, token_key: &str, profile_key: &str| {
+    let view = |provider: &str, user_key: &str, token_keys: &[&str], profile_key: &str| {
         let username = stored
             .get(user_key)
             .cloned()
@@ -1974,10 +1968,14 @@ fn accounts_view(state: &AppState) -> Vec<AccountView> {
         let profile = stored
             .get(profile_key)
             .and_then(|raw| serde_json::from_str(raw).ok());
-        let has_token = stored
-            .get(token_key)
-            .map(|token| !token.trim().is_empty())
-            .unwrap_or(false);
+        // True when a reference (or a not-yet-migrated legacy row) is on file;
+        // the value itself is never part of this view.
+        let has_token = token_keys.iter().any(|key| {
+            stored
+                .get(*key)
+                .map(|token| !token.trim().is_empty())
+                .unwrap_or(false)
+        }) && !token_keys.is_empty();
         AccountView {
             provider: provider.to_owned(),
             linked: username.is_some(),
@@ -1990,10 +1988,13 @@ fn accounts_view(state: &AppState) -> Vec<AccountView> {
         view(
             "lichess",
             "lichess_user",
-            "lichess_token",
+            &[
+                crate::accounts::TOKEN_REF_SETTING,
+                crate::accounts::LEGACY_TOKEN_SETTING,
+            ],
             "lichess_profile",
         ),
-        view("chesscom", "chesscom_user", "", "chesscom_profile"),
+        view("chesscom", "chesscom_user", &[], "chesscom_profile"),
     ]
 }
 
@@ -2005,8 +2006,10 @@ pub async fn accounts(State(state): State<AppState>) -> Result<Json<Vec<AccountV
 pub struct LinkBody {
     pub provider: String,
     pub username: String,
+    /// A token REFERENCE: an environment variable name or
+    /// `keyring:<service>/<account>`. A raw token is refused and never stored.
     #[serde(default)]
-    pub token: Option<String>,
+    pub token_ref: Option<String>,
 }
 
 pub async fn link_account(
@@ -2015,10 +2018,19 @@ pub async fn link_account(
 ) -> Result<Json<Vec<AccountView>>, ApiError> {
     let provider = body.provider.to_lowercase();
     let username = body.username.trim().to_owned();
-    let token = body
-        .token
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| value.trim().to_owned());
+    let token_ref = match body.token_ref.filter(|value| !value.trim().is_empty()) {
+        Some(reference) if provider == "lichess" => {
+            Some(crate::accounts::validate_token_ref(&reference).map_err(ApiError::BadRequest)?)
+        }
+        _ => None,
+    };
+    let token = match token_ref.as_deref() {
+        Some(reference) => crate::providers::resolve_secret(reference)
+            .ok()
+            .flatten()
+            .map(|(value, _)| value),
+        None => None,
+    };
     let has_token = token.is_some();
     let is_lichess = provider == "lichess";
     let profile = tokio::task::spawn_blocking({
@@ -2047,8 +2059,13 @@ pub async fn link_account(
     match provider.as_str() {
         "lichess" => {
             state.db.set_setting("lichess_user", &profile.username)?;
-            if let Some(token) = token {
-                state.db.set_setting("lichess_token", &token)?;
+            if let Some(reference) = token_ref {
+                state
+                    .db
+                    .set_setting(crate::accounts::TOKEN_REF_SETTING, &reference)?;
+                state
+                    .db
+                    .delete_setting(crate::accounts::LEGACY_TOKEN_SETTING)?;
             }
             state
                 .db
@@ -2077,7 +2094,12 @@ pub async fn unlink_account(
     match body.provider.to_lowercase().as_str() {
         "lichess" => {
             state.db.set_setting("lichess_user", "")?;
-            state.db.set_setting("lichess_token", "")?;
+            state
+                .db
+                .delete_setting(crate::accounts::TOKEN_REF_SETTING)?;
+            state
+                .db
+                .delete_setting(crate::accounts::LEGACY_TOKEN_SETTING)?;
             state.db.set_setting("lichess_profile", "")?;
         }
         "chesscom" => {
@@ -2111,7 +2133,7 @@ pub async fn import_account_games(
                 .unwrap_or_default()
                 .trim()
                 .to_owned(),
-            stored.get("lichess_token").cloned(),
+            crate::accounts::resolve_lichess_token(&stored),
         ),
         "chesscom" => (
             stored

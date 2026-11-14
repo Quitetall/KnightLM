@@ -2,8 +2,10 @@ const assert = require("node:assert/strict");
 const { withBrowser, waitFor } = require("./browser");
 
 // Optional authenticated path. The token comes only from LICHESS_TOKEN (run
-// under `secrets run --`). It is typed into the UI field and never printed:
-// every console write and thrown message is scrubbed of it first.
+// under `secrets run --`, which also hands it to the app server's environment).
+// The UI field takes a REFERENCE, so the suite types the variable NAME
+// "LICHESS_TOKEN", never the value; the app persists only that name. Output is
+// still scrubbed of the value as a belt-and-braces guard.
 const TOKEN=(process.env.LICHESS_TOKEN||"").trim();
 if (TOKEN) {
   const scrub=value=>String(value).split(TOKEN).join("[token]");
@@ -102,23 +104,25 @@ withBrowser(async ({ base, command, evaluate, click, clickText, setField, destin
     const card=".account-card:nth-child(1)";
     // A rejected credential: clear failure, nothing linked, nothing stored.
     await setField(`${card} input[placeholder="Lichess username"]`,"thibault");
-    await setField(`${card} input[type=password]`,"lip_definitely_not_a_valid_token");
+    await setField(`${card} .account-form input:nth-of-type(2)`,"lip_definitely_not_a_valid_token");
     await clickText(card+" button","Link");
     await wait(()=>evaluate(`[...document.querySelectorAll("${card} button")].some(b=>b.textContent.trim()==="Link" && !b.disabled)`),"bad token request never finished");
     const failure=await evaluate('[...document.querySelectorAll(".home .muted")].map(e=>e.textContent).join(" | ")');
-    assert.ok(/401|unauthori|invalid|rejected|http status/i.test(failure),"bad token gave no failure feedback: "+failure);
+    assert.ok(/not a token reference|never stored/i.test(failure),"pasted token gave no failure feedback: "+failure);
+    assert.ok(!failure.includes("lip_definitely"),"pasted token was echoed back");
     assert.ok(!(await accounts()).some(account=>account.provider==="lichess" && account.linked),"bad token linked an account");
 
-    // The approved credential: typed into the field, then profile, import, explorer.
+    // The approved credential: referenced by env var name, then profile, import, explorer.
     await home();
     await setField(`${card} input[placeholder="Lichess username"]`,"thibault");
-    await setField(`${card} input[type=password]`,TOKEN);
+    await setField(`${card} .account-form input:nth-of-type(2)`,"LICHESS_TOKEN");
     await clickText(card+" button","Link");
     await wait(async ()=>(await accounts()).some(account=>account.provider==="lichess" && account.linked && account.has_token),"token link did not persist");
     const listing=JSON.stringify(await accounts());
     assert.ok(!listing.includes(TOKEN),"accounts API echoed the token");
     assert.ok(!(await evaluate("document.documentElement.outerHTML")).includes(TOKEN),"page DOM contains the token");
     assert.ok(!(await (await fetch(new URL("/api/settings",base))).text()).includes(TOKEN),"settings API echoed the token");
+    assert.ok(!(await api("accounts")).some(account=>JSON.stringify(account).includes(TOKEN)),"accounts API echoed the token");
     await setField(".account-actions input[type=number]","1");
     await evaluate("window.onlineResult = null");
     await clickText(card+" button","Import games");

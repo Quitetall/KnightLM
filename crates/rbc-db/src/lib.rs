@@ -1054,6 +1054,13 @@ impl Db {
         Ok(())
     }
 
+    /// Remove a setting row entirely (no empty-string tombstone).
+    pub fn delete_setting(&self, key: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("db lock");
+        conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+        Ok(())
+    }
+
     /// One annotation per node: saving again replaces the previous one.
     /// A node is identified by its tree path when given, otherwise by ply.
     pub fn add_annotation(&self, input: &AnnotationInput) -> Result<i64> {

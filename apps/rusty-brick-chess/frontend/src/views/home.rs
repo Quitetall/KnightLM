@@ -147,7 +147,8 @@ pub fn home(ctx: AppCtx) -> impl IntoView {
                                             on:input=move |ev| lichess_user_input.set(event_target_value(&ev))
                                         />
                                         <input
-                                            type="password"
+                                            type="text"
+                                            autocomplete="off"
                                             placeholder=move || i18n::t(&language.get(), "home.token")
                                             prop:value=move || lichess_token_input.get()
                                             on:input=move |ev| lichess_token_input.set(event_target_value(&ev))

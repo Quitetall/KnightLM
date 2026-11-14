@@ -435,6 +435,7 @@ pub fn state_from_env() -> anyhow::Result<(api::AppState, String)> {
         std::fs::create_dir_all(parent)?;
     }
     let db = rbc_db::Db::open(&db_path)?;
+    accounts::migrate_plaintext_token_at_startup(&db);
     let db_dir = db_dir_from_env();
     let data_dir = data_dir_from_env();
     std::fs::create_dir_all(&data_dir)?;

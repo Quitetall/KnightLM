@@ -1386,13 +1386,13 @@ pub async fn accounts() -> Result<Vec<AccountState>, String> {
 pub async fn link_account(
     provider: &str,
     username: &str,
-    token: Option<&str>,
+    token_ref: Option<&str>,
 ) -> Result<Vec<AccountState>, String> {
     let resp = Request::post("/api/accounts/link")
         .json(&serde_json::json!({
             "provider": provider,
             "username": username,
-            "token": token,
+            "token_ref": token_ref,
         }))
         .map_err(|e| e.to_string())?
         .send()

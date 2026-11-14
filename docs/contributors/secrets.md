@@ -9,7 +9,9 @@ a test fixture.
 - **How the apps hold them.** The AI provider settings hold a *reference*
   (an environment variable name, or `keyring:<service>/<account>`), never the
   key. `apps/rusty-brick-chess/src/providers.rs` (`resolve_secret`) turns the
-  reference into a value at call time. New credentials follow the same pattern.
+  reference into a value at call time. The linked Lichess account does the same
+  (`lichess_token_ref`); a plaintext `lichess_token` row left by an older build
+  is moved into the keyring at startup. New credentials follow the same pattern.
 - **What guards the tree.** `.gitignore` refuses key and `.env` files. The
   `secret-scan` CI job and `make check-secrets` run gitleaks over the full
   history with `.gitleaks.toml`. The config allowlists only machine-written

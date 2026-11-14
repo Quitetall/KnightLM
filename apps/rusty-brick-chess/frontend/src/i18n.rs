@@ -504,8 +504,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     (
         "home.lichess_hint",
-        "Public games work without a token; a token adds private games.",
-        "Las partidas públicas funcionan sin token; un token añade partidas privadas.",
+        "Public games work without a token. For private games, enter the name of an environment variable that holds your token, or keyring:service/account. The token itself is never stored.",
+        "Las partidas públicas funcionan sin token. Para las privadas, indica el nombre de una variable de entorno con tu token, o keyring:servicio/cuenta. El token nunca se guarda.",
     ),
     (
         "home.chesscom_hint",
@@ -740,8 +740,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     (
         "home.token",
-        "Personal API token (optional)",
-        "Token de API personal (opcional)",
+        "Token reference: env var name or keyring:service/account (optional)",
+        "Referencia del token: variable de entorno o keyring:servicio/cuenta (opcional)",
     ),
     ("clock.base", "Base seconds", "Segundos base"),
     (
