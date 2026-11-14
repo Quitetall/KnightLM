@@ -8,6 +8,7 @@ check:
 	python3 -m unittest discover -s model/parity/python
 	python3 -m unittest model.corpus.test_pipeline
 	python3 -m unittest model.tests.test_materialize model.tests.test_train_run model.tests.test_pipeline
+	python3 -m unittest model.eval.test_eval
 	python3 scripts/check_cli.py
 	python3 scripts/check_ports.py
 
