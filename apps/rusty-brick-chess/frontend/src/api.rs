@@ -42,6 +42,14 @@ pub struct GameDetail {
 }
 
 pub async fn get_game(id: i64) -> Result<GameDetail, String> {
+    game_by_id(id).await
+}
+
+pub async fn get_game_summary(id: i64) -> Result<GameSummary, String> {
+    game_by_id(id).await
+}
+
+async fn game_by_id<T: serde::de::DeserializeOwned>(id: i64) -> Result<T, String> {
     let resp = Request::get(&format!("/api/games/{id}"))
         .send()
         .await
@@ -166,6 +174,14 @@ pub async fn list_games(filters: &Filters) -> Result<(Vec<GameSummary>, i64), St
 }
 
 pub async fn import_pgn(pgn: &str) -> Result<usize, String> {
+    import_pgn_ids(pgn).await.map(|ids| ids.len())
+}
+
+pub async fn import_pgn_ids(pgn: &str) -> Result<Vec<i64>, String> {
+    #[derive(Deserialize)]
+    struct Imported {
+        imported: Vec<i64>,
+    }
     let resp = Request::post("/api/games")
         .json(&serde_json::json!({ "pgn": pgn }))
         .map_err(|e| e.to_string())?
@@ -175,8 +191,8 @@ pub async fn import_pgn(pgn: &str) -> Result<usize, String> {
     if !resp.ok() {
         return Err(resp.text().await.unwrap_or_default());
     }
-    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(v["imported"].as_array().map(|a| a.len()).unwrap_or(0))
+    let result: Imported = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(result.imported)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1370,13 +1386,13 @@ pub async fn accounts() -> Result<Vec<AccountState>, String> {
 pub async fn link_account(
     provider: &str,
     username: &str,
-    token: Option<&str>,
+    token_ref: Option<&str>,
 ) -> Result<Vec<AccountState>, String> {
     let resp = Request::post("/api/accounts/link")
         .json(&serde_json::json!({
             "provider": provider,
             "username": username,
-            "token": token,
+            "token_ref": token_ref,
         }))
         .map_err(|e| e.to_string())?
         .send()

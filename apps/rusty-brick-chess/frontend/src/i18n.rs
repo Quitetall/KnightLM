@@ -5,7 +5,44 @@ pub const LANGS: [(&str, &str); 2] = [("en", "English"), ("es", "Español")];
 
 const STRINGS: &[(&str, &str, &str)] = &[
     ("nav.home", "Home", "Inicio"),
+    ("nav.train", "Train", "Entrenar"),
+    ("nav.workbench", "Workbench", "Taller"),
+    ("nav.library", "Library", "Biblioteca"),
+    ("nav.sections", "Main destinations", "Destinos principales"),
+    (
+        "home.profile_settings",
+        "Profile and linked accounts",
+        "Perfil y cuentas vinculadas",
+    ),
     ("nav.database", "Database", "Base de datos"),
+    (
+        "analysis.preview_line",
+        "Preview engine line",
+        "Previsualizar línea del motor",
+    ),
+    (
+        "analysis.preview_return",
+        "Return to game",
+        "Volver a la partida",
+    ),
+    (
+        "analysis.preview_ply",
+        "Preview {ply}/{count} · {move}",
+        "Vista previa {ply}/{count} · {move}",
+    ),
+    (
+        "analysis.preview_invalid",
+        "This line cannot be played from the current position.",
+        "Esta línea no se puede jugar desde la posición actual.",
+    ),
+    ("analysis.mode", "Analysis mode", "Modo de análisis"),
+    ("analysis.simple", "Simple", "Simple"),
+    ("analysis.detailed", "Detailed", "Detallado"),
+    (
+        "analysis.best_suggestion",
+        "Suggested move: {move}",
+        "Jugada sugerida: {move}",
+    ),
     ("nav.analysis", "Analysis", "Análisis"),
     ("nav.assistant", "Assistant", "Asistente"),
     ("nav.study", "Study", "Estudio"),
@@ -33,6 +70,15 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("nav.openings", "Openings", "Aperturas"),
     ("nav.puzzles", "Puzzles", "Puzzles"),
     ("nav.stats", "Stats", "Estadísticas"),
+    ("play.friend", "Play a friend", "Jugar con un amigo"),
+    ("play.engine", "Play an engine", "Jugar contra un motor"),
+    ("play.side_turn", "{side} to move", "Juegan: {side}"),
+    ("play.return_live", "Return to live", "Volver a la partida"),
+    (
+        "play.reviewing_ply",
+        "Reviewing ply {ply}",
+        "Revisando la media jugada {ply}",
+    ),
     ("nav.play", "Play", "Jugar"),
     ("play.new_casual", "Start game", "Empezar partida"),
     (
@@ -171,6 +217,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("play.wins", "W", "V"),
     ("play.tournaments", "Tournaments", "Torneos"),
     (
+        "play.tournament_step_hint",
+        "Advance this game from the tournament.",
+        "Avanza esta partida desde el torneo.",
+    ),
+    (
         "play.new_tournament",
         "New round robin",
         "Nuevo round robin",
@@ -233,7 +284,17 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "Piezas personalizadas",
     ),
     ("practice.guess", "Guess the move", "Adivina la jugada"),
+    (
+        "practice.spar_from_here",
+        "Spar from here",
+        "Practicar desde aquí",
+    ),
     ("practice.spar", "Sparring", "Sparring"),
+    (
+        "practice.position_unavailable",
+        "The match position did not load.",
+        "No se cargó la posición de la partida.",
+    ),
     ("practice.match", "Engine match", "Partida de motores"),
     ("practice.start", "Start", "Empezar"),
     ("practice.pause", "Pause", "Pausa"),
@@ -433,7 +494,7 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     (
         "home.no_games",
-        "No games yet — import a PGN from the Database tab.",
+        "No games yet. Import a PGN from Workbench → Library.",
         "Aún no hay partidas: importa un PGN desde la pestaña Base de datos.",
     ),
     (
@@ -443,8 +504,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     (
         "home.lichess_hint",
-        "Public games work without a token; a token adds private games.",
-        "Las partidas públicas funcionan sin token; un token añade partidas privadas.",
+        "Public games work without a token. For private games, enter the name of an environment variable that holds your token, or keyring:service/account. The token itself is never stored.",
+        "Las partidas públicas funcionan sin token. Para las privadas, indica el nombre de una variable de entorno con tu token, o keyring:servicio/cuenta. El token nunca se guarda.",
     ),
     (
         "home.chesscom_hint",
@@ -679,8 +740,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     (
         "home.token",
-        "Personal API token (optional)",
-        "Token de API personal (opcional)",
+        "Token reference: env var name or keyring:service/account (optional)",
+        "Referencia del token: variable de entorno o keyring:servicio/cuenta (opcional)",
     ),
     ("clock.base", "Base seconds", "Segundos base"),
     (
@@ -771,6 +832,16 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     ("practice.play_white", "Play White", "Jugar con blancas"),
     ("practice.play_black", "Play Black", "Jugar con negras"),
+    (
+        "practice.finished",
+        "Game over: {reason}",
+        "Partida terminada: {reason}",
+    ),
+    (
+        "practice.engine_illegal",
+        "The engine returned an illegal move.",
+        "El motor devolvió una jugada ilegal.",
+    ),
     ("practice.your_move", "Your move.", "Tu turno."),
     (
         "practice.new_analysis_tab",
@@ -1136,6 +1207,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("assistant.context", "Context", "Contexto"),
     ("assistant.replay", "Replay", "Reproducir"),
     ("assistant.canonical", "Canonical prompt", "Prompt canónico"),
+    (
+        "assistant.legacy_context",
+        "Saved context data. The full prompt was not stored for this older turn.",
+        "Datos de contexto guardados. El prompt completo no se guardó para este turno antiguo.",
+    ),
     ("assistant.sent", "Sent", "Enviado"),
     ("assistant.live", "Live", "En vivo"),
     (

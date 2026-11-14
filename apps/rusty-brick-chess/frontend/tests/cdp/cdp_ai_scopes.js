@@ -1,3 +1,4 @@
+const { openView } = require("./navigation");
 // Streaming, stop and tool cards — self-contained.
 //
 // This script serves its own OpenAI-compatible SSE provider, so the check does
@@ -5,8 +6,9 @@
 // pointed at it: MODEL_URL=http://127.0.0.1:8100/v1/chat.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9536;
-const PROVIDER = 8100;
+let testTargetBoard;
+const PORT = Number(process.env.RBC_CDP_PORT || 9536);
+const PROVIDER = Number(process.env.RBC_CDP_PROVIDER_PORT || 8100);
 const CHUNK_DELAY_MS = 400;
 
 // --- a provider that streams slowly and can call a tool --------------------
@@ -49,7 +51,7 @@ function startProvider() {
         // Second round: the tool result names a board, so ask to write to it.
         const match = /"board_id"\s*:\s*"([^"]+)"/.exec(String(toolMessage.content || ""));
         if (match) {
-          chunk({ tool_calls: [{ index: 0, id: "call_2", function: { name: "play_move", arguments: JSON.stringify({ board_id: match[1], move: "e4", expected_revision: 1 }) } }] });
+          chunk({ tool_calls: [{ index: 0, id: "call_2", function: { name: "play_move", arguments: JSON.stringify({ board_id: testTargetBoard || match[1], move: "e4", expected_revision: 1 }) } }] });
           send({ id: "mock", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
           send({ id: "mock", choices: [], usage: { prompt_tokens: 7, completion_tokens: 3 } });
           res.write("data: [DONE]\n\n");
@@ -99,7 +101,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
   const provider = startProvider();
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-stream2-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-stream2-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let target;
   for (let i = 0; i < 40; i++) { await sleep(300); try { target = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(target.find((x) => x.type === "page").webSocketDebuggerUrl);
@@ -115,7 +117,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const streamingText = async () => await ev(`(()=>{const b=document.querySelector(".chat-msg.streaming");return b?b.textContent.trim():"";})()`);
   const waitFor = async (read, ms = 8000) => { const start = Date.now(); while (Date.now() - start < ms) { const value = await read(); if (value) return value; await sleep(250); } return ""; };
 
-  await clickText(".nav", "Assistant");
+  await openView(ev, "workbench", "assistant");
   await sleep(900);
   await clickText("button", "New chat");
   await sleep(1500);
@@ -154,7 +156,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   console.log(JSON.stringify({ board, openedPanel, granted, stored, pending, board_state }));
   const applied = board_state && board_state.revision === 2 && /"moves":\["e4"\]/.test(board_state.content || "");
-  const ok = !!board && openedPanel && granted && sent && String(stored || "").includes("board-write")
+  const revoked = await ev(`(() => {
+    const label=[...document.querySelectorAll(".auto-approve label")].find(label=>label.textContent.trim()==="board-write");
+    const box=label?.querySelector("input");
+    if (!box?.checked) return false;
+    box.click();
+    return true;
+  })()`);
+  const removed = await waitFor(() => ev(`fetch("/api/ai/sessions").then(r=>r.json()).then(rows=>
+    rows.length > 0 && rows.every(row=>!row.permissions_json.includes("board-write")))`), 10000);
+  testTargetBoard = await ev(`fetch("/api/boards/" + ${JSON.stringify(board)} + "/copy", {
+    method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({title:"After revocation"})
+  }).then(r=>r.json()).then(row=>row.id)`);
+  await type("please play e4 after revocation");
+  const readyAfterRevoke = await waitFor(() => ev(`[...document.querySelectorAll(".chat-input button")].some(button=>button.textContent.trim()==="Send" && !button.disabled)`),15000);
+  if (!readyAfterRevoke || !await clickText(".chat-input button", "Send")) throw new Error("revoked turn could not be sent");
+  const queuedAfterRevoke = await waitFor(() => ev(`fetch("/api/ai/approvals").then(r=>r.json())
+    .then(data=>data.pending.some(request=>request.target_id===${JSON.stringify(testTargetBoard)}))`), 15000);
+  const unchangedAfterRevoke = await ev(`fetch("/api/boards/" + ${JSON.stringify(testTargetBoard)})
+    .then(r=>r.json()).then(row=>row.revision===1)`);
+  console.log(JSON.stringify({revoked,removed,queuedAfterRevoke,unchangedAfterRevoke}));
+  const ok = revoked && removed && queuedAfterRevoke && unchangedAfterRevoke
+    && !!board && openedPanel && granted && sent && String(stored || "").includes("board-write")
     && pending === 0 && applied;
   console.log(ok ? "AI_SCOPES_PASS" : "AI_SCOPES_FAIL");
   ws.close();

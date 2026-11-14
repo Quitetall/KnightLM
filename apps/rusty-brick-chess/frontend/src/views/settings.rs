@@ -2,8 +2,10 @@ use crate::api;
 use crate::board::Keybinds;
 use crate::i18n;
 use crate::views::AppCtx;
+use gloo_timers::callback::Timeout;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use wasm_bindgen::JsCast;
 
 pub fn settings(ctx: AppCtx) -> impl IntoView {
     let AppCtx {
@@ -44,6 +46,37 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
         vision_msg,
         ..
     } = ctx;
+    let engine_dialog_ref = NodeRef::<leptos::html::Div>::new();
+    Effect::new(move |_| {
+        if engine_dialog.get().is_some() {
+            Timeout::new(0, move || {
+                if let Some(dialog) = engine_dialog_ref.try_get_untracked().flatten()
+                    && let Ok(Some(input)) = dialog.query_selector("input")
+                    && let Ok(input) = input.dyn_into::<web_sys::HtmlElement>()
+                {
+                    let _ = input.focus();
+                }
+            })
+            .forget();
+        }
+    });
+    let close_engine_dialog = move || {
+        let index = engine_dialog.get_untracked();
+        engine_dialog.set(None);
+        engine_test.set(None);
+        if let Some(index) = index {
+            Timeout::new(0, move || {
+                if let Some(document) = web_sys::window().and_then(|window| window.document())
+                    && let Ok(Some(button)) =
+                        document.query_selector(&format!("[data-engine-index='{index}'] button"))
+                    && let Ok(button) = button.dyn_into::<web_sys::HtmlElement>()
+                {
+                    let _ = button.focus();
+                }
+            })
+            .forget();
+        }
+    };
     let add_engine = move |a| ctx.add_engine.run(a);
     let download_vision = move |a| ctx.download_vision.run(a);
     let persist_settings = move || ctx.persist_settings.run(());
@@ -256,10 +289,7 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
                                                             match api::delete_piece_set(&name).await {
                                                                 Ok(list) => {
                                                                     custom_sets.set(list);
-                                                                    if settings_pieces
-                                                                        .get_untracked()
-                                                                        .starts_with(&format!("custom:{name}"))
-                                                                    {
+                                                                    if settings_pieces.get_untracked() == format!("custom:{name}") {
                                                                         settings_pieces.set("cburnett".into());
                                                                         persist_settings();
                                                                     }
@@ -348,13 +378,17 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
                     };
                     let test = engine_test.get();
                     Some(view! {
-                        <div class="engine-dialog">
+                        <div class="engine-dialog" role="dialog" aria-label=format!("Engine: {}", entry.name)
+                            node_ref=engine_dialog_ref
+                            on:keydown=move |event| {
+                                if event.key() == "Escape" {
+                                    event.prevent_default();
+                                    close_engine_dialog();
+                                }
+                            }>
                             <div class="panel-head">
                                 <h2>{format!("Engine: {}", entry.name)}</h2>
-                                <button on:click=move |_| {
-                                    engine_dialog.set(None);
-                                    engine_test.set(None);
-                                }>{move || i18n::t(&language.get(), "common.close")}</button>
+                                <button on:click=move |_| close_engine_dialog()>{move || i18n::t(&language.get(), "common.close")}</button>
                             </div>
                             <div class="engine-fields">
                                 <label>
@@ -389,9 +423,9 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
                                 </label>
                             </div>
                             <div class="engine-fields">
-                                {option(i18n::t(&language.get(), "settings.hash_label"), i18n::t(&language.get(), "settings.hash_mb"), true)}
-                                {option(i18n::t(&language.get(), "settings.threads_label"), i18n::t(&language.get(), "settings.threads_label"), true)}
-                                {option(i18n::t(&language.get(), "settings.multipv"), i18n::t(&language.get(), "settings.multipv"), true)}
+                                {option("Hash", i18n::t(&language.get(), "settings.hash_mb"), true)}
+                                {option("Threads", i18n::t(&language.get(), "settings.threads_label"), true)}
+                                {option("MultiPV", i18n::t(&language.get(), "settings.multipv"), true)}
                                 {option("Skill Level", "Skill level", true)}
                                 {option("UCI_Elo", "UCI Elo", true)}
                                 {option("SyzygyPath", "Syzygy path", false)}
@@ -490,7 +524,7 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
                                 let active = settings_engine.get() == e.path;
                                 let path = e.path.clone();
                                 view! {
-                                    <div class="engine-row">
+                                    <div class="engine-row" data-engine-index=i>
                                         <span class=if active { "engine-name active" } else { "engine-name" }>
                                             {format!("{} — {}", e.name, e.path)}
                                         </span>

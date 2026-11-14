@@ -40,6 +40,8 @@ pub fn practice(ctx: AppCtx) -> impl IntoView {
         settings_pieces,
         settings_theme,
         spar_color,
+        spar_player,
+        spar_finished,
         spar_fen,
         spar_pgn,
         spar_play,
@@ -255,13 +257,16 @@ pub fn practice(ctx: AppCtx) -> impl IntoView {
                                 <Board
                                     pgn=spar_pgn
                                     title=Signal::derive(move || i18n::t(&language.get(), "practice.spar").to_string())
-                                    orientation=Signal::derive(move || spar_color.get())
+                                    orientation=Signal::derive(move || spar_player.get())
                                     play=Signal::derive(move || spar_play.get())
+                                    interaction_disabled=Signal::derive(move || {
+                                        let is_black = fen.get().split_whitespace().nth(1) == Some("b");
+                                        spar_pgn.with(String::is_empty) || spar_thinking.get()
+                                            || spar_finished.get() || is_black != (spar_player.get() == "black")
+                                    })
                                     on_move=Callback::new(on_spar_move)
                                     on_position=Callback::new(move |f: String| fen.set(f))
-                                    on_play=Callback::new(move |_: (String, String, String)| {
-                                        spar_status.set(i18n::t(&language.get(), "practice.your_move").into());
-                                    })
+                                    on_play=Callback::new(on_spar_move)
                                     keybinds=Signal::derive(move || keybinds.get())
                                     theme=Signal::derive(move || settings_theme.get())
                                     pieces=Signal::derive(move || settings_pieces.get())

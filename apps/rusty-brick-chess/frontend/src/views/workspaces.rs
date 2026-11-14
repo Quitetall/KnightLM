@@ -1,4 +1,6 @@
+use gloo_timers::callback::Timeout;
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 use crate::i18n;
 use crate::model::Workspace;
@@ -21,6 +23,19 @@ pub fn workspaces_bar(ctx: AppCtx) -> impl IntoView {
     let move_workspace = move |key, delta| ctx.move_workspace.run((key, delta));
     let new_workspace = move || ctx.new_workspace.run(());
     let open_page_tab = move |kind| ctx.open_page_tab.run(kind);
+    let focus_workspace = move |key: u32| {
+        Timeout::new(0, move || {
+            if let Some(document) = web_sys::window().and_then(|window| window.document())
+                && let Ok(Some(button)) =
+                    document.query_selector(&format!("[data-workspace-key='{key}'] .ws-name"))
+                && let Ok(button) = button.dyn_into::<web_sys::HtmlElement>()
+            {
+                let _ = button.focus();
+            }
+        })
+        .forget();
+    };
+
     view! {
         <div class="workspaces">
             <span class="ws-label">{move || i18n::t(&language.get(), "ws.label")}</span>
@@ -29,6 +44,16 @@ pub fn workspaces_bar(ctx: AppCtx) -> impl IntoView {
                 key=|ws| (ws.key, ws.title.clone())
                 children=move |ws: Workspace| {
                     let key = ws.key;
+                    let rename_ref = NodeRef::<leptos::html::Input>::new();
+                    Effect::new(move |_| {
+                        if renaming_ws.get() == Some(key) {
+                            Timeout::new(0, move || {
+                                if let Some(input) = rename_ref.try_get_untracked().flatten() {
+                                    let _ = input.focus();
+                                }
+                            }).forget();
+                        }
+                    });
                     let title = ws.title.clone();
                     let kind = ws.kind.clone();
                     let kind_label = match kind.as_str() {
@@ -39,7 +64,7 @@ pub fn workspaces_bar(ctx: AppCtx) -> impl IntoView {
                     };
                     let title_shared = StoredValue::new(title.clone());
                     view! {
-                        <div class=move || {
+                        <div data-workspace-key=key class=move || {
                             if active_ws.get() == key { "ws-tab active" } else { "ws-tab" }
                         }>
                             <span class=format!("ws-kind kind-{kind}")>{kind_label}</span>
@@ -51,12 +76,17 @@ pub fn workspaces_bar(ctx: AppCtx) -> impl IntoView {
                                     view! {
                                         <input
                                             class="ws-rename"
+                                            node_ref=rename_ref
                                             prop:value=move || rename_text.get()
                                             on:input=move |ev| rename_text.set(event_target_value(&ev))
                                             on:change=move |_| commit_rename()
                                             on:keydown=move |ev| {
                                                 if ev.key() == i18n::t(&language.get(), "common.enter") {
                                                     commit_rename();
+                                                    focus_workspace(key);
+                                                } else if ev.key() == "Escape" {
+                                                    renaming_ws.set(None);
+                                                    focus_workspace(key);
                                                 }
                                             }
                                         />

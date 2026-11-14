@@ -32,6 +32,7 @@ pub struct AppState {
     pub engine_path: Option<String>,
     pub model_url: Option<String>,
     pub lamu_child: Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>,
+    pub tournament_actions: Arc<tokio::sync::Mutex<()>>,
     pub default_depth: u32,
     /// Persistent UCI session used by the engine console.
     pub console: Arc<Mutex<Option<crate::console::Console>>>,
@@ -51,6 +52,8 @@ pub enum ApiError {
     /// A connection that has spent its request budget for the window.
     TooManyRequests,
     Unavailable(&'static str),
+    /// A remote service refused or failed the request; the message is safe to show.
+    Upstream(String),
     Internal(anyhow::Error),
 }
 
@@ -65,6 +68,7 @@ impl IntoResponse for ApiError {
                 "too many requests".to_owned(),
             ),
             ApiError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m.to_owned()),
+            ApiError::Upstream(m) => (StatusCode::BAD_GATEWAY, m),
             ApiError::Internal(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
         };
         (status, Json(serde_json::json!({ "error": message }))).into_response()
@@ -222,18 +226,85 @@ fn sound_dir(state: &AppState) -> std::path::PathBuf {
     state.data_dir.join("sounds")
 }
 
+/// Custom sounds are stored under their stem ("Move"). Both upload and
+/// playback accept the same name with or without a trailing ".ogg", so the UI
+/// (which posts the stem) and the player (which asks for "Move.ogg") agree.
+/// Returns None for anything that is not a plain alphanumeric/_/- name.
+fn custom_sound_stem(name: &str) -> Option<&str> {
+    let stem = name.strip_suffix(".ogg").unwrap_or(name);
+    let safe = !stem.is_empty()
+        && stem
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    safe.then_some(stem)
+}
+
+#[cfg(test)]
+mod lichess_hint_tests {
+    use super::lichess_auth_hint;
+
+    fn status(code: u16) -> anyhow::Error {
+        anyhow::Error::from(ureq::Error::StatusCode(code))
+    }
+
+    #[test]
+    fn missing_token_gets_an_actionable_message() {
+        let m = lichess_auth_hint(&status(401), "the opening explorer", false).unwrap();
+        assert!(
+            m.contains("personal access token") && m.contains("Linked accounts"),
+            "{m}"
+        );
+    }
+
+    #[test]
+    fn rejected_token_says_so_and_never_echoes_it() {
+        let m = lichess_auth_hint(&status(401), "game import", true).unwrap();
+        assert!(m.contains("rejected the access token"), "{m}");
+    }
+
+    #[test]
+    fn other_failures_are_not_rewritten() {
+        assert!(lichess_auth_hint(&status(500), "x", true).is_none());
+        assert!(lichess_auth_hint(&anyhow::anyhow!("offline"), "x", true).is_none());
+    }
+}
+
+#[cfg(test)]
+mod custom_sound_tests {
+    use super::custom_sound_stem;
+
+    #[test]
+    fn upload_and_playback_names_agree() {
+        assert_eq!(custom_sound_stem("Move"), Some("Move"));
+        assert_eq!(custom_sound_stem("Move.ogg"), Some("Move"));
+        assert_eq!(custom_sound_stem("Low-Time_1.ogg"), Some("Low-Time_1"));
+    }
+
+    #[test]
+    fn unsafe_names_are_refused() {
+        for bad in [
+            "",
+            ".ogg",
+            "../x",
+            "a/b",
+            "a.b",
+            "Move.mp3",
+            "bad name",
+            "Move.ogg.ogg",
+        ] {
+            assert_eq!(custom_sound_stem(bad), None, "{bad:?}");
+        }
+    }
+}
+
 pub async fn upload_sound(
     State(state): State<AppState>,
     Path(name): Path<String>,
     Json(body): Json<SoundUpload>,
 ) -> Result<StatusCode, ApiError> {
-    let safe = !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-    if !safe {
+    let Some(name) = custom_sound_stem(&name) else {
         return Err(ApiError::Internal(anyhow::anyhow!("invalid sound name")));
-    }
+    };
     let payload = body
         .data
         .split_once(',')
@@ -248,7 +319,7 @@ pub async fn upload_sound(
     }
     let dir = sound_dir(&state);
     std::fs::create_dir_all(&dir)?;
-    std::fs::write(dir.join(&name), bytes)?;
+    std::fs::write(dir.join(name), bytes)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -256,8 +327,8 @@ pub async fn custom_sound(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Response, ApiError> {
-    let path = sound_dir(&state).join(&name);
-    let bytes = std::fs::read(&path).map_err(|_| ApiError::NotFound)?;
+    let stem = custom_sound_stem(&name).ok_or(ApiError::NotFound)?;
+    let bytes = std::fs::read(sound_dir(&state).join(stem)).map_err(|_| ApiError::NotFound)?;
     Ok((
         [
             (header::CONTENT_TYPE, "audio/ogg"),
@@ -409,6 +480,7 @@ pub async fn create_database(
     Json(body): Json<DatabaseBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let path = database_path(&state, &body.name)?;
+    let _action = state.tournament_actions.lock().await;
     state.db.switch_to(&path)?;
     Ok(Json(serde_json::json!({
         "name": body.name.trim(),
@@ -424,6 +496,7 @@ pub async fn switch_database(
     if !path.exists() {
         return Err(ApiError::NotFound);
     }
+    let _action = state.tournament_actions.lock().await;
     state.db.switch_to(&path)?;
     Ok(Json(serde_json::json!({
         "name": body.name.trim(),
@@ -500,6 +573,21 @@ pub(crate) fn effective(state: &AppState) -> SettingsResponse {
         engines: get("engines")
             .and_then(|json| serde_json::from_str::<Vec<EngineEntry>>(&json).ok())
             .filter(|v| !v.is_empty())
+            .map(|mut entries| {
+                // Older settings used the localized control labels as UCI keys.
+                for entry in &mut entries {
+                    for (label, key) in [
+                        ("Hilos", "Threads"),
+                        ("Lines to analyse", "MultiPV"),
+                        ("Líneas a analizar", "MultiPV"),
+                    ] {
+                        if let Some(value) = entry.options.remove(label) {
+                            entry.options.entry(key.into()).or_insert(value);
+                        }
+                    }
+                }
+                entries
+            })
             .unwrap_or_else(|| {
                 state
                     .engine_path
@@ -887,16 +975,44 @@ fn valid_username(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
-fn fetch_lichess_pgn(username: &str, max: u32) -> anyhow::Result<String> {
+/// Explains a Lichess HTTP refusal in terms the user can act on, instead of
+/// surfacing the raw status or an HTML error page.
+fn lichess_auth_hint(error: &anyhow::Error, what: &str, has_token: bool) -> Option<String> {
+    let status = error.downcast_ref::<ureq::Error>().and_then(|e| match e {
+        ureq::Error::StatusCode(code) => Some(*code),
+        _ => None,
+    })?;
+    match status {
+        401 | 403 if has_token => Some(format!(
+            "Lichess rejected the access token for {what} (HTTP {status}). \
+             Link your Lichess account again with a valid personal access token."
+        )),
+        401 | 403 => Some(format!(
+            "Lichess requires a personal access token for {what} (HTTP {status}). \
+             Link your Lichess account with a token in User -> Linked accounts, then retry."
+        )),
+        429 => Some(format!(
+            "Lichess is rate limiting {what} (HTTP 429). Wait a minute and retry."
+        )),
+        _ => None,
+    }
+}
+
+fn stored_lichess_token(state: &AppState) -> Option<String> {
+    crate::accounts::resolve_lichess_token(&state.db.settings().ok()?)
+}
+
+fn fetch_lichess_pgn(username: &str, max: u32, token: Option<&str>) -> anyhow::Result<String> {
     let url = format!(
         "https://lichess.org/api/games/user/{username}?max={}&pgnInJson=false&clocks=false&evals=false",
         max.clamp(1, 200)
     );
     let agent = ureq::Agent::new_with_defaults();
-    let mut resp = agent
-        .get(&url)
-        .header("Accept", "application/x-chess-pgn")
-        .call()?;
+    let mut request = agent.get(&url).header("Accept", "application/x-chess-pgn");
+    if let Some(token) = token {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+    let mut resp = request.call()?;
     Ok(resp.body_mut().read_to_string()?)
 }
 
@@ -933,9 +1049,16 @@ pub async fn import_lichess(
     }
     let username = body.username.trim().to_owned();
     let max = body.max.unwrap_or(30);
-    let pgn = tokio::task::spawn_blocking(move || fetch_lichess_pgn(&username, max))
-        .await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
+    let token = stored_lichess_token(&state);
+    let has_token = token.is_some();
+    let pgn =
+        tokio::task::spawn_blocking(move || fetch_lichess_pgn(&username, max, token.as_deref()))
+            .await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?
+            .map_err(|e| match lichess_auth_hint(&e, "game import", has_token) {
+                Some(message) => ApiError::Upstream(message),
+                None => ApiError::Internal(e),
+            })?;
     let (ids, skipped) = state.db.import_pgn_lenient(&pgn, None)?;
     Ok(Json(
         serde_json::json!({ "imported": ids.len(), "skipped": skipped }),
@@ -1336,7 +1459,7 @@ fn parse_lichess_explorer(body: &str) -> Option<rbc_db::Explorer> {
     })
 }
 
-fn fetch_lichess_explorer(fen: &str, source: &str) -> anyhow::Result<String> {
+fn fetch_lichess_explorer(fen: &str, source: &str, token: Option<&str>) -> anyhow::Result<String> {
     let encoded = fen.replace(' ', "%20");
     let url = if source == "masters" {
         format!("https://explorer.lichess.ovh/masters?fen={encoded}&moves=12")
@@ -1346,7 +1469,11 @@ fn fetch_lichess_explorer(fen: &str, source: &str) -> anyhow::Result<String> {
         )
     };
     let agent = ureq::Agent::new_with_defaults();
-    let mut resp = agent.get(&url).call()?;
+    let mut request = agent.get(&url).header("Accept", "application/json");
+    if let Some(token) = token {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+    let mut resp = request.call()?;
     Ok(resp.body_mut().read_to_string()?)
 }
 
@@ -1370,18 +1497,26 @@ pub async fn openings(
         let fen = q.fen.clone();
         let source = source.to_owned();
         let db = state.db.clone();
+        let token = stored_lichess_token(&state);
+        let has_token = token.is_some();
         let fetched = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
-            let body = fetch_lichess_explorer(&fen, &source)?;
+            let body = fetch_lichess_explorer(&fen, &source, token.as_deref())?;
             db.cache_explorer(&source, &fen, &body)?;
             Ok(body)
         })
         .await;
-        if let Ok(Ok(body)) = fetched
-            && let Some(e) = parse_lichess_explorer(&body)
+        if let Ok(Ok(body)) = &fetched
+            && let Some(e) = parse_lichess_explorer(body)
         {
             return Ok(Json(e));
         }
-        // Offline or malformed upstream: fall back to the local database.
+        // A refusal the user can fix (missing or bad token, rate limit) is
+        // reported; offline or malformed upstream falls back to the local database.
+        if let Ok(Err(e)) = &fetched
+            && let Some(message) = lichess_auth_hint(e, "the opening explorer", has_token)
+        {
+            return Err(ApiError::Upstream(message));
+        }
     }
     Ok(Json(state.db.explore(&q.fen)?))
 }
@@ -1802,7 +1937,8 @@ pub async fn piece_file(
     State(state): State<AppState>,
     Path((name, code)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
-    let bytes = crate::pieces::read(&state.data_dir, &name, &code)?;
+    let code = code.strip_suffix(".svg").unwrap_or(&code);
+    let bytes = crate::pieces::read(&state.data_dir, &name, code)?;
     Ok((
         [
             (header::CONTENT_TYPE, "image/svg+xml"),
@@ -1824,7 +1960,7 @@ pub struct AccountView {
 
 fn accounts_view(state: &AppState) -> Vec<AccountView> {
     let stored = state.db.settings().unwrap_or_default();
-    let view = |provider: &str, user_key: &str, token_key: &str, profile_key: &str| {
+    let view = |provider: &str, user_key: &str, token_keys: &[&str], profile_key: &str| {
         let username = stored
             .get(user_key)
             .cloned()
@@ -1832,10 +1968,14 @@ fn accounts_view(state: &AppState) -> Vec<AccountView> {
         let profile = stored
             .get(profile_key)
             .and_then(|raw| serde_json::from_str(raw).ok());
-        let has_token = stored
-            .get(token_key)
-            .map(|token| !token.trim().is_empty())
-            .unwrap_or(false);
+        // True when a reference (or a not-yet-migrated legacy row) is on file;
+        // the value itself is never part of this view.
+        let has_token = token_keys.iter().any(|key| {
+            stored
+                .get(*key)
+                .map(|token| !token.trim().is_empty())
+                .unwrap_or(false)
+        }) && !token_keys.is_empty();
         AccountView {
             provider: provider.to_owned(),
             linked: username.is_some(),
@@ -1848,10 +1988,13 @@ fn accounts_view(state: &AppState) -> Vec<AccountView> {
         view(
             "lichess",
             "lichess_user",
-            "lichess_token",
+            &[
+                crate::accounts::TOKEN_REF_SETTING,
+                crate::accounts::LEGACY_TOKEN_SETTING,
+            ],
             "lichess_profile",
         ),
-        view("chesscom", "chesscom_user", "", "chesscom_profile"),
+        view("chesscom", "chesscom_user", &[], "chesscom_profile"),
     ]
 }
 
@@ -1863,8 +2006,10 @@ pub async fn accounts(State(state): State<AppState>) -> Result<Json<Vec<AccountV
 pub struct LinkBody {
     pub provider: String,
     pub username: String,
+    /// A token REFERENCE: an environment variable name or
+    /// `keyring:<service>/<account>`. A raw token is refused and never stored.
     #[serde(default)]
-    pub token: Option<String>,
+    pub token_ref: Option<String>,
 }
 
 pub async fn link_account(
@@ -1873,10 +2018,21 @@ pub async fn link_account(
 ) -> Result<Json<Vec<AccountView>>, ApiError> {
     let provider = body.provider.to_lowercase();
     let username = body.username.trim().to_owned();
-    let token = body
-        .token
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| value.trim().to_owned());
+    let token_ref = match body.token_ref.filter(|value| !value.trim().is_empty()) {
+        Some(reference) if provider == "lichess" => {
+            Some(crate::accounts::validate_token_ref(&reference).map_err(ApiError::BadRequest)?)
+        }
+        _ => None,
+    };
+    let token = match token_ref.as_deref() {
+        Some(reference) => crate::providers::resolve_secret(reference)
+            .ok()
+            .flatten()
+            .map(|(value, _)| value),
+        None => None,
+    };
+    let has_token = token.is_some();
+    let is_lichess = provider == "lichess";
     let profile = tokio::task::spawn_blocking({
         let provider = provider.clone();
         let username = username.clone();
@@ -1890,12 +2046,26 @@ pub async fn link_account(
         }
     })
     .await
-    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?
+    .map_err(|e| {
+        match is_lichess
+            .then(|| lichess_auth_hint(&e, "linking this account", has_token))
+            .flatten()
+        {
+            Some(message) => ApiError::Upstream(message),
+            None => ApiError::Internal(e),
+        }
+    })?;
     match provider.as_str() {
         "lichess" => {
             state.db.set_setting("lichess_user", &profile.username)?;
-            if let Some(token) = token {
-                state.db.set_setting("lichess_token", &token)?;
+            if let Some(reference) = token_ref {
+                state
+                    .db
+                    .set_setting(crate::accounts::TOKEN_REF_SETTING, &reference)?;
+                state
+                    .db
+                    .delete_setting(crate::accounts::LEGACY_TOKEN_SETTING)?;
             }
             state
                 .db
@@ -1924,7 +2094,12 @@ pub async fn unlink_account(
     match body.provider.to_lowercase().as_str() {
         "lichess" => {
             state.db.set_setting("lichess_user", "")?;
-            state.db.set_setting("lichess_token", "")?;
+            state
+                .db
+                .delete_setting(crate::accounts::TOKEN_REF_SETTING)?;
+            state
+                .db
+                .delete_setting(crate::accounts::LEGACY_TOKEN_SETTING)?;
             state.db.set_setting("lichess_profile", "")?;
         }
         "chesscom" => {
@@ -1958,7 +2133,7 @@ pub async fn import_account_games(
                 .unwrap_or_default()
                 .trim()
                 .to_owned(),
-            stored.get("lichess_token").cloned(),
+            crate::accounts::resolve_lichess_token(&stored),
         ),
         "chesscom" => (
             stored
@@ -1974,6 +2149,8 @@ pub async fn import_account_games(
     if username.is_empty() {
         return Err(ApiError::BadRequest("link an account first".into()));
     }
+    let has_token = token.as_deref().is_some_and(|t| !t.trim().is_empty());
+    let is_lichess = provider == "lichess";
     let pgn = tokio::task::spawn_blocking({
         let provider = provider.clone();
         let username = username.clone();
@@ -1987,7 +2164,16 @@ pub async fn import_account_games(
         }
     })
     .await
-    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))??;
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?
+    .map_err(|e| {
+        match is_lichess
+            .then(|| lichess_auth_hint(&e, "game import", has_token))
+            .flatten()
+        {
+            Some(message) => ApiError::Upstream(message),
+            None => ApiError::Internal(e),
+        }
+    })?;
     let db = state.db.clone();
     let (imported, skipped) =
         tokio::task::spawn_blocking(move || db.import_pgn_lenient(&pgn, None))

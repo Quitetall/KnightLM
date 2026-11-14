@@ -22,6 +22,7 @@ use model::*;
 #[component]
 pub fn App() -> impl IntoView {
     let tab = RwSignal::new(Tab::Home);
+    let play_match_id = RwSignal::new(None::<String>);
     let workspaces = RwSignal::new(Vec::<Workspace>::new());
     let active_ws = RwSignal::new(0u32);
     let ws_seq = RwSignal::new(1u32);
@@ -186,6 +187,7 @@ pub fn App() -> impl IntoView {
     let match_play = RwSignal::new(None::<(u32, String)>);
     let match_seq = RwSignal::new(0u32);
     let match_running = RwSignal::new(false);
+    let match_epoch = RwSignal::new(0u32);
     let match_status = RwSignal::new(String::new());
     let match_moves = RwSignal::new(Vec::<String>::new());
     let match_result = RwSignal::new(String::new());
@@ -195,6 +197,9 @@ pub fn App() -> impl IntoView {
     let spar_color = RwSignal::new("white".to_string());
     let spar_play = RwSignal::new(None::<(u32, String)>);
     let spar_seq = RwSignal::new(0u32);
+    let spar_epoch = RwSignal::new(0u32);
+    let spar_player = RwSignal::new("white".to_string());
+    let spar_finished = RwSignal::new(false);
     let spar_thinking = RwSignal::new(false);
     let spar_status = RwSignal::new(String::new());
     let filter_date_from = RwSignal::new(String::new());
@@ -245,24 +250,33 @@ pub fn App() -> impl IntoView {
     let engine_test = RwSignal::new(None::<api::EngineInfo>);
     let engine_test_busy = RwSignal::new(false);
 
+    let library_request = RwSignal::new(0_u64);
+    let home_refresh = RwSignal::new(0_u64);
     let reload = move || {
+        home_refresh.update(|epoch| *epoch += 1);
         let q = query.get();
         let collection = active_collection.get();
         let event = event_filter.get();
+        let request = library_request.get_untracked() + 1;
+        library_request.set(request);
+        let filters = api::Filters {
+            player: q,
+            event,
+            collection,
+            date_from: filter_date_from.get_untracked(),
+            date_to: filter_date_to.get_untracked(),
+            result: filter_result.get_untracked(),
+            elo_min: filter_elo_min.get_untracked(),
+            elo_max: filter_elo_max.get_untracked(),
+            variant: filter_variant.get_untracked(),
+            sort: sort_by.get_untracked(),
+        };
         spawn_local(async move {
-            let filters = api::Filters {
-                player: q.clone(),
-                event: event.clone(),
-                collection,
-                date_from: filter_date_from.get_untracked(),
-                date_to: filter_date_to.get_untracked(),
-                result: filter_result.get_untracked(),
-                elo_min: filter_elo_min.get_untracked(),
-                elo_max: filter_elo_max.get_untracked(),
-                variant: filter_variant.get_untracked(),
-                sort: sort_by.get_untracked(),
-            };
-            match api::list_games(&filters).await {
+            let result = api::list_games(&filters).await;
+            if library_request.get_untracked() != request {
+                return;
+            }
+            match result {
                 Ok((g, t)) => {
                     games.set(g);
                     total.set(t);
@@ -422,10 +436,16 @@ pub fn App() -> impl IntoView {
         if f.trim().is_empty() {
             return;
         }
+        let request = library_request.get_untracked() + 1;
+        library_request.set(request);
+        let partial = partial_search.get_untracked();
+        let variant = position_variant.get_untracked();
         spawn_local(async move {
-            let partial = partial_search.get_untracked();
-            let variant = position_variant.get_untracked();
-            match api::search_position(&f, partial, &variant).await {
+            let result = api::search_position(&f, partial, &variant).await;
+            if library_request.get_untracked() != request {
+                return;
+            }
+            match result {
                 Ok(found) => {
                     total.set(found.len() as i64);
                     games.set(found);
@@ -512,9 +532,12 @@ pub fn App() -> impl IntoView {
     });
 
     Effect::new(move |_| {
+        let request = home_refresh.get();
         if tab.get() == Tab::Home {
             spawn_local(async move {
-                if let Ok((list, _)) = api::list_games(&api::Filters::default()).await {
+                if let Ok((list, _)) = api::list_games(&api::Filters::default()).await
+                    && home_refresh.get_untracked() == request
+                {
                     home_recent.set(list.into_iter().take(6).collect());
                 }
                 if let Ok(list) = api::accounts().await {
@@ -537,16 +560,20 @@ pub fn App() -> impl IntoView {
         });
     });
 
+    let profile_request = RwSignal::new(0_u64);
     Effect::new(move |_| {
+        let current_tab = tab.get();
         let player = profile_player.get();
-        if player.trim().is_empty() {
-            profile.set(None);
+        let request = profile_request.get_untracked() + 1;
+        profile_request.set(request);
+        profile.set(None);
+        if current_tab != Tab::Home || player.trim().is_empty() {
             return;
         }
         spawn_local(async move {
-            match api::profile(player.trim()).await {
-                Ok(p) => profile.set(Some(p)),
-                Err(_) => profile.set(None),
+            let result = api::profile(player.trim()).await;
+            if profile_request.get_untracked() == request {
+                profile.set(result.ok());
             }
         });
     });
@@ -942,6 +969,8 @@ pub fn App() -> impl IntoView {
         tree_current.set(String::new());
         ann_ply.set(0);
         vs_engine.set(false);
+        play_uci.set(None);
+        thinking.set(false);
         tb_result.set(None);
         tb_status.set(String::new());
         add_collection.set(0);
@@ -990,70 +1019,84 @@ pub fn App() -> impl IntoView {
         }
     };
 
-    let new_workspace = move || {
-        save_workspace();
-        let key = ws_seq.get_untracked();
-        ws_seq.set(key + 1);
-        let start = line_pgn(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-            &[],
-            "standard",
-        );
-        workspaces.update(|list| {
-            list.push(Workspace {
-                key,
-                kind: "analysis".into(),
-                game_id: None,
-                title: i18n::t(&language.get(), "practice.new_analysis_tab").into(),
-                pgn: start.clone(),
-                ply: 0,
-                variant: "standard".into(),
-                preview_only: false,
-                moves: Vec::new(),
-                boards: Vec::new(),
-                active_board: 0,
-                server_id: None,
-                session_id: None,
-            })
-        });
-        // Create the server side straight away. Without it the strip's board
-        // actions can only refuse ("the workspace has no server side yet"),
-        // which left a fresh tab unable to store a board at all.
-        let title = i18n::t(&language.get(), "practice.new_analysis_tab").to_string();
-        let boards_msg_for_create = boards_msg;
-        spawn_local(async move {
-            match api::create_workspace(&title, "analysis").await {
-                Ok(created) => {
-                    workspaces.update(|list| {
-                        if let Some(ws) = list.iter_mut().find(|ws| ws.key == key) {
-                            ws.server_id = Some(created.id);
-                        }
-                    });
+    let create_analysis_workspace =
+        move |title: String, pgn: String, moves: Vec<String>, variant: String, ply: usize| {
+            save_workspace();
+            let key = ws_seq.get_untracked();
+            ws_seq.set(key + 1);
+            workspaces.update(|list| {
+                list.push(Workspace {
+                    key,
+                    kind: "analysis".into(),
+                    game_id: None,
+                    title: title.clone(),
+                    pgn: pgn.clone(),
+                    ply,
+                    variant: variant.clone(),
+                    preview_only: false,
+                    moves: moves.clone(),
+                    boards: Vec::new(),
+                    active_board: 0,
+                    server_id: None,
+                    session_id: None,
+                })
+            });
+            // Create the server side straight away. Without it the strip's board
+            // actions can only refuse ("the workspace has no server side yet"),
+            // which left a fresh tab unable to store a board at all.
+            let server_title = title.clone();
+            let boards_msg_for_create = boards_msg;
+            spawn_local(async move {
+                match api::create_workspace(&server_title, "analysis").await {
+                    Ok(created) => {
+                        workspaces.update(|list| {
+                            if let Some(ws) = list.iter_mut().find(|ws| ws.key == key) {
+                                ws.server_id = Some(created.id);
+                            }
+                        });
+                    }
+                    Err(error) => boards_msg_for_create.set(error),
                 }
-                Err(error) => boards_msg_for_create.set(error),
-            }
-        });
-        active_ws.set(key);
-        selected_pgn.set(start);
-        selected_title.set(i18n::t(&language.get(), "practice.new_analysis_tab").into());
-        selected_game_id.set(None);
-        selected_moves.set(Vec::new());
-        game_detail.set(None);
-        board_variant.set("standard".into());
-        variant_only.set(false);
-        tree_ply.set(0);
-        goto_sig.set(Some((goto_seq.get_untracked() + 1, 0)));
-        report.set(None);
-        evals.set(Vec::new());
-        lines.set(Vec::new());
-        analysis.set(None);
-        annotations.set(Vec::new());
-        shapes.set(Vec::new());
-        tree_current.set(String::new());
-        vs_engine.set(false);
-        tb_result.set(None);
-        tb_status.set(String::new());
-        tab.set(Tab::Analysis);
+            });
+            active_ws.set(key);
+            selected_pgn.set(pgn);
+            selected_title.set(title);
+            selected_game_id.set(None);
+            selected_moves.set(moves);
+            game_detail.set(None);
+            editor_variant.set(variant.clone());
+            board_variant.set(variant);
+            variant_only.set(false);
+            tree_ply.set(ply);
+            goto_sig.set(Some((goto_seq.get_untracked() + 1, ply)));
+            report.set(None);
+            evals.set(Vec::new());
+            lines.set(Vec::new());
+            analysis.set(None);
+            annotations.set(Vec::new());
+            shapes.set(Vec::new());
+            tree_current.set(String::new());
+            vs_engine.set(false);
+            play_uci.set(None);
+            thinking.set(false);
+            tb_result.set(None);
+            tb_status.set(String::new());
+            tab.set(Tab::Analysis);
+        };
+
+    let new_workspace = move || {
+        create_analysis_workspace(
+            i18n::t(&language.get(), "practice.new_analysis_tab").into(),
+            "*".into(),
+            Vec::new(),
+            "standard".into(),
+            0,
+        );
+    };
+    let open_study_board = move |(board, moves, ply): (api::BoardInfo, Vec<String>, usize)| {
+        let pgn = crate::board::pgn_for(&board, &moves);
+        let ply = ply.min(moves.len());
+        create_analysis_workspace(board.title, pgn, moves, board.variant, ply);
     };
 
     // Pin an assistant conversation into a tab of its own, so two sessions can
@@ -1255,7 +1298,21 @@ pub fn App() -> impl IntoView {
     // it on the next load, so reopening the app returns to the same boards.
     let client = client_id();
     let client_for_restore = client.clone();
+    let resume_on_load = web_sys::window()
+        .and_then(|window| window.performance())
+        .and_then(|performance| {
+            performance
+                .get_entries_by_type("navigation")
+                .get(0)
+                .dyn_into::<web_sys::PerformanceNavigationTiming>()
+                .ok()
+        })
+        .is_some_and(|navigation| navigation.type_() == web_sys::NavigationType::Reload);
+    let session_write = RwSignal::new(0_u64);
     Effect::new(move |_| {
+        if !session_restored.get() {
+            return;
+        }
         let mut list = workspaces.get();
         let active = active_ws.get();
         let tab_now = tab.get();
@@ -1275,15 +1332,22 @@ pub fn App() -> impl IntoView {
         };
         let raw = serde_json::to_string(&session).unwrap_or_default();
         let client = client.clone();
+        let write = session_write.get_untracked() + 1;
+        session_write.set(write);
+        write_session(&session);
         spawn_local(async move {
             TimeoutFuture::new(350).await;
-            write_session(&session);
-            let _ = api::save_session(&client, &raw).await;
+            if session_write.get_untracked() == write {
+                let _ = api::save_session(&client, &raw).await;
+            }
         });
     });
 
     let apply_session = move |session: Session| {
         if session.workspaces.is_empty() {
+            if resume_on_load && let Some(t) = tab_from_name(&session.tab) {
+                tab.set(t);
+            }
             return;
         }
         let seq = session.seq.max(
@@ -1340,23 +1404,29 @@ pub fn App() -> impl IntoView {
                 tab.set(t);
             }
         }
+        if !resume_on_load {
+            tab.set(Tab::Home);
+        }
     };
 
     Effect::new(move |_| {
-        if session_restored.get_untracked() {
-            return;
-        }
-        session_restored.set(true);
         if let Some(session) = read_session() {
             apply_session(session);
+            session_restored.set(true);
             return;
         }
         let client = client_for_restore.clone();
         spawn_local(async move {
-            if let Ok(Some(raw)) = api::load_session(&client).await
-                && let Ok(session) = serde_json::from_str::<Session>(&raw)
-            {
-                apply_session(session);
+            match api::load_session(&client).await {
+                Ok(Some(raw)) => match serde_json::from_str::<Session>(&raw) {
+                    Ok(session) => {
+                        apply_session(session);
+                        session_restored.set(true);
+                    }
+                    Err(error) => status.set(error.to_string()),
+                },
+                Ok(None) => session_restored.set(true),
+                Err(error) => status.set(error),
             }
         });
     });
@@ -1382,7 +1452,7 @@ pub fn App() -> impl IntoView {
         on_import.forget();
     }
 
-    let open_game = move |g: api::GameSummary| {
+    let open_game_at = move |(g, ply): (api::GameSummary, usize)| {
         save_workspace();
         let sans: Vec<String> = g.moves.split_whitespace().map(str::to_owned).collect();
         let preview_only = g
@@ -1434,18 +1504,21 @@ pub fn App() -> impl IntoView {
             variant_name.clone(),
             preview_only,
         );
+        let ply = if preview_only { 0 } else { ply.min(sans.len()) };
         report.set(None);
         evals.set(Vec::new());
         lines.set(Vec::new());
         analysis.set(None);
         tree_current.set(String::new());
-        tree_ply.set(0);
-        ann_ply.set(0);
+        tree_ply.set(ply);
+        ann_ply.set(ply as i64);
         shapes.set(Vec::new());
         vs_engine.set(false);
+        play_uci.set(None);
+        thinking.set(false);
         tb_result.set(None);
         tb_status.set(String::new());
-        goto_sig.set(Some((goto_seq.get_untracked() + 1, 0)));
+        goto_sig.set(Some((goto_seq.get_untracked() + 1, ply)));
         let id = g.id;
         add_collection.set(0);
         spawn_local(async move {
@@ -1461,6 +1534,7 @@ pub fn App() -> impl IntoView {
         });
         tab.set(Tab::Analysis);
     };
+    let open_game = move |game| open_game_at((game, 0));
 
     let import = move |_| {
         let text = import_text.get();
@@ -1623,17 +1697,45 @@ pub fn App() -> impl IntoView {
         });
     };
 
+    let analysis_position = Memo::new(move |_| {
+        let workspace = active_ws.get();
+        AnalysisPosition {
+            workspace,
+            board: workspaces.with(|items| {
+                items
+                    .iter()
+                    .find(|item| item.key == workspace)
+                    .and_then(Workspace::active_board_ref)
+                    .map(|board| board.id.clone())
+            }),
+            fen: fen.get(),
+            variant: board_variant.get(),
+            ply: tree_ply.get(),
+            node: tree_current.get(),
+        }
+    });
+    // The displayed score and lines belong to the position used in the request.
+    Effect::new(move |_| {
+        analysis_position.track();
+        analysis.set(None);
+        lines.set(Vec::new());
+        engine_results.set(Vec::new());
+        cloud.set(None);
+        tb_result.set(None);
+        tb_status.set(String::new());
+    });
+
     let run_analysis = move |_| {
-        let f = fen.get();
-        if f.is_empty() {
+        let position = analysis_position.get_untracked();
+        if position.fen.is_empty() || analyzing.get_untracked() {
             return;
         }
         analyzing.set(true);
         spawn_local(async move {
             let depth = settings_depth.get_untracked();
-            match api::analyze(&f, depth, &board_variant.get_untracked()).await {
-                Ok(a) => {
-                    let ply = tree_ply.get_untracked() as i64;
+            match api::analyze(&position.fen, depth, &position.variant).await {
+                Ok(a) if analysis_position.get_untracked() == position => {
+                    let ply = position.ply as i64;
                     let row = api::EvalRow {
                         ply,
                         depth: a.depth,
@@ -1648,13 +1750,11 @@ pub fn App() -> impl IntoView {
                         }
                     });
                     analysis.set(Some(a));
-                    analyzing.set(false);
                 }
-                Err(e) => {
-                    status.set(e);
-                    analyzing.set(false);
-                }
+                Err(e) if analysis_position.get_untracked() == position => status.set(e),
+                _ => {}
             }
+            analyzing.set(false);
         });
     };
 
@@ -1933,30 +2033,34 @@ pub fn App() -> impl IntoView {
     };
 
     let fetch_lines = move |_| {
-        let f = fen.get();
-        if f.is_empty() {
+        let position = analysis_position.get_untracked();
+        if position.fen.is_empty() {
             return;
         }
         spawn_local(async move {
             let depth = settings_depth.get_untracked();
-            match api::engine_lines(&f, depth, 3, &board_variant.get_untracked()).await {
-                Ok(l) => lines.set(l),
-                Err(e) => status.set(e),
+            match api::engine_lines(&position.fen, depth, 3, &position.variant).await {
+                Ok(l) if analysis_position.get_untracked() == position => lines.set(l),
+                Err(e) if analysis_position.get_untracked() == position => status.set(e),
+                _ => {}
             }
         });
     };
 
     let fetch_engine_lines = move |_| {
-        let f = fen.get();
-        if f.is_empty() {
+        let position = analysis_position.get_untracked();
+        if position.fen.is_empty() {
             return;
         }
         engine_results.set(Vec::new());
         spawn_local(async move {
             let depth = settings_depth.get_untracked();
-            match api::analyze_engines(&f, depth, 3, &board_variant.get_untracked()).await {
-                Ok(list) => engine_results.set(list),
-                Err(e) => status.set(e),
+            match api::analyze_engines(&position.fen, depth, 3, &position.variant).await {
+                Ok(list) if analysis_position.get_untracked() == position => {
+                    engine_results.set(list)
+                }
+                Err(e) if analysis_position.get_untracked() == position => status.set(e),
+                _ => {}
             }
         });
     };
@@ -2194,6 +2298,8 @@ pub fn App() -> impl IntoView {
         .into_any()
     };
 
+    let pending_settings = RwSignal::new(None::<api::Settings>);
+    let saving_settings = RwSignal::new(false);
     let persist_settings = move || {
         let settings = api::Settings {
             engine_path: {
@@ -2236,14 +2342,32 @@ pub fn App() -> impl IntoView {
             keybinds: serde_json::to_string(&keybinds.get_untracked()).unwrap_or_default(),
             engines: engines.get_untracked(),
         };
+        pending_settings.set(Some(settings));
+        if saving_settings.get_untracked() {
+            return;
+        }
+        saving_settings.set(true);
+        // Settings saves carry a full snapshot. Send them in order so an older
+        // request cannot overwrite a more recent change.
         spawn_local(async move {
-            match api::save_settings(&settings).await {
-                Ok(s) => {
-                    settings_status.set(i18n::t(&language.get(), "status.m23").into());
-                    puzzle_rating.set(s.puzzle_rating);
+            while let Some(settings) = pending_settings.get_untracked() {
+                pending_settings.set(None);
+                let result = api::save_settings(&settings).await;
+                if pending_settings.with_untracked(Option::is_some) {
+                    continue;
                 }
-                Err(e) => settings_status.set(e),
+                match result {
+                    Ok(saved) => {
+                        settings_status
+                            .set(i18n::t(&language.get_untracked(), "status.m23").into());
+                        if puzzle_rating.get_untracked() == settings.puzzle_rating {
+                            puzzle_rating.set(saved.puzzle_rating);
+                        }
+                    }
+                    Err(error) => settings_status.set(error),
+                }
             }
+            saving_settings.set(false);
         });
     };
 
@@ -2309,16 +2433,26 @@ pub fn App() -> impl IntoView {
         _ => {}
     };
 
+    let chat_request = RwSignal::new(0_u64);
     let send_chat = move || {
         let message = chat_text.get_untracked();
         if message.trim().is_empty() {
             return;
         }
-        let position = fen.get_untracked();
+        let position = analysis_position.get_untracked();
+        let request = chat_request.get_untracked() + 1;
+        chat_request.set(request);
         chat_messages.update(|list| list.push(("user".into(), message.clone())));
         chat_text.set(String::new());
         spawn_local(async move {
-            match api::chat(&position, &message).await {
+            let result = api::chat(&position.fen, &message).await;
+            if tab.get_untracked() != Tab::Analysis
+                || analysis_position.get_untracked() != position
+                || chat_request.get_untracked() != request
+            {
+                return;
+            }
+            match result {
                 Ok(reply) => {
                     chat_messages
                         .update(|list| list.push(("assistant".into(), reply.reply.clone())));
@@ -2699,21 +2833,43 @@ pub fn App() -> impl IntoView {
         onload.forget();
     };
 
+    let engine_reply_seq = RwSignal::new(0_u64);
+    let cancel_engine_reply = move || {
+        engine_reply_seq.update(|seq| *seq += 1);
+        thinking.set(false);
+    };
     let ask_engine = move |position: String| {
+        let request = engine_reply_seq.get_untracked() + 1;
+        engine_reply_seq.set(request);
         thinking.set(true);
         let depth = settings_depth.get_untracked();
+        let workspace = active_ws.get_untracked();
+        let game = selected_game_id.get_untracked();
+        let variant = board_variant.get_untracked();
+        let side = play_as.get_untracked();
         spawn_local(async move {
-            match api::analyze(&position, depth, &board_variant.get_untracked()).await {
+            let reply = api::analyze(&position, depth, &variant).await;
+            if engine_reply_seq.get_untracked() != request {
+                return;
+            }
+            thinking.set(false);
+            if !vs_engine.get_untracked()
+                || tab.get_untracked() != Tab::Analysis
+                || active_ws.get_untracked() != workspace
+                || selected_game_id.get_untracked() != game
+                || fen.get_untracked() != position
+                || board_variant.get_untracked() != variant
+                || play_as.get_untracked() != side
+            {
+                return;
+            }
+            match reply {
                 Ok(a) => {
                     let seq = play_seq.get_untracked() + 1;
                     play_seq.set(seq);
                     play_uci.set(Some((seq, a.best_move)));
-                    thinking.set(false);
                 }
-                Err(e) => {
-                    status.set(e);
-                    thinking.set(false);
-                }
+                Err(error) => status.set(error),
             }
         });
     };
@@ -2780,7 +2936,11 @@ pub fn App() -> impl IntoView {
         }
     };
 
-    let on_engine_play = move |(_uci, san, fen_after): (String, String, String)| {
+    let on_engine_play = move |(uci, san, fen_after): (String, String, String)| {
+        if !play_uci.with_untracked(|pending| pending.as_ref().is_some_and(|(_, mv)| *mv == uci)) {
+            return;
+        }
+        play_uci.set(None);
         let inc = clock_inc.get_untracked();
         record_played_move(&san, fen_after.split_whitespace().nth(1) == Some("b"));
         if inc > 0 && clock.get_untracked().is_some() {
@@ -2838,6 +2998,7 @@ pub fn App() -> impl IntoView {
 
     let toggle_vs_engine = move |ev: leptos::ev::Event| {
         let on = event_target_checked(&ev);
+        cancel_engine_reply();
         vs_engine.set(on);
         if on {
             let engine_black = play_as.get_untracked() == "white";
@@ -2846,13 +3007,12 @@ pub fn App() -> impl IntoView {
             if turn_black == engine_black {
                 ask_engine(position);
             }
-        } else {
-            thinking.set(false);
         }
     };
 
     let choose_side = move |ev: leptos::ev::Event| {
         let side = event_target_value(&ev);
+        cancel_engine_reply();
         play_as.set(side.clone());
         if vs_engine.get_untracked() {
             let engine_black = side == "white";
@@ -2865,6 +3025,10 @@ pub fn App() -> impl IntoView {
     };
 
     let open_editor = move |_| {
+        if editor_open.get_untracked() {
+            editor_open.set(false);
+            return;
+        }
         let position = fen.get_untracked();
         let fields: Vec<&str> = position.split_whitespace().collect();
         editor_pieces.set(pieces_from_fen(&position));
@@ -2882,27 +3046,45 @@ pub fn App() -> impl IntoView {
             &editor_castling.get_untracked(),
             &editor_ep.get_untracked(),
         );
+        let variant = editor_variant.get_untracked();
+        let mut candidate = brick_chess::Widget::new();
+        let mut events = candidate.apply(brick_chess::Command::SetVariant {
+            variant: variant.clone(),
+        });
+        events.extend(candidate.apply(brick_chess::Command::LoadFen {
+            fen: position.clone(),
+        }));
+        if let Some(brick_chess::Event::Error { detail, .. }) = events
+            .iter()
+            .find(|event| matches!(event, brick_chess::Event::Error { .. }))
+        {
+            vision_msg.set(detail.clone());
+            return;
+        }
         let seq = load_seq.get_untracked() + 1;
         load_seq.set(seq);
-        load_fen_sig.set(Some((seq, position, editor_variant.get_untracked())));
+        load_fen_sig.set(Some((seq, position, variant)));
         vs_engine.set(false);
+        play_uci.set(None);
+        thinking.set(false);
         editor_open.set(false);
     };
 
     let probe_tablebase = move |_| {
-        let position = fen.get_untracked();
-        if position.is_empty() {
+        let position = analysis_position.get_untracked();
+        if position.fen.is_empty() {
             return;
         }
         tb_status.set(i18n::t(&language.get(), "status.m20").into());
         tb_result.set(None);
         spawn_local(async move {
-            match api::tablebase(&position, &board_variant.get_untracked()).await {
-                Ok(t) => {
+            match api::tablebase(&position.fen, &position.variant).await {
+                Ok(t) if analysis_position.get_untracked() == position => {
                     tb_status.set(String::new());
                     tb_result.set(Some(t));
                 }
-                Err(e) => tb_status.set(e),
+                Err(e) if analysis_position.get_untracked() == position => tb_status.set(e),
+                _ => {}
             }
         });
     };
@@ -2990,15 +3172,15 @@ pub fn App() -> impl IntoView {
     };
 
     let fetch_cloud = move |_: leptos::ev::MouseEvent| {
-        let position = fen.get_untracked();
-        if position.trim().is_empty() {
+        let position = analysis_position.get_untracked();
+        if position.fen.trim().is_empty() {
             status.set(i18n::t(&language.get(), "status.m14").into());
             return;
         }
         status.set(i18n::t(&language.get(), "status.m02").into());
         spawn_local(async move {
-            match api::cloud_eval(&position).await {
-                Ok(result) => {
+            match api::cloud_eval(&position.fen).await {
+                Ok(result) if analysis_position.get_untracked() == position => {
                     if result.available {
                         status.set(i18n::tf(
                             &language.get(),
@@ -3010,7 +3192,8 @@ pub fn App() -> impl IntoView {
                     }
                     cloud.set(Some(result));
                 }
-                Err(error) => status.set(error),
+                Err(error) if analysis_position.get_untracked() == position => status.set(error),
+                _ => {}
             }
         });
     };
@@ -3031,18 +3214,14 @@ pub fn App() -> impl IntoView {
                 "Accuracy: White {:.1}% · Black {:.1}%
 
 ",
-                white * 100.0,
-                black * 100.0
+                white, black
             ));
         }
         text.push_str("| Ply | Move | Label | Accuracy |\n|---|---|---|---|\n");
         for m in &report.moves {
             text.push_str(&format!(
                 "| {} | {} | {} | {:.0}% |\n",
-                m.ply,
-                m.san,
-                m.lichess,
-                m.accuracy * 100.0
+                m.ply, m.san, m.lichess, m.accuracy
             ));
         }
         let name: String = title
@@ -3078,7 +3257,7 @@ pub fn App() -> impl IntoView {
                 if nag == 0 {
                     continue;
                 }
-                let comment = format!("{} · {:.0}% accuracy", m.lichess, m.accuracy * 100.0);
+                let comment = format!("{} · {:.0}% accuracy", m.lichess, m.accuracy);
                 if api::add_annotation(
                     game_id,
                     m.ply as i64,
@@ -3186,55 +3365,92 @@ pub fn App() -> impl IntoView {
         }
     };
 
+    let advance_spar = move |position: String| {
+        let board = match brick_chess::Widget::from_fen(&position) {
+            Ok(board) => board,
+            Err(error) => {
+                spar_thinking.set(false);
+                spar_status.set(error.to_string());
+                return;
+            }
+        };
+        if let Some(reason) = board.current().facts().terminal_reason {
+            spar_finished.set(true);
+            spar_thinking.set(false);
+            spar_status.set(i18n::tf(
+                &language.get_untracked(),
+                "practice.finished",
+                &[("reason", reason)],
+            ));
+            return;
+        }
+        let player_turn = position.split_whitespace().nth(1)
+            == Some(if spar_player.get_untracked() == "black" {
+                "b"
+            } else {
+                "w"
+            });
+        if player_turn {
+            spar_thinking.set(false);
+            spar_status.set(i18n::t(&language.get_untracked(), "practice.your_move").into());
+            return;
+        }
+
+        spar_thinking.set(true);
+        spar_status.set(i18n::t(&language.get_untracked(), "analysis.engine_thinking_caps").into());
+        let epoch = spar_epoch.get_untracked();
+        let depth = settings_depth.get_untracked();
+        spawn_local(async move {
+            let reply = api::analyze(&position, depth, "standard").await;
+            if spar_epoch.get_untracked() != epoch {
+                return;
+            }
+            match reply {
+                Ok(a) if board.current().is_legal(&a.best_move) => {
+                    let seq = spar_seq.get_untracked() + 1;
+                    spar_seq.set(seq);
+                    spar_play.set(Some((seq, a.best_move)));
+                }
+                Ok(_) => {
+                    spar_thinking.set(false);
+                    spar_status
+                        .set(i18n::t(&language.get_untracked(), "practice.engine_illegal").into());
+                }
+                Err(e) => {
+                    spar_thinking.set(false);
+                    spar_status.set(e);
+                }
+            }
+        });
+    };
+
     let start_spar = move |_| {
         let entered = spar_fen.get_untracked();
-        let fen = if entered.trim().is_empty() {
+        let position = if entered.trim().is_empty() {
             "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_owned()
         } else {
             entered
         };
-        spar_pgn.set(line_pgn(&fen, &[], "standard"));
-        spar_play.set(None);
-        let color = if spar_color.get_untracked() == "black" {
-            i18n::t(&language.get(), "common.black")
-        } else {
-            i18n::t(&language.get(), "common.white")
-        };
-        spar_status.set(i18n::tf(
-            &language.get(),
-            "status.d30",
-            &[("color", color.to_string())],
-        ));
-    };
-
-    let on_spar_move = move |(_uci, _san, fen_after): (String, String, String)| {
-        let engine_white = spar_color.get_untracked() == "black";
-        let turn_white = fen_after.split_whitespace().nth(1) != Some("b");
-        spar_status.set(i18n::t(&language.get(), "analysis.engine_thinking_caps").into());
-        if turn_white == engine_white {
-            spar_thinking.set(true);
-            let depth = settings_depth.get_untracked();
-            spawn_local(async move {
-                match api::analyze(&fen_after, depth, "standard").await {
-                    Ok(a) => {
-                        let seq = spar_seq.get_untracked() + 1;
-                        spar_seq.set(seq);
-                        spar_play.set(Some((seq, a.best_move)));
-                    }
-                    Err(e) => spar_status.set(e),
-                }
-                spar_thinking.set(false);
-            });
-        } else {
-            spar_status.set(i18n::t(&language.get(), "practice.your_move").into());
-        }
-    };
-
-    let request_match_move = move || {
-        if !match_running.get_untracked() {
+        if let Err(error) = brick_chess::Widget::from_fen(&position) {
+            spar_status.set(error.to_string());
             return;
         }
-        let board_fen = fen.get_untracked();
+        spar_epoch.update(|epoch| *epoch += 1);
+        spar_player.set(spar_color.get_untracked());
+        spar_finished.set(false);
+        spar_play.set(None);
+        spar_pgn.set(line_pgn(&position, &[], "standard"));
+        advance_spar(position);
+    };
+
+    let on_spar_move = move |(_uci, _san, position): (String, String, String)| {
+        advance_spar(position);
+    };
+
+    let request_match_move = move |board_fen: String, epoch: u32| {
+        if !match_running.get_untracked() || match_epoch.get_untracked() != epoch {
+            return;
+        }
         let turn_black = board_fen.split_whitespace().nth(1) == Some("b");
         let list = engines.get_untracked();
         let index = if turn_black {
@@ -3255,7 +3471,11 @@ pub fn App() -> impl IntoView {
             &[("name", entry.name.clone())],
         ));
         spawn_local(async move {
-            match api::analyze_engine(&board_fen, depth, &entry.path).await {
+            let reply = api::analyze_engine(&board_fen, depth, &entry.path).await;
+            if !match_running.get_untracked() || match_epoch.get_untracked() != epoch {
+                return;
+            }
+            match reply {
                 Ok(mv) => {
                     if let Some(over) = mv.game_over {
                         let white_to_move = board_fen.split_whitespace().nth(1) != Some("b");
@@ -3306,9 +3526,10 @@ pub fn App() -> impl IntoView {
             "status.d26",
             &[("turn", turn.to_string())],
         ));
+        let epoch = match_epoch.get_untracked();
         spawn_local(async move {
             TimeoutFuture::new(150).await;
-            request_match_move();
+            request_match_move(fen_after, epoch);
         });
     };
 
@@ -3319,6 +3540,15 @@ pub fn App() -> impl IntoView {
         } else {
             entered
         };
+        let start = match brick_chess::Widget::from_fen(&start) {
+            Ok(board) => board.fen(),
+            Err(error) => {
+                match_status.set(error.to_string());
+                return;
+            }
+        };
+        let epoch = match_epoch.get_untracked().wrapping_add(1);
+        match_epoch.set(epoch);
         match_pgn.set(line_pgn(&start, &[], "standard"));
         match_moves.set(Vec::new());
         match_result.set(String::new());
@@ -3327,19 +3557,25 @@ pub fn App() -> impl IntoView {
         let seq = match_seq.get_untracked() + 1;
         match_seq.set(seq);
         match_running.set(true);
-        let expected = start.clone();
         spawn_local(async move {
             for _ in 0..20 {
                 TimeoutFuture::new(100).await;
-                if fen.get_untracked() == expected {
-                    break;
+                if match_epoch.get_untracked() != epoch || !match_running.get_untracked() {
+                    return;
+                }
+                if fen.get_untracked() == start {
+                    request_match_move(start, epoch);
+                    return;
                 }
             }
-            request_match_move();
+            match_running.set(false);
+            match_status
+                .set(i18n::t(&language.get_untracked(), "practice.position_unavailable").into());
         });
     };
 
     let pause_match = move |_: leptos::ev::MouseEvent| {
+        match_epoch.update(|epoch| *epoch = epoch.wrapping_add(1));
         match_running.set(false);
         if match_result.get_untracked().is_empty() {
             match_status.set(i18n::t(&language.get(), "status.m17").into());
@@ -3347,6 +3583,7 @@ pub fn App() -> impl IntoView {
     };
 
     let reset_match = move |_: leptos::ev::MouseEvent| {
+        match_epoch.update(|epoch| *epoch = epoch.wrapping_add(1));
         match_running.set(false);
         match_play.set(None);
         match_moves.set(Vec::new());
@@ -3367,6 +3604,7 @@ pub fn App() -> impl IntoView {
     let ai_session_id = RwSignal::new(read_active_ai_session());
     let ai_target_board = RwSignal::new(None::<String>);
     let app_ctx = views::AppCtx {
+        analysis_position,
         account_busy,
         account_import_max,
         account_msg,
@@ -3425,6 +3663,7 @@ pub fn App() -> impl IntoView {
         event_filter,
         events,
         fen,
+        board_variant,
         filter_date_from,
         filter_date_to,
         filter_elo_max,
@@ -3544,6 +3783,8 @@ pub fn App() -> impl IntoView {
         sound_theme,
         sound_volume,
         spar_color,
+        spar_player,
+        spar_finished,
         spar_fen,
         spar_pgn,
         spar_play,
@@ -3640,6 +3881,9 @@ pub fn App() -> impl IntoView {
         }),
         open_editor: views::app_ctx::view_callback(open_editor),
         open_game: views::app_ctx::view_callback(open_game),
+        open_game_at: views::app_ctx::view_callback(open_game_at),
+        play_match_id,
+        detailed_workspaces: RwSignal::new(std::collections::BTreeSet::new()),
         pause_match: views::app_ctx::view_callback(pause_match),
         persist_settings: views::app_ctx::view_callback(move |_: ()| persist_settings()),
         probe_tablebase: views::app_ctx::view_callback(probe_tablebase),
@@ -3681,7 +3925,7 @@ pub fn App() -> impl IntoView {
 
     let practice_view = move || views::practice::practice(app_ctx);
     let study_view = move || {
-        view! { <views::study::StudyView language=language message=status /> }
+        view! { <views::study::StudyView language=language message=status open_in_analysis=views::app_ctx::view_callback(open_study_board) /> }
     };
     let compare_view = move || {
         view! { <views::compare::CompareView language=language message=status ctx=app_ctx /> }
@@ -3698,30 +3942,18 @@ pub fn App() -> impl IntoView {
         <div class="app">
             <aside class="sidebar">
                 <div class="brand">"RustyBrickChess"</div>
-                <nav>
-                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Assistant, Tab::Play, Tab::Study, Tab::Compare, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
+                <nav aria-label=move || i18n::t(&language.get(), "nav.sections")>
+                    {[Tab::Home, Tab::Play, Tab::Train, Tab::Workbench, Tab::Settings]
                         .into_iter()
-                        .map(|t| {
-                            let key = match t {
-                                Tab::Home => "nav.home",
-                                Tab::Database => "nav.database",
-                                Tab::Analysis => "nav.analysis",
-                                Tab::Assistant => "nav.assistant",
-                                Tab::Play => "nav.play",
-                                Tab::Study => "nav.study",
-                                Tab::Compare => "nav.compare",
-                                Tab::Practice => "nav.practice",
-                                Tab::Openings => "nav.openings",
-                                Tab::Puzzles => "nav.puzzles",
-                                Tab::Stats => "nav.stats",
-                                Tab::Settings => "nav.settings",
-                            };
+                        .map(|destination| {
                             view! {
                                 <button
-                                    class=move || if tab.get() == t { "nav active" } else { "nav" }
-                                    on:click=move |_| switch_tab(t)
+                                    class=move || if tab.get().destination() == destination { "nav active" } else { "nav" }
+                                    aria-current=move || (tab.get().destination() == destination).then_some("page")
+                                    data-destination=tab_name(destination)
+                                    on:click=move |_| switch_tab(destination)
                                 >
-                                    {move || i18n::t(&language.get(), key)}
+                                    {move || i18n::t(&language.get(), destination.label())}
                                 </button>
                             }
                         })
@@ -3729,10 +3961,10 @@ pub fn App() -> impl IntoView {
                 </nav>
                 // The board tree: every workspace and the boards it holds, so a
                 // board can be reached without first switching to its tab.
-                <div class="side-boards">
-                    <div class="side-boards-title">
+                <details class="side-boards">
+                    <summary class="side-boards-title">
                         {move || i18n::t(&language.get(), "boards.label")}
-                    </div>
+                    </summary>
                     <ul class="board-tree">
                         {move || {
                             let list = workspaces.get();
@@ -3776,12 +4008,14 @@ pub fn App() -> impl IntoView {
                             }).collect_view()
                         }}
                     </ul>
-                </div>
+                </details>
                 <div class="side-foot">"AGPL-3.0 · BrickChess"</div>
             </aside>
-            <main class="main" id="app-main">
+            <main class="main" id="app-main" tabindex="-1" data-view=move || tab_name(tab.get())>
                 <header class="topbar">
+                    <Show when=move || tab.get() == Tab::Database>
                     <input
+                        aria-label=move || i18n::t(&language.get(), "top.search_player")
                         placeholder=move || i18n::t(&language.get(), "top.search_player")
                         prop:value=move || query.get()
                         on:input=move |ev| query.set(event_target_value(&ev))
@@ -3792,6 +4026,7 @@ pub fn App() -> impl IntoView {
                     <button on:click=move |_| reload()>
                         {move || i18n::t(&language.get(), "top.search")}
                     </button>
+                    </Show>
                     <span class="status" aria-live="polite">{move || status.get()}</span>
                 </header>
                 {move || {
@@ -3815,6 +4050,30 @@ pub fn App() -> impl IntoView {
                 }}
                 {move || match tab.get() {
                     Tab::Home => home_view().into_any(),
+                    Tab::Train => views::home::hub(
+                        app_ctx, Tab::Train, &[Tab::Puzzles, Tab::Openings, Tab::Study, Tab::Practice],
+                    ).into_any(),
+                    Tab::Workbench => views::home::hub(
+                        app_ctx, Tab::Workbench, &[Tab::Analysis, Tab::Database, Tab::Engines, Tab::Tournaments, Tab::Assistant, Tab::Compare, Tab::Stats],
+                    ).into_any(),
+                    Tab::Engines => view! {
+                        <section class="panel destination-hub">
+                            <h1>{move || i18n::t(&language.get(), "settings.engines")}</h1>
+                            <div class="destination-grid">
+                                <button on:click=move |_| switch_tab(Tab::Settings)>
+                                    {move || i18n::t(&language.get(), "settings.configure")}
+                                </button>
+                                <button on:click=move |_| {
+                                    practice_mode.set("engine".into());
+                                    switch_tab(Tab::Practice);
+                                }>{move || i18n::t(&language.get(), "practice.match")}</button>
+                                <button on:click=move |_| switch_tab(Tab::Play)>
+                                    {move || i18n::t(&language.get(), "nav.play")}
+                                </button>
+                            </div>
+                        </section>
+                    }.into_any(),
+                    Tab::Tournaments => views::play::tournaments(app_ctx).into_any(),
                     Tab::Database => database_view().into_any(),
                     Tab::Analysis => analysis_view().into_any(),
                     Tab::Assistant => assistant_view().into_any(),

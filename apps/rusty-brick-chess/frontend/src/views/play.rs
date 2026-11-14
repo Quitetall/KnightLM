@@ -48,9 +48,15 @@ fn clock_text(milliseconds: Option<i64>) -> String {
 
 /// The clock pair from a match payload.
 fn clocks(payload: &serde_json::Value) -> (Option<i64>, Option<i64>) {
-    match payload.get("clock").and_then(|clock| clock.as_array()) {
-        Some(pair) if pair.len() == 2 => (pair[0].as_i64(), pair[1].as_i64()),
-        _ => (None, None),
+    match payload.get("clock") {
+        Some(clock) if clock.is_object() => {
+            (clock["white_ms"].as_i64(), clock["black_ms"].as_i64())
+        }
+        Some(clock) => clock
+            .as_array()
+            .filter(|pair| pair.len() == 2)
+            .map_or((None, None), |pair| (pair[0].as_i64(), pair[1].as_i64())),
+        None => (None, None),
     }
 }
 
@@ -109,13 +115,14 @@ fn download_pgn(pgn: &str) {
 pub fn play(ctx: AppCtx) -> impl IntoView {
     let AppCtx {
         language,
-        open_game,
+        open_game_at,
+        play_match_id: selected,
         settings_model,
         ..
     } = ctx;
 
     let matches = RwSignal::new(Vec::<serde_json::Value>::new());
-    let selected = RwSignal::new(None::<String>);
+    let replay_ply = RwSignal::new(None::<usize>);
     let detail = RwSignal::new(None::<serde_json::Value>);
     let busy = RwSignal::new(false);
     let thinking = RwSignal::new(false);
@@ -162,19 +169,6 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             scanning.set(false);
         });
     };
-    // The leaderboard and the tournaments live beside the matches: they are the
-    // same question — who is playing well — asked over a longer window.
-    let board_rows = RwSignal::new(Vec::<ai_api::LeaderboardRow>::new());
-    let board_metrics = RwSignal::new(Vec::<ai_api::ModelMetrics>::new());
-    let board_filter = RwSignal::new(String::new());
-    let tournaments = RwSignal::new(Vec::<serde_json::Value>::new());
-    let tournament_id = RwSignal::new(None::<String>);
-    let tournament_detail = RwSignal::new(None::<serde_json::Value>);
-    let tour_name = RwSignal::new(String::new());
-    let tour_format = RwSignal::new("double-round-robin".to_string());
-    let tour_competitors = RwSignal::new(String::new());
-    let tour_log = RwSignal::new(Vec::<String>::new());
-
     let reload = move || {
         spawn_local(async move {
             match ai_api::list_ai_matches().await {
@@ -196,41 +190,12 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
         });
     };
 
-    let reload_board = move || {
-        spawn_local(async move {
-            if let Ok(rows) = ai_api::leaderboard().await {
-                board_rows.set(rows);
-            }
-            if let Ok(rows) = ai_api::metrics().await {
-                board_metrics.set(rows);
-            }
-        });
-    };
-    let reload_tournaments = move || {
-        spawn_local(async move {
-            if let Ok(list) = ai_api::list_tournaments().await {
-                tournaments.set(list);
-            }
-        });
-    };
-
     // Load once, and whenever the list is asked for again.
     Effect::new(move |_| scan_local());
     Effect::new(move |_| reload());
-    Effect::new(move |_| reload_board());
-    Effect::new(move |_| reload_tournaments());
-    Effect::new(move |_| {
-        if let Some(id) = tournament_id.get() {
-            spawn_local(async move {
-                if let Ok(detail) = ai_api::tournament_detail(&id).await {
-                    tournament_detail.set(Some(detail));
-                }
-            });
-        }
-    });
-
     // Follow the selection.
     Effect::new(move |_| {
+        replay_ply.set(None);
         if let Some(id) = selected.get() {
             let already_loaded = detail.with_untracked(|payload| {
                 payload.as_ref().and_then(|value| value["id"].as_str()) == Some(id.as_str())
@@ -464,25 +429,17 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             .and_then(|pgn| pgn.as_str())
             .unwrap_or("")
             .to_string();
+        let ply = replay_ply
+            .get_untracked()
+            .unwrap_or_else(|| payload["moves"].as_array().map_or(0, Vec::len));
         spawn_local(async move {
-            match db_api::import_pgn(&pgn).await {
-                Ok(0) => message.set("nothing was imported".to_string()),
-                Ok(count) => {
-                    if open {
-                        // Opening means putting it in front of the board, and a
-                        // game lives in the database once it leaves this screen.
-                        let filters = db_api::Filters::default();
-                        match db_api::list_games(&filters).await {
-                            Ok((list, _)) => match list.into_iter().next() {
-                                Some(summary) => open_game.run(summary),
-                                None => message.set("the game was saved but not found".to_string()),
-                            },
-                            Err(error) => message.set(error),
-                        }
-                    } else {
-                        message.set(format!("saved {count} game(s)"));
-                    }
-                }
+            match db_api::import_pgn_ids(&pgn).await {
+                Ok(ids) if ids.is_empty() => message.set("nothing was imported".to_string()),
+                Ok(ids) if open => match db_api::get_game_summary(ids[0]).await {
+                    Ok(game) => open_game_at.run((game, ply)),
+                    Err(error) => message.set(error),
+                },
+                Ok(ids) => message.set(format!("saved {} game(s)", ids.len())),
                 Err(error) => message.set(error),
             }
         });
@@ -517,6 +474,18 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                     >
                         {move || i18n::t(&language.get(), "play.new_casual")}
                     </button>
+                    <button class="play-friend" disabled=move || busy.get() on:click=move |_| {
+                        create_game(serde_json::json!({
+                            "start_fen": START_FEN,
+                            "white": {"kind": "human", "name": "White"},
+                            "black": {"kind": "human", "name": "Black"},
+                            "max_plies": 300,
+                        }));
+                    }>{move || i18n::t(&language.get(), "play.friend")}</button>
+                    <button on:click=move |_| {
+                        ctx.practice_mode.set("spar".into());
+                        ctx.switch_tab.run(crate::model::Tab::Practice);
+                    }>{move || i18n::t(&language.get(), "play.engine")}</button>
                 </div>
                 <div class="play-new">
                     <label title=move || i18n::t(&language.get(), "play.thinking_hint")>
@@ -584,6 +553,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         let white = seat_label(&payload["white"]);
                         let black = seat_label(&payload["black"]);
                         let watching = payload["white"]["kind"] == "model" && payload["black"]["kind"] == "model";
+                        let tournament_game = payload["tournament"] == true;
                         let human_turn = payload[turn.as_str()]["kind"] == "human";
                         let human_color = ["white", "black"].into_iter().find(|color| payload[*color]["kind"] == "human");
                         let pgn = payload
@@ -592,8 +562,24 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             .unwrap_or("")
                             .to_string();
                         let pgn_for_download = pgn.clone();
-                        let fen = payload["fen"].as_str().unwrap_or(START_FEN).to_owned();
+                        let live_fen = payload["fen"].as_str().unwrap_or(START_FEN).to_owned();
+                        let replay = replay_ply.get().filter(|ply| *ply < moves.len());
+                        let fen = replay.and_then(|ply| {
+                            let mut board = brick_chess::Widget::new();
+                            board.apply(brick_chess::Command::LoadPgn { pgn: pgn.clone() });
+                            if ply >= board.history_len() {
+                                return None;
+                            }
+                            board.apply(brick_chess::Command::Goto { index: ply });
+                            Some(board.fen())
+                        }).unwrap_or(live_fen);
                         let orientation = human_color.unwrap_or("white").to_owned();
+                        let local_game = payload["white"]["kind"] == "human" && payload["black"]["kind"] == "human";
+                        let resign_color = if local_game {
+                            if turn == "black" { Some("black") } else { Some("white") }
+                        } else {
+                            human_color
+                        };
                         view! {
                             <p class="match-cards">
                                 <strong>{white}" vs "{black}</strong>
@@ -602,11 +588,30 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 })}
                             </p>
 
+                            <div class="match-workspace">
+                            <Board
+                                pgn=Signal::derive(String::new)
+                                load_fen=Signal::derive(move || Some((0, fen.clone(), "standard".into())))
+                                orientation=Signal::derive(move || orientation.clone())
+                                board_only=true
+                                read_only=finished || !human_turn || replay.is_some()
+                                interaction_disabled=busy.into()
+                                lang=language.into()
+                                on_move=Callback::new(move |(uci, _, _): (String, String, String)| {
+                                    act("move", serde_json::json!({"mv": uci}));
+                                })
+                            />
+
+                            <aside class="match-inspector">
                             <div class="match-status" role="status">
                                 {move || if let Some(result) = &result_for_line {
                                     result.clone()
                                 } else if watching {
                                     format!("{state} · {turn} to move")
+                                } else if local_game {
+                                    i18n::tf(&language.get(), "play.side_turn", &[(
+                                        "side", i18n::t(&language.get(), if turn == "black" { "common.black" } else { "common.white" }).to_owned()
+                                    )])
                                 } else if human_turn {
                                     i18n::t(&language.get(), "play.your_turn").to_owned()
                                 } else if busy.get() {
@@ -625,31 +630,36 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             })}
                             <p class="match-error" role="alert">{move || message.get()}</p>
 
-                            <Board
-                                pgn=Signal::derive(String::new)
-                                load_fen=Signal::derive(move || Some((0, fen.clone(), "standard".into())))
-                                orientation=Signal::derive(move || orientation.clone())
-                                board_only=true
-                                read_only=finished || !human_turn
-                                interaction_disabled=busy.into()
-                                lang=language.into()
-                                on_move=Callback::new(move |(uci, _, _): (String, String, String)| {
-                                    act("move", serde_json::json!({"mv": uci}));
-                                })
-                            />
-
+                            {replay.map(|ply| view! {
+                                <p role="status">{move || i18n::tf(&language.get(), "play.reviewing_ply", &[("ply", ply.to_string())])}</p>
+                                <button on:click=move |_| replay_ply.set(None)>
+                                    {move || i18n::t(&language.get(), "play.return_live")}
+                                </button>
+                            })}
                             <ol class="match-moves">
                                 {moves.iter().enumerate().map(|(index, mv)| {
                                     let san = mv.get("san").and_then(|san| san.as_str()).unwrap_or("").to_string();
                                     let color = mv.get("color").and_then(|c| c.as_str()).unwrap_or("").to_string();
                                     let number = index / 2 + 1;
                                     let prefix = if color == "white" { format!("{number}.") } else { String::new() };
-                                    view! { <li class=format!("ply {color}")>{format!("{prefix} {san}")}</li> }
+                                    let ply = index + 1;
+                                    view! {
+                                        <li class=format!("ply {color}")>
+                                            <button data-match-ply=ply
+                                                aria-pressed=if replay.unwrap_or(moves.len()) == ply { "true" } else { "false" }
+                                                on:click=move |_| replay_ply.set(Some(ply))>
+                                                {format!("{prefix} {san}")}
+                                            </button>
+                                        </li>
+                                    }
                                 }).collect_view()}
                             </ol>
 
                             <div class="match-actions">
-                                {watching.then(|| view! {
+                                {tournament_game.then(|| view! {
+                                    <p>{move || i18n::t(&language.get(), "play.tournament_step_hint")}</p>
+                                })}
+                                {(watching && !tournament_game).then(|| view! {
                                 <button
                                     class="match-step"
                                     disabled=move || busy.get() || finished
@@ -683,7 +693,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                         {move || i18n::t(&language.get(), "play.model_move")}
                                     </button>
                                 })}
-                                {human_color.filter(|_| !finished).map(|color| view! {
+                                {resign_color.filter(|_| !finished).map(|color| view! {
                                     <button class="match-resign" disabled=move || busy.get()
                                         on:click=move |_| act("resign", serde_json::json!({"color": color}))>
                                         {move || i18n::t(&language.get(), "play.resign")}
@@ -691,6 +701,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 })}
                                 <button
                                     class="match-takeback"
+                                    disabled=tournament_game
                                     on:click=move |_| act("takeback", serde_json::json!({}))
                                 >
                                     {move || i18n::t(&language.get(), "play.takeback")}
@@ -704,6 +715,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 </button>
                                 <button
                                     class="match-reset"
+                                    disabled=tournament_game
                                     on:click=move |_| act("watch/reset", serde_json::json!({}))
                                 >
                                     {move || i18n::t(&language.get(), "play.reset")}
@@ -725,7 +737,12 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 >
                                     {move || i18n::t(&language.get(), "play.export")}
                                 </button>
-                                <pre class="match-pgn">{pgn}</pre>
+                                <details>
+                                    <summary>"PGN"</summary>
+                                    <pre class="match-pgn">{pgn}</pre>
+                                </details>
+                            </div>
+                            </aside>
                             </div>
                         }.into_any()
                     }}
@@ -755,6 +772,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         list.into_iter().map(|row| {
                             let id = row.get("id").and_then(|id| id.as_str()).unwrap_or("").to_string();
                             let id_click = id.clone();
+                            let data_id = id.clone();
                             let white = row
                                 .get("white_json")
                                 .and_then(|json| json.as_str())
@@ -771,6 +789,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             view! {
                                 <li>
                                     <button
+                                        data-match-id=data_id
                                         class=move || if selected.get().as_deref() == Some(id.as_str()) {
                                             "match-card active"
                                         } else {
@@ -797,6 +816,123 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                     }}
                 </ul>
 
+                </details>
+            </div>
+        </section>
+    }
+}
+
+pub fn tournaments(ctx: AppCtx) -> impl IntoView {
+    let language = ctx.language;
+    let message = ctx.status;
+    let board_rows = RwSignal::new(Vec::<ai_api::LeaderboardRow>::new());
+    let board_metrics = RwSignal::new(Vec::<ai_api::ModelMetrics>::new());
+    let board_filter = RwSignal::new(String::new());
+    let tournaments = RwSignal::new(Vec::<serde_json::Value>::new());
+    let tournament_id = RwSignal::new(None::<String>);
+    let tournament_detail = RwSignal::new(None::<serde_json::Value>);
+    let tour_name = RwSignal::new(String::new());
+    let tour_format = RwSignal::new("double-round-robin".to_string());
+    let tour_competitors = RwSignal::new(String::new());
+    let tour_log = RwSignal::new(Vec::<String>::new());
+    let tour_busy = RwSignal::new(false);
+
+    let reload_board = move || {
+        spawn_local(async move {
+            if let Ok(rows) = ai_api::leaderboard().await {
+                board_rows.set(rows);
+            }
+            if let Ok(rows) = ai_api::metrics().await {
+                board_metrics.set(rows);
+            }
+        });
+    };
+    let reload_tournaments = move || {
+        spawn_local(async move {
+            if let Ok(list) = ai_api::list_tournaments().await {
+                tournaments.set(list);
+            }
+        });
+    };
+
+    let load_tournament = move |id: String| {
+        spawn_local(async move {
+            let detail = ai_api::tournament_detail(&id).await;
+            if tournament_id.get_untracked().as_deref() == Some(&id) {
+                match detail {
+                    Ok(detail) => tournament_detail.set(Some(detail)),
+                    Err(error) => message.set(error),
+                }
+            }
+        });
+    };
+    let act = move |action: &'static str| {
+        if tour_busy.get_untracked() {
+            return;
+        }
+        let Some(id) = tournament_id.get_untracked() else {
+            return;
+        };
+        tour_busy.set(true);
+        spawn_local(async move {
+            let response = ai_api::tournament_action(&id, action).await;
+            if tournament_id.get_untracked().as_deref() == Some(&id) {
+                match response {
+                    Ok(value) => {
+                        let status = value["status"].as_str().unwrap_or_default();
+                        let line = if action == "step" {
+                            let started = value["started"].as_array().map_or(0, Vec::len);
+                            let advanced = value["advanced"].as_u64().unwrap_or_default();
+                            let completed = value["completed"].as_u64().unwrap_or_default();
+                            format!(
+                                "step: started {started} game(s), advanced {advanced}, completed {completed}"
+                            )
+                        } else {
+                            format!("{action}: {status}")
+                        };
+                        let errors: Vec<_> = value["errors"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(serde_json::Value::as_str)
+                            .collect();
+                        message.set(if errors.is_empty() {
+                            line.clone()
+                        } else {
+                            errors.join(" · ")
+                        });
+                        tour_log.update(|lines| {
+                            lines.push(line);
+                            lines.extend(errors.into_iter().map(str::to_owned));
+                        });
+                        load_tournament(id);
+                    }
+                    Err(error) => message.set(error),
+                }
+            }
+            reload_tournaments();
+            tour_busy.set(false);
+        });
+    };
+
+    Effect::new(move |_| reload_board());
+    Effect::new(move |_| reload_tournaments());
+    Effect::new(move |_| {
+        if let Some(id) = tournament_id.get() {
+            tournament_detail.set(None);
+            load_tournament(id);
+        }
+    });
+
+    view! {
+        <section class="panel competition-view">
+            <div class="panel-head">
+                <h2>{move || i18n::t(&language.get(), "play.tournaments")}</h2>
+                <button on:click=move |_| {
+                    reload_board();
+                    reload_tournaments();
+                }>{move || i18n::t(&language.get(), "approvals.refresh")}</button>
+            </div>
                 <div class="match-panel">
                     <section class="leaderboard">
                         <h3>{move || i18n::t(&language.get(), "play.leaderboard")}</h3>
@@ -913,37 +1049,14 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             >
                                 {move || i18n::t(&language.get(), "play.new_tournament")}
                             </button>
-                            <button class="tournament-step" on:click=move |_| {
-                                if let Some(id) = tournament_id.get_untracked() {
-                                    spawn_local(async move {
-                                        if let Ok(value) = ai_api::tournament_action(&id, "step").await {
-                                            let started = value.get("started").and_then(|s| s.as_array()).map(|a| a.len()).unwrap_or(0);
-                                            message.set(format!("started {started} game(s)"));
-                                            tour_log.update(|lines| lines.push(format!("step: started {started} game(s)")));
-                                            if let Ok(detail) = ai_api::tournament_detail(&id).await {
-                                                tournament_detail.set(Some(detail));
-                                            }
-                                        }
-                                        reload_tournaments();
-                                    });
-                                }
-                            }>
+                            <button class="tournament-step"
+                                disabled=move || tour_busy.get() || tournament_id.get().is_none()
+                                on:click=move |_| act("step")>
                                 {move || i18n::t(&language.get(), "play.step")}
                             </button>
-                            <button class="tournament-pause" on:click=move |_| {
-                                if let Some(id) = tournament_id.get_untracked() {
-                                    spawn_local(async move {
-                                        if let Ok(value) = ai_api::tournament_action(&id, "pause").await {
-                                            let status = value.get("status").and_then(|s| s.as_str()).unwrap_or("").to_string();
-                                            message.set(format!("tournament {status}"));
-                                            tour_log.update(|lines| lines.push(format!("pause: {status}")));
-                                            if let Ok(detail) = ai_api::tournament_detail(&id).await {
-                                                tournament_detail.set(Some(detail));
-                                            }
-                                        }
-                                    });
-                                }
-                            }>
+                            <button class="tournament-pause"
+                                disabled=move || tour_busy.get() || tournament_id.get().is_none()
+                                on:click=move |_| act("pause")>
                                 {move || i18n::t(&language.get(), "play.pause")}
                             </button>
                             <button class="tournament-export" on:click=move |_| {
@@ -958,20 +1071,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             }>
                                 {move || i18n::t(&language.get(), "play.export")}
                             </button>
-                            <button class="tournament-resume" on:click=move |_| {
-                                if let Some(id) = tournament_id.get_untracked() {
-                                    spawn_local(async move {
-                                        if let Ok(value) = ai_api::tournament_action(&id, "resume").await {
-                                            let status = value.get("status").and_then(|s| s.as_str()).unwrap_or("").to_string();
-                                            message.set(format!("tournament {status}"));
-                                            tour_log.update(|lines| lines.push(format!("resume: {status}")));
-                                            if let Ok(detail) = ai_api::tournament_detail(&id).await {
-                                                tournament_detail.set(Some(detail));
-                                            }
-                                        }
-                                    });
-                                }
-                            }>
+                            <button class="tournament-resume"
+                                disabled=move || tour_busy.get() || tournament_id.get().is_none()
+                                on:click=move |_| act("resume")>
                                 {move || i18n::t(&language.get(), "play.resume")}
                             </button>
                         </div>
@@ -1075,8 +1177,6 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         })}
                     </section>
                 </div>
-                </details>
-            </div>
         </section>
     }
 }

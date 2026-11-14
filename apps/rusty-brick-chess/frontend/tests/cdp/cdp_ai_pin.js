@@ -1,11 +1,12 @@
+const { openView } = require("./navigation");
 // Pin an assistant conversation into a tab of its own.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9533;
+const PORT = Number(process.env.RBC_CDP_PORT || 9533);
 function get(p){return new Promise((res,rej)=>{http.get({host:"127.0.0.1",port:PORT,path:p},r=>{let d="";r.on("data",c=>d+=c);r.on("end",()=>res(JSON.parse(d)));}).on("error",rej);});}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
-  const chrome=spawn("google-chrome",["--headless=new","--disable-gpu","--no-sandbox",`--remote-debugging-port=${PORT}`,`--user-data-dir=/tmp/chrome-pin-${Date.now()}`,"--remote-allow-origins=*","--window-size=1500,1000","http://127.0.0.1:8090/"],{stdio:["ignore","ignore","ignore"]});
+  const chrome=spawn("google-chrome",["--headless=new","--disable-gpu","--no-sandbox",`--remote-debugging-port=${PORT}`,`--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-pin-${Date.now()}`,"--remote-allow-origins=*","--window-size=1500,1000",(process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")],{stdio:["ignore","ignore","ignore"]});
   let t;for(let i=0;i<40;i++){await sleep(300);try{t=await get("/json/list");break;}catch{}}
   const ws=new WebSocket(t.find(x=>x.type==="page").webSocketDebuggerUrl);
   let id=0;const pend=new Map();const send=(m,pr={})=>new Promise(r=>{const i=++id;pend.set(i,r);ws.send(JSON.stringify({id:i,method:m,params:pr}));});
@@ -14,7 +15,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
   const ev=async(x)=>{const r=await send("Runtime.evaluate",{expression:x,returnByValue:true,awaitPromise:true});return r.result?.value;};
   const clickText=async(sel,txt)=>await ev(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(sel)})].find(x=>x.textContent.trim()===${JSON.stringify(txt)});e&&e.click();return !!e;})()`);
 
-  await clickText(".nav","Assistant"); await sleep(900);
+  await openView(ev, "workbench", "assistant"); await sleep(900);
   await clickText("button","New chat"); await sleep(1400);
   const tabsBefore=await ev(`document.querySelectorAll(".ws-tab").length`);
   const pinned=await ev(`(()=>{const b=document.querySelector('button[aria-label="Open in its own tab"]');if(!b)return false;b.click();return true;})()`);

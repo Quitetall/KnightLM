@@ -6,6 +6,10 @@ use wasm_bindgen::JsCast;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Home,
+    Train,
+    Workbench,
+    Engines,
+    Tournaments,
     Database,
     Analysis,
     Assistant,
@@ -17,6 +21,53 @@ pub enum Tab {
     Puzzles,
     Stats,
     Settings,
+}
+
+impl Tab {
+    pub fn destination(self) -> Self {
+        match self {
+            Self::Openings | Self::Puzzles | Self::Practice | Self::Study => Self::Train,
+            Self::Database
+            | Self::Analysis
+            | Self::Assistant
+            | Self::Compare
+            | Self::Stats
+            | Self::Engines
+            | Self::Tournaments => Self::Workbench,
+            destination => destination,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Home => "nav.home",
+            Self::Train => "nav.train",
+            Self::Workbench => "nav.workbench",
+            Self::Engines => "settings.engines",
+            Self::Tournaments => "play.tournaments",
+            Self::Database => "nav.library",
+            Self::Analysis => "nav.analysis",
+            Self::Assistant => "nav.assistant",
+            Self::Play => "nav.play",
+            Self::Study => "nav.study",
+            Self::Compare => "nav.compare",
+            Self::Practice => "nav.practice",
+            Self::Openings => "nav.openings",
+            Self::Puzzles => "nav.puzzles",
+            Self::Stats => "nav.stats",
+            Self::Settings => "nav.settings",
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct AnalysisPosition {
+    pub workspace: u32,
+    pub board: Option<String>,
+    pub fen: String,
+    pub variant: String,
+    pub ply: usize,
+    pub node: String,
 }
 
 pub fn default_workspace_kind() -> String {
@@ -203,6 +254,10 @@ pub fn client_id() -> String {
 pub fn tab_name(tab: Tab) -> &'static str {
     match tab {
         Tab::Home => "home",
+        Tab::Train => "train",
+        Tab::Workbench => "workbench",
+        Tab::Engines => "engines",
+        Tab::Tournaments => "tournaments",
         Tab::Database => "database",
         Tab::Analysis => "analysis",
         Tab::Assistant => "assistant",
@@ -220,9 +275,16 @@ pub fn tab_name(tab: Tab) -> &'static str {
 pub fn tab_from_name(name: &str) -> Option<Tab> {
     Some(match name {
         "home" => Tab::Home,
+        "train" => Tab::Train,
+        "workbench" => Tab::Workbench,
+        "engines" => Tab::Engines,
+        "tournaments" => Tab::Tournaments,
         "database" => Tab::Database,
         "analysis" => Tab::Analysis,
         "assistant" => Tab::Assistant,
+        "play" => Tab::Play,
+        "study" => Tab::Study,
+        "compare" => Tab::Compare,
         "practice" => Tab::Practice,
         "openings" => Tab::Openings,
         "puzzles" => Tab::Puzzles,

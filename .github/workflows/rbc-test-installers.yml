@@ -1,0 +1,100 @@
+name: RBC test installers
+
+on:
+  push:
+    branches: [agent/rbc-ui-redesign]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-22.04
+            bundle: deb
+            extension: deb
+          - platform: macos-arm64
+            runner: macos-15
+            bundle: dmg
+            extension: dmg
+          - platform: windows-x64
+            runner: windows-2022
+            bundle: nsis
+            extension: exe
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Linux bundling dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: taiki-e/install-action@cargo-binstall
+
+      - name: Install frontend tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cargo binstall -y cargo-leptos
+          version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/"/, "", $3); print $3; exit }' \
+            apps/rusty-brick-chess/frontend/Cargo.lock)
+          test -n "$version"
+          cargo binstall -y "wasm-bindgen-cli@$version" \
+            || cargo install wasm-bindgen-cli --version "$version" --locked
+
+      - name: Build frontend
+        working-directory: apps/rusty-brick-chess/frontend
+        run: ./deploy.sh
+
+      - name: Build test installer
+        working-directory: apps/rusty-brick-chess/src-tauri
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/rbc-desktop-target
+          RBC_BUNDLE: ${{ matrix.bundle }}
+        run: npx --yes @tauri-apps/cli@2.12.4 build --bundles "$RBC_BUNDLE" -- --locked
+
+      - name: Verify installer exists
+        env:
+          RBC_BUNDLE: ${{ matrix.bundle }}
+          RBC_EXTENSION: ${{ matrix.extension }}
+        run: compgen -G "rbc-desktop-target/release/bundle/$RBC_BUNDLE/*.$RBC_EXTENSION"
+
+      - name: Record candidate asset hashes
+        working-directory: apps/rusty-brick-chess/frontend/public
+        run: |
+          {
+            echo "commit $GITHUB_SHA"
+            sha256sum index.html pkg/rbc-frontend.js pkg/rbc-frontend_bg.wasm
+          } > "$GITHUB_WORKSPACE/rbc-build-receipt.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rbc-test-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            rbc-desktop-target/release/bundle/${{ matrix.bundle }}/*.${{ matrix.extension }}
+            rbc-build-receipt.txt
+          if-no-files-found: error
+          retention-days: 14

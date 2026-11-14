@@ -201,21 +201,10 @@ impl Tournament {
 
     /// Whether another round can be played.
     pub fn is_finished(&self) -> bool {
-        match self.format {
-            Format::Swiss { rounds } => {
-                self.rounds.len() as u32 >= rounds
-                    || self.entrants.len() < 2
-                    || self.rounds.last().is_some_and(|round| {
-                        // Everyone has an unfinished game: the round is pending.
-                        round.games.iter().any(|game| game.outcome.is_none())
-                    })
-            }
-            Format::Knockout => self.rounds.last().is_some_and(|round| {
-                round.games.iter().all(|game| game.outcome.is_some())
-                    && survivors(&round.games) <= 1
-            }),
-            Format::DoubleRoundRobin => self.rounds.len() as u32 >= self.planned_rounds(),
+        if self.entrants.len() < 2 {
+            return true;
         }
+        self.rounds.last().is_some_and(round_is_complete) && self.next_round().is_none()
     }
 
     /// Schedule the next round, or `None` when the format is done.
@@ -259,7 +248,7 @@ impl Tournament {
                     if round.games.iter().any(|game| game.outcome.is_none()) {
                         return None;
                     }
-                    let advanced = knockout_advance(round, &self.entrants);
+                    let advanced = self.knockout_field();
                     if advanced.len() <= 1 {
                         return None;
                     }
@@ -303,6 +292,57 @@ impl Tournament {
         Some(round)
     }
 
+    /// Carry winners and byes across the bracket, including through a
+    /// separate replay round that contains only the drawn pairings.
+    fn knockout_field(&self) -> Vec<Entrant> {
+        let mut field = self.entrants.clone();
+        for (index, round) in self.rounds.iter().enumerate() {
+            let replay = self.is_knockout_replay(index);
+            for game in &round.games {
+                let loser = match game.outcome {
+                    Some(Outcome::White) => &game.black,
+                    Some(Outcome::Black) => &game.white,
+                    Some(Outcome::Draw) if replay => {
+                        // Field order is seed order. A second draw advances
+                        // the better seed while keeping the real game a draw.
+                        if field
+                            .iter()
+                            .find(|e| e.id == game.white || e.id == game.black)
+                            .is_some_and(|entrant| entrant.id == game.white)
+                        {
+                            &game.black
+                        } else {
+                            &game.white
+                        }
+                    }
+                    _ => continue,
+                };
+                field.retain(|entrant| entrant.id != *loser);
+            }
+        }
+        field
+    }
+
+    fn is_knockout_replay(&self, index: usize) -> bool {
+        let Some(previous) = index.checked_sub(1).and_then(|i| self.rounds.get(i)) else {
+            return false;
+        };
+        let round = &self.rounds[index];
+        let draws = previous
+            .games
+            .iter()
+            .filter(|game| game.outcome == Some(Outcome::Draw));
+        !round.games.is_empty()
+            && draws.count() == round.games.len()
+            && round.games.iter().all(|game| {
+                previous.games.iter().any(|prior| {
+                    prior.outcome == Some(Outcome::Draw)
+                        && prior.white == game.black
+                        && prior.black == game.white
+                })
+            })
+    }
+
     /// Queue the colour-swapped rematch for every game that was drawn.
     ///
     /// Called when a round closes; a tie that is drawn again advances by seed,
@@ -311,6 +351,9 @@ impl Tournament {
         let Some(round) = self.rounds.last() else {
             return;
         };
+        if self.is_knockout_replay(self.rounds.len() - 1) {
+            return;
+        }
         self.rematches = round
             .games
             .iter()
@@ -506,19 +549,6 @@ fn assign_colours(first: &str, second: &str, played: &[Round]) -> (String, Strin
 }
 
 /// Everyone who is through after a knockout round.
-fn survivors(games: &[Game]) -> usize {
-    games
-        .iter()
-        .filter_map(|game| game.outcome)
-        .map(|outcome| match outcome {
-            // A draw sends the better seed through, so one survivor either way.
-            Outcome::White => 1,
-            Outcome::Black => 1,
-            Outcome::Draw => 1,
-        })
-        .sum()
-}
-
 /// Winners advance; a draw is replayed with colours swapped, and only then does
 /// the seed decide.
 pub fn knockout_advance(round: &Round, entrants: &[Entrant]) -> Vec<Entrant> {
@@ -818,19 +848,15 @@ impl Running {
             .unwrap_or_default();
 
         let ready = if open.is_empty() {
-            match self.schedule.next_round() {
-                Some(round) => {
-                    let pairings: Vec<Pairing> = round
-                        .games
-                        .iter()
-                        .map(|game| Pairing {
-                            white: game.white.clone(),
-                            black: game.black.clone(),
-                        })
-                        .collect();
-                    self.schedule.rounds.push(round);
-                    pairings
-                }
+            match self.schedule.start_round() {
+                Some(round) => round
+                    .games
+                    .into_iter()
+                    .map(|game| Pairing {
+                        white: game.white,
+                        black: game.black,
+                    })
+                    .collect(),
                 None => return Vec::new(),
             }
         } else {
@@ -858,7 +884,9 @@ impl Running {
             // The cap pauses rather than kills: running games still finish.
             self.status = Status::Paused;
         }
-        if self.schedule.format == Format::Knockout {
+        if self.schedule.format == Format::Knockout
+            && self.schedule.rounds.last().is_some_and(round_is_complete)
+        {
             self.schedule.queue_rematches();
         }
         if self.schedule.is_finished() {

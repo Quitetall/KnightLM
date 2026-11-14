@@ -162,6 +162,43 @@ fn annotation_replaces_same_ply() {
 }
 
 #[test]
+fn export_includes_saved_annotations_on_their_own_nodes() {
+    let db = Db::open_memory().unwrap();
+    let pgn =
+        "[White \"A\"]\n[Black \"B\"]\n[Result \"*\"]\n\n1. e4 $1 {[%clk 0:04:58]} (1. d4 d5) e5 *";
+    let id = db.import_pgn(pgn, None).unwrap()[0];
+    let original = db.get(id).unwrap().unwrap().movetext;
+    for input in [
+        serde_json::json!({
+            "game_id": id, "ply": 0, "path": "0", "comment": "Main {line}", "nag": 1,
+            "shapes": r#"[{"kind":"arrow","from":"e2","to":"e4","color":"red"},{"kind":"circle","square":"e4","color":"blue"}]"#,
+        }),
+        serde_json::json!({"game_id": id, "ply": 0, "path": "0~0.0", "comment": "Branch", "nag": 5}),
+        serde_json::json!({"game_id": id, "ply": 1, "comment": "Legacy main line", "nag": 2}),
+        serde_json::json!({"game_id": id, "ply": 0, "path": "9~9.0", "comment": "Stale"}),
+    ] {
+        db.add_annotation(&serde_json::from_value(input).unwrap())
+            .unwrap();
+    }
+
+    let exported = db.export_pgn(id).unwrap().unwrap();
+    let tree = knightlm_notation::pgn::parse(&exported).unwrap().movetext;
+    assert_eq!(tree[0].nags, vec![1]);
+    assert_eq!(
+        tree[0].post_comment.as_deref(),
+        Some("[%clk 0:04:58] Main (line) [%cal Re2e4] [%csl Be4]")
+    );
+    assert_eq!(
+        tree[0].variations[0][0].post_comment.as_deref(),
+        Some("Branch")
+    );
+    assert_eq!(tree[0].variations[0][0].nags, vec![5]);
+    assert_eq!(tree[1].post_comment.as_deref(), Some("Legacy main line"));
+    assert!(!exported.contains("Stale"));
+    assert_eq!(db.get(id).unwrap().unwrap().movetext, original);
+}
+
+#[test]
 fn movetext_variations_round_trip_through_export() {
     let db = Db::open_memory().unwrap();
     let pgn = "[Event \"Var\"]\n[White \"A\"]\n[Black \"B\"]\n[Result \"*\"]\n\n1. e4! {best} (1. d4 d5 2. c4) 1... e5 2. Nf3 *\n";
@@ -521,6 +558,53 @@ fn studies_copy_chapters_versions_and_progress() {
     assert_eq!(published.lifecycle, "published");
     assert_eq!(published.current_version, 2);
     assert_eq!(db.study_versions(&study.id).unwrap().len(), 1);
+
+    let original_board_count = db.boards("study_chapter", &chapter.id).unwrap().len();
+    assert!(
+        db.add_chapter(&study.id, "New chapter", &primary.start_fen, "")
+            .is_err()
+    );
+    assert!(
+        db.add_board_to_chapter(
+            &study.id,
+            &chapter.id,
+            "New board",
+            &primary.start_fen,
+            "{}"
+        )
+        .is_err()
+    );
+    assert!(
+        db.update_study(&study.id, Some("Rewritten"), None, None, None)
+            .is_err()
+    );
+    assert!(
+        db.update_chapter(&study.id, &chapter.id, None, Some("changed"))
+            .is_err()
+    );
+    assert!(
+        db.write_study_text(&study.id, Some(&chapter.id), "changed")
+            .is_err()
+    );
+    assert!(db.delete_chapter(&study.id, &chapter.id).is_err());
+    assert!(db.duplicate_chapter(&study.id, &chapter.id).is_err());
+    assert!(
+        db.reorder_chapters(&study.id, std::slice::from_ref(&chapter.id))
+            .is_err()
+    );
+    assert!(
+        db.set_chapter_primary_board(&study.id, &chapter.id, &primary.id)
+            .is_err()
+    );
+    assert_eq!(db.chapters(&study.id).unwrap().len(), 1);
+    assert_eq!(
+        db.boards("study_chapter", &chapter.id).unwrap().len(),
+        original_board_count
+    );
+    assert_eq!(
+        db.study_versions(&study.id).unwrap()[0].bundle_json,
+        version.bundle_json
+    );
 
     let copy = db.copy_study(&study.id).unwrap();
     assert_ne!(copy.id, study.id);

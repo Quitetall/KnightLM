@@ -337,6 +337,7 @@ pub fn Board(
     #[prop(into)] pgn: Signal<String>,
     #[prop(optional)] title: Option<Signal<String>>,
     #[prop(optional)] on_position: Option<Callback<String>>,
+    #[prop(optional)] on_variant: Option<Callback<String>>,
     #[prop(optional)] on_ply: Option<Callback<usize>>,
     #[prop(optional)] goto: Option<Signal<Option<(u32, usize)>>>,
     #[prop(optional)] play: Option<Signal<Option<(u32, String)>>>,
@@ -414,6 +415,17 @@ pub fn Board(
         });
     }
 
+    if let Some(cb) = on_variant {
+        Effect::new(move |_| {
+            let variant = widget.with(|w| w.variant().to_owned());
+            cb.run(if variant == "chess" {
+                "standard".into()
+            } else {
+                variant
+            });
+        });
+    }
+
     // Report the current ply (history index) upward for the analysis tree.
     if let Some(cb) = on_ply {
         Effect::new(move |_| {
@@ -478,6 +490,33 @@ pub fn Board(
     let moves_ref = NodeRef::<leptos::html::Div>::new();
     let board_ref = NodeRef::<Div>::new();
     let ghost_ref = NodeRef::<Div>::new();
+    let promotion_ref = NodeRef::<Div>::new();
+    let focus_square = move |idx: usize| {
+        Timeout::new(0, move || {
+            if let Some(board) = board_ref.try_get_untracked().flatten()
+                && let Ok(Some(square)) =
+                    board.query_selector(&format!("[data-square='{}']", index_to_name(idx)))
+                && let Ok(square) = square.dyn_into::<web_sys::HtmlElement>()
+            {
+                let _ = square.focus();
+            }
+        })
+        .forget();
+    };
+    Effect::new(move |_| {
+        if promo.get().is_some() {
+            Timeout::new(0, move || {
+                if let Some(dialog) = promotion_ref.try_get_untracked().flatten()
+                    && let Ok(Some(button)) = dialog.query_selector("button")
+                    && let Ok(button) = button.dyn_into::<web_sys::HtmlElement>()
+                {
+                    let _ = button.focus();
+                }
+            })
+            .forget();
+        }
+    });
+
     let anim_ms = move || animation_ms.map(|s| s.get()).unwrap_or(0).min(1000);
 
     // Keep the current move visible as the game advances.
@@ -1119,6 +1158,22 @@ pub fn Board(
                         data-square=index_to_name(idx)
                         aria-label=label
                         aria-pressed=if selected { "true" } else { "false" }
+                        on:click=move |event| {
+                            if event.detail() != 0 || input_disabled() {
+                                return;
+                            }
+                            let from = widget.with_untracked(|w| w.selection().and_then(name_to_index));
+                            if let Some(from) = from
+                                && !widget.with_untracked(|w| candidates(w, from, idx)).is_empty()
+                            {
+                                attempt(from, idx);
+                            } else {
+                                select_square(idx);
+                            }
+                            if promo.get_untracked().is_none() {
+                                focus_square(idx);
+                            }
+                        }
                         inner_html=inner
                     ></button>
                 }
@@ -1135,7 +1190,32 @@ pub fn Board(
             let opts = [(Kind::Queen, 'q'), (Kind::Rook, 'r'), (Kind::Bishop, 'b'), (Kind::Knight, 'n')];
             view! {
                 <div class="promo-overlay">
-                    <div class="promo-card">
+                    <div class="promo-card" role="dialog" aria-modal="true"
+                        aria-label=move || crate::i18n::t(&lang(), "board.promote")
+                        node_ref=promotion_ref
+                        on:keydown=move |event| {
+                            if event.key() == "Escape" {
+                                event.prevent_default();
+                                promo.set(None);
+                                focus_square(from);
+                            } else if event.key() == "Tab" {
+                                let (boundary, destination) = if event.shift_key() {
+                                    (".promo-btn:first-child", ".promo-btn:last-child")
+                                } else {
+                                    (".promo-btn:last-child", ".promo-btn:first-child")
+                                };
+                                if let Some(dialog) = promotion_ref.try_get_untracked().flatten()
+                                    && let Some(target) = event.target().and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+                                    && let Ok(Some(edge)) = dialog.query_selector(boundary)
+                                    && target == edge
+                                    && let Ok(Some(next)) = dialog.query_selector(destination)
+                                    && let Ok(next) = next.dyn_into::<web_sys::HtmlElement>()
+                                {
+                                    event.prevent_default();
+                                    let _ = next.focus();
+                                }
+                            }
+                        }>
                         <div class="promo-title">
                             {move || crate::i18n::t(&lang(), "board.promote")}
                         </div>
@@ -1149,6 +1229,7 @@ pub fn Board(
                                     view! {
                                         <button
                                             class="promo-btn"
+                                            aria-label=piece_name(kind, color)
                                             inner_html=html
                                             on:click=move |_| {
                                                 let uci = format!("{from_name}{to_name}{letter}");
@@ -1165,6 +1246,7 @@ pub fn Board(
                                                     }
                                                 }
                                                 promo.set(None);
+                                                focus_square(to);
                                             }
                                         ></button>
                                     }
@@ -1536,7 +1618,7 @@ pub fn Board(
                     <code>{move || widget.with(|w| w.fen())}</code>
                     <button class="link" on:click=copy_fen>"Copy"</button>
                 </div>
-                <div class="status">{move || status.get()}</div>
+                <div class="status" role="status" aria-live="polite">{move || status.get()}</div>
             </aside>
             })}
         </div>
@@ -1549,24 +1631,7 @@ pub fn Board(
 /// header is the shortest honest description of one: the board component parses
 /// it the same way it parses a game from the database.
 pub fn pgn_for(board: &crate::api::BoardInfo, moves: &[String]) -> String {
-    const STANDARD: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    let mut pgn = String::new();
-    if board.start_fen.trim() != STANDARD {
-        pgn.push_str(&format!(
-            "[SetUp \"1\"]\n[FEN \"{}\"]\n\n",
-            board.start_fen.trim()
-        ));
-    }
-    let mut line = String::new();
-    for (index, mv) in moves.iter().enumerate() {
-        if index % 2 == 0 {
-            line.push_str(&format!("{}. ", index / 2 + 1));
-        }
-        line.push_str(mv);
-        line.push(' ');
-    }
-    pgn.push_str(line.trim_end());
-    pgn
+    crate::model::line_pgn(board.start_fen.trim(), moves, &board.variant)
 }
 
 /// Shapes for the arrows and circles a board's content carries.

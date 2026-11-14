@@ -1,3 +1,4 @@
+const { openView } = require("./navigation");
 // A queued write appears in an already-open panel and applies only on approval.
 // Run against an app with MODEL_URL=http://127.0.0.1:8100/v1/chat.
 const { spawn } = require("node:child_process");
@@ -7,7 +8,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 
-const BASE = "http://127.0.0.1:8090";
+const BASE = (process.env.RBC_CDP_URL || "http://127.0.0.1:8090").replace(/\/$/, "");
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -45,7 +46,7 @@ async function main() {
   const profile = mkdtempSync(path.join(os.tmpdir(), "rbc-cdp-approvals-"));
   let chrome, ws;
   try {
-    provider.listen(8100, "127.0.0.1");
+    provider.listen(Number(process.env.RBC_CDP_PROVIDER_PORT || 8100), "127.0.0.1");
     await once(provider, "listening");
     chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", "--no-first-run",
       "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--remote-allow-origins=*",
@@ -92,27 +93,53 @@ async function main() {
       button?.click();
       return !!button;
     })()`);
-    if (!await waitFor(() => click(".nav", "Assistant"))) throw new Error("Assistant did not load");
+    if (!await waitFor(() => openView(evaluate, "workbench", "assistant"))) throw new Error("Assistant did not load");
     if (!await waitFor(() => click("button", "New chat"))) throw new Error("New chat button did not load");
-    if (!await waitFor(() => evaluate(`!!document.querySelector(".chat-input textarea")`))) {
+    const sessionId = await waitFor(() => evaluate(`document.querySelector(".chat-input textarea") && localStorage.getItem("rbc.ai.session")`));
+    if (!sessionId) {
       throw new Error("New chat did not open");
     }
 
-    boardId = await evaluate(`(async () => {
-      async function create(route, body) {
-        const response = await fetch(route, { method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify(body) });
-        if (!response.ok) throw new Error(route + " failed");
-        return response.json();
-      }
-      const workspace = await create("/api/workspaces", { title: "Approvals", kind: "analysis" });
-      const board = await create("/api/boards", { parent_kind: "workspace", parent_id: workspace.id,
-        title: "Approval board", kind: "analysis", start_fen: ${JSON.stringify(START)} });
-      return board.id;
+    await evaluate(`(() => {
+      const picker = document.querySelector(".ws-new");
+      picker.value = "analysis";
+      picker.dispatchEvent(new Event("change",{bubbles:true}));
     })()`);
+    if (!await waitFor(() => evaluate(`document.querySelector("main")?.dataset.view === "analysis"`))) throw new Error("analysis workspace did not open");
+    const workspace = await waitFor(() => evaluate(`fetch("/api/workspaces").then(response=>response.json()).then(rows=>rows[0]?.id)`));
+    if (!workspace) throw new Error("analysis workspace was not saved");
+    const boards = () => evaluate(`fetch("/api/workspaces/${workspace}/boards").then(response=>response.json())`);
+    for (let count = 1; count <= 2; count++) {
+      if (!await click(".boards button", "New board")) throw new Error("New board control missing");
+      if (!await waitFor(async () => (await boards()).length === count && await evaluate(`document.querySelectorAll(".board-chip").length === ${count}`))) {
+        throw new Error("board creation did not refresh");
+      }
+    }
+    const [boardA, boardB] = await boards();
+    boardId = boardB.id;
+    await evaluate(`document.querySelectorAll(".board-chip")[1].click()`);
+    if (!await waitFor(() => evaluate('document.querySelectorAll(".board-chip")[1]?.classList.contains("active") && !document.querySelector(".board-set-target")?.disabled'))) {
+      console.log(await evaluate(`JSON.stringify({
+        chips: [...document.querySelectorAll(".board-chip")].map(chip => [chip.className, chip.textContent]),
+        busy: document.querySelector(".boards .board-action")?.disabled,
+        targetDisabled: document.querySelector(".board-set-target")?.disabled,
+        session: localStorage.getItem("rbc.ai.session")
+      })`));
+      throw new Error("target control unavailable");
+    }
+    await evaluate(`document.querySelector(".board-set-target").click()`);
+    if (!await waitFor(() => evaluate('document.querySelectorAll(".board-chip")[1]?.classList.contains("target")'))) throw new Error("explicit target did not stick");
+    const persisted = await evaluate(`fetch("/api/ai/sessions/" + ${JSON.stringify(sessionId)}).then(response => response.json())`);
+    if (persisted.target_board_id !== boardB.id) throw new Error("Assistant session did not persist board B as its target");
+    await evaluate(`document.querySelectorAll(".board-chip")[0].click()`);
+    if (!await waitFor(() => evaluate('!!document.querySelector(".board-target-badge")'))) throw new Error("different target badge missing");
+    await evaluate(`document.querySelector(".board-target-badge").click()`);
+    if (!await waitFor(() => evaluate('document.querySelectorAll(".board-chip")[1]?.classList.contains("active") && !document.querySelector(".board-target-badge")'))) throw new Error("target badge did not focus board B");
+    if (!await waitFor(() => openView(evaluate, "workbench", "assistant"))) throw new Error("return to Assistant failed");
+    if (!await waitFor(() => evaluate('!!document.querySelector(".chat-input textarea")'))) throw new Error("chat did not resume");
     const readBoard = () => evaluate(`(async () => {
       const board = await fetch("/api/boards/" + ${JSON.stringify(boardId)}).then((response) => response.json());
-      return { revision: board.revision, moves: JSON.parse(board.content_json).moves ?? [] };
+      return { revision: board.revision, moves: JSON.parse(board.content_json || "{}").moves ?? [] };
     })()`);
     if (!await click("button", "Approvals", true)) throw new Error("Approvals button is missing");
     const empty = await waitFor(() => evaluate(`document.querySelector(".approval-queue")?.textContent.includes("Nothing is waiting for you")`));
@@ -136,9 +163,11 @@ async function main() {
       return queue && !queue.querySelector(".approval-row") && queue.textContent.includes("applied · played e4");
     })()`));
     const after = await readBoard();
-    console.log(JSON.stringify({ empty, queued, before, visible, approved, applied, after }));
+    const other = await evaluate(`fetch("/api/boards/${boardA.id}").then(response => response.json())`);
+    const otherUnchanged = other.revision === boardA.revision && other.content_json === boardA.content_json;
+    console.log(JSON.stringify({ empty, queued, before, visible, approved, applied, after, otherUnchanged }));
     return empty && queued && before.revision === 1 && before.moves.length === 0 && visible && approved && applied
-      && after.revision === 2 && JSON.stringify(after.moves) === '["e4"]';
+      && after.revision === 2 && JSON.stringify(after.moves) === '["e4"]' && otherUnchanged;
   } finally {
     ws?.close();
     provider.closeAllConnections();

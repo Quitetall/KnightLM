@@ -445,6 +445,57 @@ mod running {
     }
 
     #[test]
+    fn swiss_stays_running_until_every_board_in_final_round_finishes() {
+        let mut cup = Running::new(
+            "swiss",
+            "Cup",
+            Tournament::new(Format::Swiss { rounds: 1 }, entrants(4)),
+        );
+        let batch = cup.next_batch();
+        assert_eq!(batch.len(), 2);
+        assert!(cup.finish(&batch[0].white, &batch[0].black, Outcome::White, 0, 0.0));
+        assert_eq!(cup.status, Status::Running);
+        assert_eq!(cup.next_batch(), batch[1..]);
+        assert!(cup.finish(&batch[1].white, &batch[1].black, Outcome::Black, 0, 0.0));
+        assert_eq!(cup.status, Status::Finished);
+    }
+
+    #[test]
+    fn knockout_retains_the_other_winner_after_a_drawn_replay() {
+        let mut cup = Running::new(
+            "knockout",
+            "Cup",
+            Tournament::new(Format::Knockout, entrants(4)),
+        );
+        let initial = cup.next_batch();
+        let drawn = &initial[0];
+        let decided = &initial[1];
+        assert!(cup.finish(&drawn.white, &drawn.black, Outcome::Draw, 0, 0.0));
+        assert!(cup.finish(&decided.white, &decided.black, Outcome::White, 0, 0.0));
+        let replay = cup.next_batch();
+        assert_eq!(replay.len(), 1);
+        assert_eq!(
+            (&replay[0].white, &replay[0].black),
+            (&drawn.black, &drawn.white)
+        );
+        assert!(cup.finish(&replay[0].white, &replay[0].black, Outcome::Draw, 0, 0.0));
+        let final_game = cup.next_batch();
+        assert_eq!(final_game.len(), 1);
+        assert_eq!(
+            (&final_game[0].white, &final_game[0].black),
+            (&decided.white, &drawn.black)
+        );
+        assert!(cup.finish(
+            &final_game[0].white,
+            &final_game[0].black,
+            Outcome::Black,
+            0,
+            0.0
+        ));
+        assert_eq!(cup.status, Status::Finished);
+    }
+
+    #[test]
     fn running_budget_cap_pauses_instead_of_aborting() {
         // Four players, so the cap is reached long before the cup is decided.
         let mut cup = running(4);

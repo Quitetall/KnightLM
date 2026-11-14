@@ -3,3 +3,8 @@ Author: Enigmahack (https://github.com/Enigmahack)
 License: GNU Affero General Public License v3.0 or later (AGPLv3+)
 Source: https://github.com/lichess-org/lila/tree/master/public/sound
 Vendored unmodified for RustyBrickChess, which is AGPL-3.0-only.
+
+Note: upstream stores Checkmate.ogg, Confirmation.ogg and Error.ogg in each
+theme as symlinks (Check.ogg, ../sfx/GenericNotify.ogg, ../standard/Error.ogg)
+and has no per-theme Select.ogg (clients fall back to standard/Select.ogg).
+They are vendored here as real files with the same bytes as those targets.

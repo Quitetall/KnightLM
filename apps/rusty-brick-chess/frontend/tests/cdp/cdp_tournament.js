@@ -1,71 +1,115 @@
-// A tournament from the UI: create with a format and competitors, step it, read
-// the pairings and standings, pause, and export the PGN.
-const { spawn } = require("child_process");
-const http = require("http");
-const PORT = 9546;
-function getJson(port, path) {
-  return new Promise((res, rej) => {
-    http.get({ host: "127.0.0.1", port, path }, (r) => {
-      let d = ""; r.on("data", (c) => (d += c)); r.on("end", () => res(JSON.parse(d)));
-    }).on("error", rej);
-  });
-}
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-(async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-tour-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
-  let t; for (let i = 0; i < 40; i++) { await sleep(300); try { t = await getJson(PORT, "/json/list"); break; } catch {} }
-  const ws = new WebSocket(t.find((x) => x.type === "page").webSocketDebuggerUrl);
-  let id = 0; const pend = new Map();
-  const send = (m, p = {}) => new Promise((r) => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method: m, params: p })); });
-  ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m.result); pend.delete(m.id); } };
-  await new Promise((r) => (ws.onopen = r));
-  await send("Runtime.enable"); await sleep(2600);
-  const ev = async (x) => (await send("Runtime.evaluate", { expression: x, returnByValue: true, awaitPromise: true })).result?.value;
-  const clickText = async (text) => await ev(`(()=>{const b=[...document.querySelectorAll("button")].find(x=>x.textContent.trim()===${JSON.stringify(text)});if(!b)return false;b.click();return true;})()`);
-  const typeInto = async (selector, text) => await ev(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)return false;el.value=${JSON.stringify(text)};el.dispatchEvent(new Event("input",{bubbles:true}));return true;})()`);
+const assert = require("node:assert/strict");
+const { withBrowser, waitFor } = require("./browser");
 
-  await clickText("Play");
-  await sleep(1500);
-  const named = await typeInto(".tournament-name", "UI cup");
-  const typed = await typeInto(".tournament-competitors", "llm:a:v1, llm:b:v1, llm:c:v1, llm:d:v1");
-  const created = await clickText("New round robin");
-  await sleep(2200);
-  const rows = await ev(`document.querySelectorAll(".tournament-list .tournament-row").length`);
+// RBCUI-PLAY-10. Start real matches through the tournament UI, then play and
+// export every format against the isolated runner's deterministic provider.
+withBrowser(async ({ base, evaluate, click, setField, view, destination }) => {
+  const fixture = process.env.RBC_CDP_TOURNAMENT_FIXTURE === "1";
+  const get = async path => {
+    const response = await fetch(new URL("/api/ai/" + path, base));
+    assert.ok(response.ok, path + " returned " + response.status);
+    return response.json();
+  };
+  const rows = id => get("matches").then(matches => matches.filter(row => row.id.startsWith(id + "-r")));
+  const log = () => evaluate('document.querySelector(".tournament-log")?.textContent || ""');
+  const details = id => get("tournaments/" + id);
+  const competitors = ["Alpha", "Beta", "Gamma", "Delta"].map(name => "llm:fixture:" + name + ":v1");
 
-  const stepped = await clickText("Step");
-  await sleep(1600);
-  const pairings = await ev(`[...document.querySelectorAll(".pairings .pairing")].map(p=>p.textContent.trim())`);
-  const standings = await ev(`document.querySelectorAll(".standings-table tbody tr").length`);
-  const log = await ev(`[...document.querySelectorAll(".tournament-log li")].map(l=>l.textContent.trim())`);
-
-  const paused = await clickText("Pause");
-  await sleep(1200);
-  const pausedLog = await ev(`[...document.querySelectorAll(".tournament-log li")].map(l=>l.textContent.trim()).join(" | ")`);
-
-  // Export must offer a file.
-  // Keep the spy installed while the export fetches: it is async, and restoring
-  // the prototype immediately would miss the click it eventually makes.
-  const exportClicked = await ev(`(()=>{
-    window.__downloaded = null;
-    window.__restoreClick = HTMLAnchorElement.prototype.click;
-    HTMLAnchorElement.prototype.click = function () { window.__downloaded = this.download; };
-    const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "Export PGN");
-    if (!b) { HTMLAnchorElement.prototype.click = window.__restoreClick; return "no button"; }
-    b.click();
-    return "clicked";
-  })()`);
-  await sleep(1800);
-  const exported = await ev(`(()=>{
-    HTMLAnchorElement.prototype.click = window.__restoreClick;
-    return window.__downloaded;
+  await view("home");
+  await destination("workbench");
+  await click('[data-open-view="tournaments"]');
+  await view("tournaments");
+  await evaluate(`(() => {
+    const makeUrl = URL.createObjectURL;
+    URL.createObjectURL = function(blob) {
+      window.tournamentPgn = blob.text();
+      return makeUrl.call(this, blob);
+    };
+    HTMLAnchorElement.prototype.click = function() { window.tournamentFile = this.download; };
   })()`);
 
-  console.log(JSON.stringify({ named, typed, created, rows, stepped, pairings, standings, log, paused, pausedLog, exportClicked, exported }));
-  const ok = named && typed && created && rows >= 1 && stepped
-    && pairings.length >= 2 && standings >= 4
-    && log.join(" ").includes("created UI cup")
-    && paused && /paused/.test(pausedLog || "")
-    && exported === "match.pgn";
-  console.log(ok ? "AI_TOURNAMENT_PASS" : "AI_TOURNAMENT_FAIL");
-  ws.close(); chrome.kill(); process.exit(ok ? 0 : 1);
-})().catch((e) => { console.error(e); process.exit(1); });
+  const action = async name => {
+    await waitFor(() => evaluate(`!document.querySelector(".tournament-${name}").disabled`), name + " stayed disabled");
+    const before = await log();
+    await click(".tournament-" + name);
+    await waitFor(async () => (await log()) !== before, name + " did not record an event");
+  };
+  let previousName;
+  for (const [format, entrants, total] of [
+    ["double-round-robin", competitors, 12],
+    ...(fixture ? [["swiss", competitors.slice(0, 2), 3], ["knockout", competitors, 3]] : []),
+  ]) {
+    const name = "Fixture " + format;
+    await setField(".tournament-name", name);
+    await setField(".tournament-format", format, "change");
+    await setField(".tournament-competitors", entrants.join(", "));
+    await click(".tournament-create");
+    await waitFor(() => evaluate(`document.querySelector(".tournament-row.active")?.textContent.includes(${JSON.stringify(name)})`),
+      "created tournament did not become active");
+    const id = (await get("tournaments")).find(row => row.name === name).id;
+    if (previousName) {
+      await evaluate(`[...document.querySelectorAll(".tournament-row")].find(button=>button.textContent.includes(${JSON.stringify(previousName)})).click()`);
+      await waitFor(() => evaluate(`document.querySelector(".tournament-row.active")?.textContent.includes(${JSON.stringify(previousName)})`), "could not select earlier tournament");
+      await evaluate(`[...document.querySelectorAll(".tournament-row")].find(button=>button.textContent.includes(${JSON.stringify(name)})).click()`);
+    }
+    previousName = name;
+    assert.deepEqual(await rows(id), []);
+    await action("step");
+    const started = await rows(id);
+    assert.equal(started.length, Math.floor(entrants.length / 2), "Step did not create matches");
+    for (const row of started) {
+      const game = await get("matches/" + row.id);
+      assert.equal(game.moves.length, 0);
+      assert.ok(game.legal_moves.includes("e4"), "match lacks a legal starting position");
+      assert.equal(game.white.provider, "fixture");
+      assert.equal(game.black.provider, "fixture");
+      assert.ok(entrants.includes("llm:fixture:" + game.white.model + ":v1"));
+      assert.ok(entrants.includes("llm:fixture:" + game.black.model + ":v1"));
+    }
+    await waitFor(() => evaluate(`document.querySelectorAll(".pairing").length === ${started.length}`), "pairings did not render");
+    await action("pause");
+    assert.equal((await get("tournaments")).find(row => row.id === id).status, "Paused");
+    await action("step");
+    assert.deepEqual(await rows(id), started, "paused Step modified the matches");
+    await action("resume");
+    assert.match(await log(), /resume: running/);
+    if (fixture) {
+      let detail = await details(id);
+      for (let count = 1; detail.tournament.status !== "Finished" && count < 35; count++) {
+        await action("step");
+        detail = await details(id);
+      }
+      assert.equal(detail.tournament.status, "Finished", format + " never finished");
+      assert.equal((await rows(id)).length, total, "duplicate or missing matches");
+      const games = detail.tournament.schedule.rounds.flatMap(round => round.games);
+      assert.equal(games.length, total);
+      const scores = new Map(entrants.map(entrant => [entrant, {wins:0, faced:[]}]));
+      for (const game of games) {
+        assert.equal(game.outcome, "Black");
+        scores.get(game.black).wins++;
+        scores.get(game.black).faced.push(game.white);
+        scores.get(game.white).faced.push(game.black);
+      }
+      for (const standing of detail.standings) {
+        const expected = scores.get(standing.competitor);
+        assert.equal(standing.points, expected.wins);
+        assert.equal(standing.wins, expected.wins);
+        assert.equal(standing.buchholz, [...expected.faced].reduce((n, player) => n + scores.get(player).wins, 0));
+      }
+      await waitFor(() => evaluate('document.querySelector(".pairings")?.textContent.includes("0-1")'), "result missing from pairing");
+      assert.match(await log(), /completed [12]/);
+    }
+    await evaluate('window.tournamentFile = null');
+    await click(".tournament-export");
+    await waitFor(() => evaluate('window.tournamentFile === "match.pgn"'), "PGN download missing");
+    const pgn = await evaluate("window.tournamentPgn");
+    assert.ok(pgn.includes(`[Event "${name}"]`));
+    if (fixture) assert.equal((pgn.match(/1\. f3 e5 2\. g4 Qh4# 0-1/g) || []).length, total);
+    console.log(JSON.stringify({ format, started: started.map(row => row.id), completed: fixture ? total : null }));
+  }
+  console.log("AI_TOURNAMENT_PASS");
+}).catch(error => {
+  console.error(error);
+  console.log("AI_TOURNAMENT_FAIL");
+  process.exitCode = 1;
+});

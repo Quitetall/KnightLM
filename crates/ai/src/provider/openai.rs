@@ -12,6 +12,9 @@ use std::cell::Cell;
 use std::io::{BufRead, BufReader, Read};
 use std::time::{Duration, Instant};
 
+use ureq::unversioned::resolver::DefaultResolver;
+use ureq::unversioned::transport::{Connector, DefaultConnector};
+
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -26,7 +29,7 @@ use crate::provider::{
 #[derive(Debug)]
 pub struct OpenAiProvider {
     config: ProviderConfig,
-    agent: ureq::Agent,
+    agent_config: ureq::config::Config,
     thinking_budget: Option<(bool, u32)>,
 }
 
@@ -40,10 +43,9 @@ impl OpenAiProvider {
             .timeout_global(Some(config.total_timeout))
             .timeout_connect(Some(config.connect_timeout))
             .timeout_recv_body(Some(config.idle_timeout));
-        let agent = ureq::Agent::new_with_config(builder.build());
         Ok(Self {
             config,
-            agent,
+            agent_config: builder.build(),
             thinking_budget: None,
         })
     }
@@ -120,7 +122,14 @@ impl OpenAiProvider {
         let started = Instant::now();
         let body = self.request_body(request);
 
-        let mut builder = self.agent.post(&self.config.endpoint).header(
+        // A connection belongs to this request's cancellation token. Keeping
+        // cancelled connections out of a shared pool also isolates concurrent turns.
+        let agent = ureq::Agent::with_parts(
+            self.agent_config.clone(),
+            DefaultConnector::new().chain(super::cancel_transport::CancelConnector(cancel.clone())),
+            DefaultResolver::default(),
+        );
+        let mut builder = agent.post(&self.config.endpoint).header(
             "accept",
             if request.stream {
                 "text/event-stream"
@@ -398,6 +407,9 @@ impl Provider for OpenAiProvider {
             match self.attempt(request, cancel, &mut tracked) {
                 Ok(response) => return Ok(response),
                 Err(failure) => {
+                    if cancel.is_cancelled() {
+                        return Err(super::cancelled());
+                    }
                     // Retrying after content was shown would duplicate text, so
                     // only a failure before the first delta is retried.
                     let retry = failure.info.retryable
@@ -671,6 +683,12 @@ fn map_transport_error(failure: ureq::Error) -> AttemptError {
 /// The body reader reports `io::Error`, so a stalled stream and a truncated one
 /// are told apart here rather than inside the read loop.
 fn map_read_error(failure: std::io::Error) -> AttemptError {
+    if failure
+        .get_ref()
+        .is_some_and(|inner| inner.is::<ureq::Error>())
+    {
+        return map_transport_error(failure.into());
+    }
     let (code, message, retryable) = match failure.kind() {
         std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => (
             error_code::TIMEOUT,

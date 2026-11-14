@@ -62,6 +62,16 @@ class Handler(BaseHTTPRequestHandler):
             # specific opening; anything else falls back to the first legal move.
             side = "black" if "Your side: black" in system else "white"
             opening = "e5" if side == "black" else "e4"
+            if os.environ.get("MOCK_FOOLS_MATE") == "1":
+                fen = re.search(r"^FEN: (.+)$", system, re.MULTILINE)
+                number = int(fen.group(1).split()[-1]) if fen else 0
+                opening = {
+                    (1, "white"): "f3",
+                    (1, "black"): "e5",
+                    (2, "white"): "g4",
+                    (2, "black"): "Qh4#",
+                }.get((number, side), opening)
+
             text = forced or (opening if opening in moves else (moves[0] if moves else "e4"))
             if "Think briefly" in system:
                 reasoning = os.environ.get("MOCK_REASONING", "a reasonable move")
@@ -77,6 +87,18 @@ class Handler(BaseHTTPRequestHandler):
             name = (tool.get("function") or {}).get("name")
             if name:
                 tool_names.add(name)
+        if os.environ.get("MOCK_ANALYSIS_TOOLS") == "1" and "draw_arrow" in tool_names:
+            if any(message.get("role") == "tool" for message in messages):
+                return 200, {"choices":[{"message":{"content":"Position " + str(body.get("fen"))},
+                                          "finish_reason":"stop"}]}
+            calls = [("get_position", {}), ("legal_moves", {}),
+                     ("draw_arrow", {"from":"e2","to":"e4","color":"green"}),
+                     ("draw_circle", {"square":"f3","color":"blue"})]
+            if "stale move" in user:
+                calls = [("play_move", {"move":"e4"})]
+            return 200, {"choices":[{"message":{"content":None,"tool_calls":[
+                {"id":str(index),"type":"function","function":{"name":name,"arguments":json.dumps(arguments)}}
+                for index, (name,arguments) in enumerate(calls)]}, "finish_reason":"tool_calls"}]}
         wants_write = "play" in user.lower() and "play_move" in tool_names
         if wants_write:
             already_listed = any(
@@ -182,8 +204,17 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(out)
 
     def do_GET(self):
-        out = b'{"ok":true,"mock":true}'
-        self.send_response(200)
+        status = 200
+        if os.environ.get("MOCK_PROVIDER_REGISTRY") == "1" and self.path.rstrip("/").endswith("/models"):
+            expected = os.environ["RBC_PARITY_PROVIDER_KEY"]
+            if self.headers.get("authorization") == "Bearer " + expected:
+                out = b'{"data":[{"id":"qwen2-vl-7b"},{"id":"o3-mini"}]}'
+            else:
+                status = 401
+                out = b'{"error":{"message":"fixture requires a key"}}'
+        else:
+            out = b'{"ok":true,"mock":true}'
+        self.send_response(status)
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(out)))
         self.end_headers()
