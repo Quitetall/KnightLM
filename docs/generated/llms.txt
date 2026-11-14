@@ -161,7 +161,7 @@
 
 ## docs/tickets/t-3458.md
 > Prepare provenance-backed Lichess shards and a leak-free temporal holdout for KnightLM Run 1.
-- t-3458 · ticket · open · Data Engineer — Build and audit the Run 1 corpus · docs/tickets/t-3458.md:1
+- t-3458 · ticket · in_progress · Data Engineer — Build and audit the Run 1 corpus · docs/tickets/t-3458.md:1
 
 ## docs/tickets/t-376e.md
 > Make published content immutable and copies traceable.
@@ -305,7 +305,7 @@
 
 ## docs/tickets/t-ab7d.md
 > Prove that adding a source produces a new audited snapshot and that a single command can train from it.
-- t-ab7d · ticket · open · MLOps/CV Engineer — Test the joined source-to-training loop · docs/tickets/t-ab7d.md:1
+- t-ab7d · ticket · in_progress · MLOps/CV Engineer — Test the joined source-to-training loop · docs/tickets/t-ab7d.md:1
 
 ## docs/tickets/t-b1ab.md
 > Bind the read-only chess tools to existing engine/database services.
@@ -341,7 +341,7 @@
 
 ## docs/tickets/t-c199.md
 > Score baseline and trained model predictions under the same rules and retain the evidence for the project lead.
-- t-c199 · ticket · open · Representation/Evaluation Engineer — Implement the held-out scorecard · docs/tickets/t-c199.md:1
+- t-c199 · ticket · in_progress · Representation/Evaluation Engineer — Implement the held-out scorecard · docs/tickets/t-c199.md:1
 
 ## docs/tickets/t-c5a4.md
 > Measure 1M DB, long sessions, SSE and 16-model tournaments.
@@ -365,7 +365,7 @@
 
 ## docs/tickets/t-e135.md
 > Draft a small repeatable evaluation that separates legal move generation from playing strength.
-- t-e135 · ticket · open · Research Contributor — Define a KnightLM strength baseline · docs/tickets/t-e135.md:1
+- t-e135 · ticket · done · Research Contributor — Define a KnightLM strength baseline · docs/tickets/t-e135.md:1
 
 ## docs/tickets/t-e4fa.md
 > Slash commands, @-mentions, attachments, context chips, model picker, stop/regenerate.
@@ -385,7 +385,7 @@
 
 ## docs/tickets/t-ea98.md
 > Provide one reproducible training entry point that validates the supplied corpus and invokes the existing LoRA trainer.
-- t-ea98 · ticket · open · MLOps/CV Engineer — Make the trainer runnable from a corpus manifest · docs/tickets/t-ea98.md:1
+- t-ea98 · ticket · done · MLOps/CV Engineer — Make the trainer runnable from a corpus manifest · docs/tickets/t-ea98.md:1
 
 ## docs/tickets/t-f26f.md
 > Render the match panel in the Assistant center pane.

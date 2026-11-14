@@ -1,4 +1,4 @@
-.PHONY: check check-apps check-mojo gate
+.PHONY: check check-apps check-mojo check-secrets gate
 check:
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets --locked -j 2 -- -D warnings
@@ -7,11 +7,18 @@ check:
 	cargo build --locked -j 2
 	python3 -m unittest discover -s model/parity/python
 	python3 -m unittest model.corpus.test_pipeline
+	python3 -m unittest model.tests.test_materialize model.tests.test_train_run model.tests.test_pipeline
+	python3 -m unittest model.eval.test_eval
 	python3 scripts/check_cli.py
 	python3 scripts/check_ports.py
 
 # The application crates, which the workspace excludes: clippy, fmt and tests for
 # the server and the wasm frontend. `check` alone would stay green while both rot.
+# Scans the whole history of this checkout for committed credentials; the same
+# policy runs in CI as the `secret-scan` job. Needs the gitleaks binary.
+check-secrets:
+	gitleaks detect --source . --config .gitleaks.toml --redact --no-banner --log-opts="--all"
+
 check-apps:
 	./scripts/check_apps.sh
 

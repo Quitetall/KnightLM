@@ -14,3 +14,5 @@
 Keep datasets, model weights, checkpoints, and local databases in the project
 artifact store. See the [documentation index](../README.md) for architecture,
 release evidence, and OpenWarrant records.
+
+Keep credentials out of the tree: see [Secrets](secrets.md).

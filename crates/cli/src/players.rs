@@ -4,6 +4,7 @@ use knightlm_engine::Engine;
 use std::sync::Mutex;
 use ureq::Agent;
 
+use crate::match_driver::IllegalMove;
 use crate::uci::Player;
 
 /// Uniformly random among compiler-verified legal moves. Deterministic given a
@@ -78,6 +79,18 @@ impl ModelPlayer {
             agent: Agent::new_with_defaults(),
         }
     }
+
+    /// A request taking longer than `secs` is an error (a forfeit in a match).
+    pub fn with_timeout(url: &str, secs: u64) -> Self {
+        let agent: Agent = Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_secs(secs)))
+            .build()
+            .into();
+        Self {
+            url: url.to_owned(),
+            agent,
+        }
+    }
 }
 
 impl Player for ModelPlayer {
@@ -106,7 +119,7 @@ impl Player for ModelPlayer {
         // Validate the model's move against the compiler; an illegal move is a
         // reported failure (RQ-010), never repaired.
         if !state.is_legal(&mv) {
-            bail!("model produced illegal move: {mv}");
+            return Err(IllegalMove(mv).into());
         }
         Ok(mv)
     }

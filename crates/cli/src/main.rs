@@ -5,6 +5,7 @@ use knightlm_model::{ModelProfile, smoke, verify_model};
 use std::{fs::File, io::BufReader, path::PathBuf};
 
 mod corpus;
+mod score_cmd;
 
 #[derive(Parser)]
 #[command(
@@ -66,6 +67,25 @@ enum Command {
     },
     /// Exercise Burn CPU gradients and checkpoint persistence; no LLM claim.
     TrainSmoke { checkpoint: PathBuf },
+    /// Post-decision scoring: centipawn loss of each `{id?, fen, move}` JSONL row
+    /// under a fixed-depth, single-thread Stockfish. Reads stdin when no file.
+    ScoreMoves {
+        #[arg(long)]
+        engine: Option<String>,
+        #[arg(long, default_value_t = 12)]
+        depth: u32,
+        input: Option<PathBuf>,
+    },
+    /// MultiPV ranking of each `{id?, fen}` JSONL row (tactical-set derivation).
+    RankPositions {
+        #[arg(long)]
+        engine: Option<String>,
+        #[arg(long, default_value_t = 12)]
+        depth: u32,
+        #[arg(long, default_value_t = 2)]
+        lines: u32,
+        input: Option<PathBuf>,
+    },
     /// Print missing admission gates, then return a failing exit code.
     VerifyModel { profile: PathBuf },
 }
@@ -223,6 +243,17 @@ fn main() -> Result<()> {
             emit(&replies, false)?;
         }
         Command::TrainSmoke { checkpoint } => emit(&smoke::train_smoke(&checkpoint)?, false)?,
+        Command::ScoreMoves {
+            engine,
+            depth,
+            input,
+        } => score_cmd::run(engine, depth, None, input)?,
+        Command::RankPositions {
+            engine,
+            depth,
+            lines,
+            input,
+        } => score_cmd::run(engine, depth, Some(lines), input)?,
         Command::VerifyModel { profile } => {
             let report = verify_model(&read::<ModelProfile>(&profile)?)?;
             emit(&report, false)?;

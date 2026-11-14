@@ -230,6 +230,13 @@ impl Engine {
         Ok(())
     }
 
+    /// Clear the transposition table and search history (`ucinewgame`), so the
+    /// next fixed-depth search does not depend on earlier queries.
+    pub fn new_game(&mut self) -> Result<()> {
+        self.send("ucinewgame")?;
+        self.wait_ready()
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }

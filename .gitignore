@@ -12,3 +12,18 @@ __pycache__/
 target/
 **/public/pkg/
 **/src-tauri/gen/
+
+# secrets: keys live in the sops+age store (`secrets set NAME`) and reach
+# programs as environment through `secrets run -- CMD`; never in the tree
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.age
+id_rsa*
+id_ed25519*
+secrets/
