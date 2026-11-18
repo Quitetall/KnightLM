@@ -227,6 +227,34 @@ pub async fn scan_local(_state: State<AppState>) -> Json<Value> {
             models,
         });
     }
+    // The served checkpoint is not an OpenAI endpoint: it answers moves, and its
+    // seat is `local:knightlm-serve` / `knightlm-serve`.
+    let serve_url = crate::providers::knightlm_serve_url();
+    let health = serve_url.replace("/v1/move", "/v1/health");
+    let responding = tokio::task::spawn_blocking(move || {
+        ureq::Agent::new_with_config(
+            ureq::config::Config::builder()
+                .timeout_global(Some(std::time::Duration::from_secs(2)))
+                .build(),
+        )
+        .get(&health)
+        .call()
+        .is_ok()
+    })
+    .await
+    .unwrap_or(false);
+    found.push(LocalEndpoint {
+        label: rbc_ai::provider::SERVE_PROVIDER
+            .trim_start_matches("local:")
+            .to_string(),
+        base_url: serve_url,
+        responding,
+        models: if responding {
+            vec![rbc_ai::provider::SERVE_MODEL.to_string()]
+        } else {
+            Vec::new()
+        },
+    });
     Json(json!({ "endpoints": found }))
 }
 

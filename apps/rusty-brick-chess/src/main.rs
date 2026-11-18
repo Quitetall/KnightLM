@@ -26,6 +26,8 @@ Environment:
   RBC_DB        SQLite database path (default: $XDG_DATA_HOME/rustybrickchess)
   RBC_DATA      data directory for models and sounds
   RBC_ADDR      bind address (default 127.0.0.1:8090)
+  RBC_KNIGHTLM_SERVE_URL  move endpoint of a served KnightLM checkpoint
+                (default http://127.0.0.1:8000/v1/move)
   RBC_DEPTH     default analysis depth (default 15)
   STOCKFISH_PATH path to a UCI engine
   MODEL_URL     AI chat endpoint
