@@ -1,18 +1,11 @@
-use anyhow::Result;
 use knightlm_core::SCHEMA_VERSION;
 use knightlm_core::state::{GameRecord, GameState, START_FEN};
+use knightlm_player::MovePlayer;
 use std::io::{BufRead, BufReader, Write};
 use vampirc_uci::{UciMessage, parse_one};
 
-pub trait Player {
-    fn select(&self, state: &GameState) -> Result<String>;
-    fn name(&self) -> &str {
-        "player"
-    }
-}
-
 pub struct UciEngine {
-    pub player: Box<dyn Player>,
+    pub player: Box<dyn MovePlayer>,
     pub state: GameState,
     pub name: String,
     pub author: String,
@@ -33,7 +26,7 @@ fn start() -> GameState {
 }
 
 impl UciEngine {
-    pub fn new(player: Box<dyn Player>, name: &str, author: &str) -> Self {
+    pub fn new(player: Box<dyn MovePlayer>, name: &str, author: &str) -> Self {
         Self {
             player,
             state: start(),

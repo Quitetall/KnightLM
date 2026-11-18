@@ -24,6 +24,7 @@ serde_json.workspace = true
 serde.workspace = true
 clap = { version = "4", features = ["derive"] }
 knightlm-core = { path = "../core" }
+knightlm-player = { path = "../player" }
 knightlm-model = { path = "../model" }
 knightlm-engine = { path = "../engine" }
 knightlm-notation = { path = "../notation" }
