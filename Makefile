@@ -11,6 +11,8 @@ check:
 	python3 -m unittest model.eval.test_eval
 	python3 scripts/check_cli.py
 	python3 scripts/check_ports.py
+	python3 scripts/test_check_pins.py
+	python3 scripts/check_pins.py
 
 # The application crates, which the workspace excludes: clippy, fmt and tests for
 # the server and the wasm frontend. `check` alone would stay green while both rot.
