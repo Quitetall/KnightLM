@@ -119,6 +119,16 @@ pub const LOCAL_CANDIDATES: &[(&str, &str)] = &[
     ("Jan", "http://127.0.0.1:1337/v1"),
 ];
 
+/// Where the served KnightLM checkpoint's move endpoint is
+/// (`python -m model.serve.server`, `POST /v1/move`). A URL, never a secret:
+/// `RBC_KNIGHTLM_SERVE_URL` overrides the loopback default.
+pub fn knightlm_serve_url() -> String {
+    std::env::var("RBC_KNIGHTLM_SERVE_URL")
+        .ok()
+        .filter(|value| acceptable_base_url(value))
+        .unwrap_or_else(|| "http://127.0.0.1:8000/v1/move".into())
+}
+
 /// Whether a URL is one this build will fetch. Providers are configured by the
 /// person using the app, so the risk is a typo or a stale paste, not an attack;
 /// the check that matters is that nothing but http(s) is offered to the fetcher.

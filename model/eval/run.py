@@ -72,7 +72,9 @@ def evaluate(args, predictor, description):
 
 def play_games(args, predictor, description):
     server = None
-    url = description.get("url")
+    # An http predictor given as host:port has no path; the match driver needs
+    # the full move endpoint.
+    url = getattr(predictor, "move_url", None) or description.get("url")
     if description["kind"] == "python":
         server, url = games_module.serve_predictor(predictor)
     try:
