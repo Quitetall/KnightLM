@@ -27,6 +27,31 @@
       "../frontend/public/": "frontend/"
     },
     "shortDescription": "Chess database and analysis",
-    "longDescription": "RustyBrickChess: local chess database, analysis board, openings, puzzles and repertoire training."
+    "longDescription": "RustyBrickChess: local chess database, analysis board, openings, puzzles and repertoire training.",
+    "category": "BoardGame",
+    "publisher": "KnightLM",
+    "copyright": "AGPL-3.0-only",
+    "license": "AGPL-3.0-only",
+    "fileAssociations": [
+      {
+        "ext": [
+          "pgn"
+        ],
+        "name": "Portable Game Notation",
+        "description": "Chess game file (PGN)",
+        "mimeType": "application/vnd.chess-pgn",
+        "role": "Editor"
+      }
+    ],
+    "linux": {
+      "deb": {
+        "section": "games",
+        "desktopTemplate": "packaging/rusty-brick-chess.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "packaging/rusty-brick-chess.desktop"
+      },
+      "appimage": {}
+    }
   }
 }

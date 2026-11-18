@@ -1,4 +1,4 @@
-.PHONY: check check-apps check-mojo check-secrets gate
+.PHONY: check check-apps check-desktop check-mojo check-secrets gate rbc-desktop rbc-desktop-bundle rbc-desktop-smoke
 check:
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets --locked -j 2 -- -D warnings
@@ -29,3 +29,20 @@ gate: check check-apps
 
 check-mojo: check
 	python3 scripts/check_ports.py --require-mojo
+
+# The RustyBrickChess desktop app (Tauri). Needs the frontend built first
+# (`apps/rusty-brick-chess/frontend/deploy.sh`) and the Tauri system libraries
+# (docs/app/running.md).
+rbc-desktop:
+	cd apps/rusty-brick-chess/src-tauri && cargo run --release
+
+# Installers for this platform: .deb and .AppImage on Linux (needs `cargo install tauri-cli --version "^2"`).
+rbc-desktop-bundle:
+	cd apps/rusty-brick-chess/src-tauri && cargo tauri build
+
+# fmt, clippy and the virtual-display smoke test for the desktop shell (Linux).
+check-desktop:
+	cd apps/rusty-brick-chess/src-tauri && cargo fmt --all -- --check && cargo clippy --locked --all-targets -- -D warnings && cargo build --locked
+	./scripts/rbc_desktop_smoke.sh
+
+rbc-desktop-smoke: check-desktop

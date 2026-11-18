@@ -18,6 +18,25 @@ The installer builds both parts, copies them to `~/.local`, and adds a
 location, `--no-desktop` to skip the launcher, or `--skip-build` for a checkout
 that already has the server and frontend built.
 
+## Desktop app (Tauri)
+
+A native window instead of a browser tab, with menus, drag-and-drop of PGN
+files, single-instance behaviour and installers. Install the Tauri system
+libraries (Debian/Ubuntu: `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
+librsvg2-dev patchelf`), build the frontend, then from the repository root:
+
+```bash
+make rbc-desktop          # run it
+make rbc-desktop-bundle   # .deb and .AppImage under src-tauri/target/release/bundle/
+```
+
+The window talks to an in-process server on a random loopback port, protected
+by a per-launch token, so other local programs cannot call the API. Details,
+data locations and Stockfish discovery are in the
+[app README](../../apps/rusty-brick-chess/README.md#desktop-tauri). Only Linux
+is tested here; macOS and Windows bundles are built by the release workflow
+and still need native QA.
+
 ## Windows from source
 
 Use a Rust MSVC toolchain and the Visual Studio C++ build tools with a Windows
