@@ -1,6 +1,6 @@
 """HTTP serving port (KLM-WAR-0009) for knightlm-uci / knightlm-match.
 
-Contract (crates/cli/src/players.rs, ModelPlayer):
+Contract (crates/play/src/players.rs, ModelPlayer):
   POST /v1/move  {packet: <ContextPacket object>, packet_format_version: int}
                  -> {move, manifest_hash}
   GET  /v1/health, GET /v1/manifest

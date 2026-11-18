@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/player", "crates/model", "crates/cli", "crates/notation", "crates/engine", "crates/brick-chess", "crates/brick-chess-analysis", "crates/rbc-db", "crates/context", "crates/ai"]
+members = ["crates/core", "crates/player", "crates/play", "crates/model", "crates/cli", "crates/notation", "crates/engine", "crates/brick-chess", "crates/brick-chess-analysis", "crates/rbc-db", "crates/context", "crates/ai"]
 resolver = "2"
 exclude = ["apps/*"]
 
