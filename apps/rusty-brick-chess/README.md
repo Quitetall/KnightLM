@@ -262,29 +262,51 @@ The server serves `frontend/public` at `/`.
 
 ## Desktop (Tauri)
 
-`src-tauri/` is a thin native shell around the same server and frontend:
+`src-tauri/` is a native shell (own window, menus, installers) around the same
+server and frontend. It uses Tauri's own mechanisms:
 
-- starts the axum server in-process on `RBC_PORT` (default `8090`), waits for
-  `/api/health`, then opens a native window at that URL — the browser build and
-  the desktop build run identical code;
-- native menu: **File → Open PGN…** imports a PGN through the file picker,
-  **File → Open database…** copies a `.db`/`.sqlite` file into the database
-  directory and switches to it, **View → Reload** reloads the page;
-- imported files refresh the UI through a `rbc-imported` DOM event, so the
-  desktop shell needs no separate frontend bundle;
-- shares `RBC_DB`, `RBC_DATA`, `STOCKFISH_PATH`, `MODEL_URL`, `RBC_DEPTH` and
-  `RBC_PORT` with the server binary.
+- **Server.** Starts the axum server in-process on a free loopback port
+  (`RBC_PORT` pins one), waits for `/api/health`, then opens a native window
+  on it. The browser build and the desktop build run identical code.
+- **Per-launch token.** Every launch mints a random token. The server refuses
+  any request without it (`401`), so other local processes cannot use the
+  API. The window opens `/?rbc_token=...` once and gets an `HttpOnly;
+  SameSite=Strict` cookie; the shell itself sends `x-rbc-token`. The token is
+  never logged. `RBC_DESKTOP_TOKEN` fixes it and `RBC_DESKTOP_PRINT_URL=1`
+  prints the window URL, for tests. Browser mode (`rusty-brick-chess --open`)
+  has no token and is unchanged.
+- **Data.** The database lives in the app data directory
+  (`~/.local/share/org.knightlm.rustybrickchess/` on Linux), never the cwd. An
+  existing browser-mode database at `~/.local/share/rustybrickchess/` is kept
+  in use; `RBC_DB` overrides both.
+- **Stockfish** is not bundled. If `STOCKFISH_PATH` is unset the shell uses
+  `stockfish` from `PATH` (or `/usr/games`, `/usr/local/bin`,
+  `/opt/homebrew/bin`). **File -> Choose engine...** or Settings overrides it.
+- **Single instance.** A second launch focuses the running window and hands it
+  any `.pgn` files from its arguments (`tauri-plugin-single-instance`).
+- **Window state.** Size, position and maximised state persist
+  (`tauri-plugin-window-state`).
+- **Open PGN.** File -> Open PGN..., dragging `.pgn` files onto the window, and
+  opening a `.pgn` from the file manager (`fileAssociations`; macOS uses
+  `RunEvent::Opened`) all import into the open database. File -> Open
+  database... switches to a `.db`/`.sqlite` file. Imports refresh the UI via the
+  `rbc-imported` DOM event.
+- **Menus.** File, Edit (so copy/paste work on macOS), View, Window, Help, plus
+  the macOS app menu, with native About and Quit.
+- **Links** to other sites open in the system browser (`tauri-plugin-opener`).
+- **Shutdown.** Quit (menu, window close, SIGTERM/SIGINT) stops the server and
+  its engine processes before the app exits.
 
 ```bash
-# needs webkit2gtk-4.1 + gtk3 development packages
-cd src-tauri
-cargo run              # dev window
-cargo install tauri-cli --version "^2"
-cargo tauri build      # .AppImage/.deb/.rpm, .dmg, .msi
+# needs webkit2gtk-4.1 + gtk3 development packages (see docs/app/running.md)
+apps/rusty-brick-chess/frontend/deploy.sh   # build the web assets once
+make rbc-desktop                            # run the desktop app (release build)
+make rbc-desktop-bundle                     # .deb + .AppImage (+ .rpm); .dmg/.msi on their OS
+make check-desktop                          # fmt, clippy, virtual-display smoke test
 ```
 
-Icons live in `src-tauri/icons/icon.png`; add the platform-specific sizes
-before shipping installers.
+Icons live in `src-tauri/icons/`. The Linux bundles install a launcher entry
+in the Games menu with the `.pgn` MIME association.
 
 ## Importing Lichess monthly dumps
 
@@ -336,7 +358,7 @@ installers locally or let CI do it:
 
 ```bash
 cd src-tauri
-npx @tauri-apps/cli@2 build          # .deb/.rpm/.AppImage on Linux
+cargo tauri build                    # .deb/.rpm/.AppImage on Linux (cargo install tauri-cli --version "^2")
 ```
 
 `.github/workflows/release.yml` is configured to build the frontend and package

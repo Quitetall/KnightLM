@@ -11,6 +11,7 @@ pub mod console;
 pub mod domain_api;
 pub mod importer;
 mod lamu_runtime;
+pub mod launch_guard;
 mod mcp;
 pub mod pieces;
 mod provider_api;
@@ -457,15 +458,32 @@ pub fn state_from_env() -> anyhow::Result<(api::AppState, String)> {
 
 /// Serve on `addr` (e.g. `127.0.0.1:8090`).
 pub async fn serve_on(addr: &str) -> anyhow::Result<()> {
-    let (state, db_path) = state_from_env()?;
-    let app = router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    serve_listener(listener, None, std::future::pending()).await
+}
+
+/// Serve on an already-bound listener, optionally behind a per-launch token
+/// (see [`launch_guard`]), until `shutdown` completes. Dropping the returned
+/// future after shutdown drops the state, which stops engine children.
+pub async fn serve_listener(
+    listener: tokio::net::TcpListener,
+    token: Option<String>,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> anyhow::Result<()> {
+    let (state, db_path) = state_from_env()?;
+    let mut app = router(state);
+    if let Some(token) = token {
+        app = app.layer(axum::middleware::from_fn_with_state(
+            std::sync::Arc::new(token),
+            launch_guard::require_token,
+        ));
+    }
     // Report where we actually bound. A test passes port 0 and reads this line,
     // and a person who lost the port to another process sees which one it got.
     let bound = listener
         .local_addr()
         .map(|local| local.to_string())
-        .unwrap_or_else(|_| addr.to_string());
+        .unwrap_or_else(|_| "unknown".to_string());
     println!("RustyBrickChess on http://{bound}  (db: {db_path})");
     println!(
         "  STOCKFISH_PATH: {:?}",
@@ -476,6 +494,7 @@ pub async fn serve_on(addr: &str) -> anyhow::Result<()> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
+    .with_graceful_shutdown(shutdown)
     .await?;
     Ok(())
 }
