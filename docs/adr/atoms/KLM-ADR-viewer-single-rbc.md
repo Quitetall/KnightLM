@@ -1,0 +1,35 @@
+---
+schema: oh.war/atom/v1
+adr_uuid: 01a1ee00-3b1a-7a4e-9c55-6d3a1e0b7c21
+local_alias: KLM-ADR-viewer-single-rbc
+role: adr
+jurisdiction: bound
+order: 10
+classification: internal
+status: proposed
+governs:
+  - "war://01a15b89-e8cb-70fa-8cfe-03c41eb0d4dd"
+---
+
+# RustyBrickChess is the single viewer
+
+Proposed by the performer; the owner decided it and a person accepts it.
+
+RustyBrickChess (`apps/rusty-brick-chess`, RBC) is the one viewer for KnightLM.
+The two placeholder viewers are retired: `apps/viewer`, a scaffold with no
+backend, and `apps/knightlm-viewer`, an empty directory that was never tracked.
+`apps/viewer` is deleted in this change; no crate, script, workflow or Makefile
+target depended on it, and the workspace already excluded `apps/*`.
+
+The Specification (`SPEC.md`, `spec/`) carries the decision: Phase 3 names RBC
+as the single viewer, REQ-008 reads "The single viewer is RustyBrickChess", and
+the technology pins say the same. The legacy SAS `docs/sas/KnightLM_SAS.md`
+is left as it was, with its accepted revision 0.1.0 and its unaccepted proposed
+0.2.1, so no SAS revision is proposed for this change. REQ-008's other claim
+is unchanged: the application contains no JavaScript or TypeScript; the CDP and
+MCP browser drivers under `tests/` are test tooling, not the application.
+
+KLM-WAR-0010 delivered `apps/viewer/src/app.rs` and `board.rs` as D-001 and
+D-002. Those two deliverables are removed from its `deliverables.toml`, since
+the files are gone; D-003 (the RBC app shell) stays. The Warrant's prose is a
+historical record of the original plan and is not rewritten.
