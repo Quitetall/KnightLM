@@ -218,3 +218,12 @@ Two identical uninterrupted runs are not bitwise equal on this GPU, so a resumed
 run is compared with the run-to-run noise, not for identity (see
 `model/tests/crash_resume.py`).
 
+
+## Serving a checkpoint into RustyBrickChess
+
+RBC reaches the served checkpoint through a match seat `{"provider":"local:knightlm-serve","model":"knightlm-serve"}`.
+Its move endpoint is a URL, not a secret: `RBC_KNIGHTLM_SERVE_URL` (default `http://127.0.0.1:8000/v1/move`).
+`POST /api/ai/matches/{id}/model-move` (and watch steps) send the canonical packet with `mode: constrained`
+and still validate the answer against the real position; chat with this seat is refused (it only plays moves).
+`GET` of the local scan lists it as `knightlm-serve` when `/v1/health` answers. Test:
+`cd apps/rusty-brick-chess && cargo test --test knightlm_serve`.
