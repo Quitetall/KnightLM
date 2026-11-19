@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use knightlm_cli::match_driver::{MatchOptions, MatchResult, play_game_with, to_pgn};
 use knightlm_cli::players::{EnginePlayer, ModelPlayer, RandomLegal};
-use knightlm_cli::uci::Player;
+use knightlm_player::MovePlayer;
 use serde_json::json;
 use std::collections::BTreeMap;
 
@@ -65,7 +65,7 @@ struct Args {
     event: String,
 }
 
-fn make_player(kind: &str, side: &str, args: &Args) -> Result<Box<dyn Player>> {
+fn make_player(kind: &str, side: &str, args: &Args) -> Result<Box<dyn MovePlayer>> {
     match kind {
         "random" => Ok(Box::new(RandomLegal { seed: args.seed })),
         "engine" => {

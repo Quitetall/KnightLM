@@ -4,8 +4,7 @@ use knightlm_engine::Engine;
 use std::sync::Mutex;
 use ureq::Agent;
 
-use crate::match_driver::IllegalMove;
-use crate::uci::Player;
+use knightlm_player::{IllegalMove, MovePlayer};
 
 /// Uniformly random among compiler-verified legal moves. Deterministic given a
 /// seed and a position; the run-0 baseline.
@@ -13,7 +12,7 @@ pub struct RandomLegal {
     pub seed: u64,
 }
 
-impl Player for RandomLegal {
+impl MovePlayer for RandomLegal {
     fn select(&self, state: &GameState) -> Result<String> {
         let moves = state.legal_moves();
         if moves.is_empty() {
@@ -35,7 +34,7 @@ impl Player for RandomLegal {
 }
 
 /// An external UCI engine (e.g. Stockfish) driving our state through the same
-/// `Player` seam. Used as an opponent and as a label/scoring engine.
+/// `MovePlayer` seam. Used as an opponent and as a label/scoring engine.
 pub struct EnginePlayer {
     engine: Mutex<Engine>,
     depth: u32,
@@ -51,7 +50,7 @@ impl EnginePlayer {
     }
 }
 
-impl Player for EnginePlayer {
+impl MovePlayer for EnginePlayer {
     fn select(&self, state: &GameState) -> Result<String> {
         let a = self
             .engine
@@ -93,7 +92,7 @@ impl ModelPlayer {
     }
 }
 
-impl Player for ModelPlayer {
+impl MovePlayer for ModelPlayer {
     fn select(&self, state: &GameState) -> Result<String> {
         let packet = state.compile(PacketOptions {
             legal_choices: true,

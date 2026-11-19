@@ -1,0 +1,10 @@
+[package]
+name = "knightlm-player"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The move-player seam: a position in, a move (or ranked moves) out."
+
+[dependencies]
+anyhow.workspace = true
+knightlm-core = { path = "../core" }

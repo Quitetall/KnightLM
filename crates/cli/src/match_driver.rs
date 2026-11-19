@@ -4,7 +4,8 @@ use knightlm_core::state::{GameRecord, GameState, START_FEN};
 use serde::Serialize;
 use std::fmt::Write as _;
 
-use crate::uci::Player;
+pub use knightlm_player::IllegalMove;
+use knightlm_player::MovePlayer;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MatchResult {
@@ -35,19 +36,6 @@ pub struct MatchOptions {
     pub forfeit_on_error: bool,
 }
 
-/// A move the player named that is not legal in the position. Typed so the
-/// driver can report it as an illegal move rather than a generic failure.
-#[derive(Debug)]
-pub struct IllegalMove(pub String);
-
-impl std::fmt::Display for IllegalMove {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "illegal move: {}", self.0)
-    }
-}
-
-impl std::error::Error for IllegalMove {}
-
 fn start() -> GameState {
     GameState::replay(&GameRecord {
         schema_version: SCHEMA_VERSION,
@@ -64,7 +52,11 @@ fn start() -> GameState {
 
 /// Play one game between two players. White and black take turns. Returns the
 /// result with per-ply UCI moves and the SANs (for PGN export).
-pub fn play_game(white: &dyn Player, black: &dyn Player, max_plies: usize) -> Result<MatchResult> {
+pub fn play_game(
+    white: &dyn MovePlayer,
+    black: &dyn MovePlayer,
+    max_plies: usize,
+) -> Result<MatchResult> {
     play_game_with(
         white,
         black,
@@ -77,8 +69,8 @@ pub fn play_game(white: &dyn Player, black: &dyn Player, max_plies: usize) -> Re
 
 /// `play_game` with a fixed opening, draw claims and forfeit-on-error.
 pub fn play_game_with(
-    white: &dyn Player,
-    black: &dyn Player,
+    white: &dyn MovePlayer,
+    black: &dyn MovePlayer,
     opts: &MatchOptions,
 ) -> Result<MatchResult> {
     let max_plies = opts.max_plies;
@@ -264,7 +256,7 @@ mod tests {
     use knightlm_core::state::GameState;
 
     struct Script(std::cell::RefCell<Vec<Result<String, &'static str>>>);
-    impl Player for Script {
+    impl MovePlayer for Script {
         fn select(&self, _: &GameState) -> Result<String> {
             match self.0.borrow_mut().remove(0) {
                 Ok(m) => Ok(m),
