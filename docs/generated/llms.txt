@@ -29,6 +29,10 @@
 > -
 - KLM-ADR-viewer-single-rbc · adr · - · RustyBrickChess is the single viewer · docs/adr/atoms/KLM-ADR-viewer-single-rbc.md:1
 
+## docs/app/game-board-types.md
+> -
+- doc:docs/app/game-board-types.md · document · - · Game and Board types: audit · docs/app/game-board-types.md:1
+
 ## docs/app/mcp.md
 > -
 - doc:docs/app/mcp.md · document · - · Using RustyBrickChess over MCP · docs/app/mcp.md:1
