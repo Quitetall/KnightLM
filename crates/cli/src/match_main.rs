@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use knightlm_cli::match_driver::{MatchOptions, MatchResult, play_game_with, to_pgn};
-use knightlm_cli::players::{EnginePlayer, ModelPlayer, RandomLegal};
+use knightlm_play::match_driver::{MatchOptions, MatchResult, play_game_with, to_pgn};
+use knightlm_play::players::{EnginePlayer, ModelPlayer, RandomLegal};
 use knightlm_player::MovePlayer;
 use serde_json::json;
 use std::collections::BTreeMap;

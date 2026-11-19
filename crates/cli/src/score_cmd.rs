@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use knightlm_cli::score::{rank_positions, score_moves};
 use knightlm_engine::{Engine, EngineOptions};
+use knightlm_play::score::{rank_positions, score_moves};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 

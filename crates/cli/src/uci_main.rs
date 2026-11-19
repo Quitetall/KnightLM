@@ -1,6 +1,6 @@
 use clap::Parser;
-use knightlm_cli::players::{EnginePlayer, ModelPlayer, RandomLegal};
-use knightlm_cli::uci::UciEngine;
+use knightlm_play::players::{EnginePlayer, ModelPlayer, RandomLegal};
+use knightlm_play::uci::UciEngine;
 
 #[derive(Parser)]
 #[command(name = "knightlm-uci", version, about = "KnightLM UCI engine")]
