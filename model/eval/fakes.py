@@ -152,3 +152,39 @@ class Explaining(Perfect):
 
 def explaining():
     return Explaining()
+
+
+class PlayScripted(Fake):
+    """A play-mode predictor with scripted completion text per row, run through the real
+    serve-side checks (model.serve.play.resolve). The constrained path picks the first legal move.
+
+    row 0 valid; 1 text outside the call; 2 illegal move; 3 no tool call; 4 move differs from the
+    move the reasoning states; 5 reasoning after move. Constrained mode repairs rows 2 and 4 (their
+    reasoning is intact) and refuses 1, 3 and 5 only where no reasoning can be recovered.
+    """
+
+    def texts(self, i, packet):
+        from model.prompt import format_play_completion
+        target, other = self.target(i), self.other_legal(i)
+        say = f"White to move. I choose {target}."
+        return [
+            format_play_completion(say, target),
+            "Sure! " + format_play_completion(say, target),
+            format_play_completion("White to move. I choose a1a1.", "a1a1"),
+            f"I think {target} is best.",
+            format_play_completion(say, other),
+            '<tool_call>{"name":"submit_move","arguments":{"move":"%s","reasoning":"%s"}}</tool_call>' % (target, say),
+        ][i]
+
+    def predict(self, packet, mode):
+        from model.serve import play
+        from model.serve.inference import PlayPrediction
+        i = self.index.get(packet["fen"], -1)
+        text = self.texts(i, packet)
+        fields, extra = play.resolve(text, packet["legal_moves"], mode, lambda p, s: (packet["legal_moves"][0], 2))
+        return PlayPrediction(raw_reply=text, input_tokens=300 + i, output_tokens=40 + extra, latency_ms=15.0 + i,
+                              **fields)
+
+
+def play_scripted():
+    return PlayScripted()

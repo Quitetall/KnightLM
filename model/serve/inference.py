@@ -23,12 +23,15 @@ import json
 import time
 
 from model.corpus.pipeline import sha256_file
-from model.prompt import user_chat
+from model.prompt import mode_chat, packet_json, play_text, user_chat
+from model.serve import play as play_module
 
 PROFILE = Path(__file__).resolve().parents[1] / "configs/models/smolvlm-500m.json"
 WEIGHTS_SHA256 = "d05b567eeaf534e83d375551f068ed57b5f52d37c657197f644af5ef9db091a2"
 MAX_NEW_TOKENS = 10  # as model/train/harness.py holdout generation
 MODES = ("raw", "constrained")
+PLAY_FORCED_TOKENS = 160  # budget for reasoning written after a supplied call head
+PLAY_MAX_NEW_TOKENS = 256  # a 400-character reasoning, the call wrapper and a UCI move fit with room
 
 
 @dataclass
@@ -36,6 +39,22 @@ class Prediction:
     move: str
     raw_reply: str
     legal: bool
+    input_tokens: int
+    output_tokens: int
+    latency_ms: float
+
+
+@dataclass
+class PlayPrediction:
+    """One play-mode answer. `legal` is true only when `code` is "ok"; `path` says who chose the move."""
+    move: str | None
+    reasoning: str | None
+    raw_reply: str
+    legal: bool
+    code: str
+    path: str
+    raw_code: str
+    stated_move: str | None
     input_tokens: int
     output_tokens: int
     latency_ms: float
@@ -144,3 +163,98 @@ class Predictor:
             move=move, raw_reply=reply,
             legal=bool(legal_moves) and move in legal_moves,
             input_tokens=len(prompt_ids), output_tokens=output_tokens, latency_ms=latency_ms)
+
+    # --- Play mode (docs/model/modes-and-tools.md): play prompt, one submit_move call ---
+
+    def _play_prompt_ids(self, packet):
+        text = self.processor.apply_chat_template(
+            mode_chat(play_text(packet)), tokenize=False, add_generation_prompt=True)
+        return text, self.tokenizer.encode(text, add_special_tokens=False)
+
+    def _generate(self, prompt_ids, max_new_tokens, **extra):
+        torch = self._torch
+        input_ids = torch.tensor([prompt_ids], device=self.device)
+        with torch.inference_mode():
+            out = self.model.generate(
+                input_ids=input_ids, attention_mask=torch.ones_like(input_ids), do_sample=False,
+                max_new_tokens=max_new_tokens, eos_token_id=self.tokenizer.eos_token_id,
+                pad_token_id=self.tokenizer.pad_token_id, **extra)
+        new = out[0, len(prompt_ids):].tolist()
+        eos = self.tokenizer.eos_token_id
+        return new[:new.index(eos) + 1] if eos in new else new
+
+    def _free_play(self, packet):
+        """Greedy free decode of the play completion, shared by raw and constrained (one-entry cache)."""
+        key = packet_json(packet)
+        if getattr(self, "_play_cache", (None, None))[0] == key:
+            return self._play_cache[1]
+        _, prompt_ids = self._play_prompt_ids(packet)
+        new = self._generate(prompt_ids, PLAY_MAX_NEW_TOKENS)
+        value = (prompt_ids, new, self.tokenizer.decode(new, skip_special_tokens=True))
+        self._play_cache = (key, value)
+        return value
+
+    def _play_answer_ids(self, prompt_ids, packet, answer):
+        chat = mode_chat(play_text(packet)) + [{"role": "assistant", "content": [{"type": "text", "text": answer}]}]
+        ids = self.tokenizer.encode(self.processor.apply_chat_template(chat, tokenize=False),
+                                    add_special_tokens=False)
+        if ids[:len(prompt_ids)] != prompt_ids:
+            raise ValueError("prompt and completion tokenize to different prefixes")
+        end = ids.index(self.tokenizer.eos_token_id, len(prompt_ids)) + 1
+        return ids[len(prompt_ids):end]
+
+    def _force_reasoning(self, packet, prompt_text, prompt_ids):
+        """Supply the call head and let the model write the reasoning (greedy, stops at its closing quote)."""
+        ids = self.tokenizer.encode(prompt_text + play_module.call_head(), add_special_tokens=False)
+        if ids[:len(prompt_ids)] != prompt_ids:
+            raise ValueError("prompt and call head tokenize to different prefixes")
+        new = self._generate(ids, PLAY_FORCED_TOKENS, stop_strings=['"'], tokenizer=self.tokenizer)
+        text = self.tokenizer.decode(new, skip_special_tokens=True)
+        return play_module.reasoning_from_forced(text), len(new)
+
+    def _constrain_move(self, packet, prompt_ids, prefix, suffix):
+        """Choose the move field from the legal list after the model's own reasoning.
+
+        Every legal move's full completion (prefix + move + suffix) is tokenised as the trainer
+        would; the tokens they share are fed as given, and the first token where they differ
+        starts the legal-move trie, decoded greedily as in `predict`. Returns (move, new_tokens).
+        """
+        legal = packet["legal_moves"]
+        answers = {m: self._play_answer_ids(prompt_ids, packet, prefix + m + suffix) for m in legal}
+        if len(answers) == 1:
+            return legal[0], 0
+        first = next(iter(answers.values()))
+        shared = 0
+        while all(len(a) > shared and a[shared] == first[shared] for a in answers.values()):
+            shared += 1
+        table = {tuple(a[shared:]): m for m, a in answers.items()}
+        trie = build_trie(table)
+        width = len(prompt_ids) + shared
+        new = self._generate(
+            prompt_ids + first[:shared], max(len(k) for k in table),
+            prefix_allowed_tokens_fn=lambda _batch, ids: allowed_next(trie, ids[width:].tolist()))
+        return table[tuple(new)], len(new)
+
+    def predict_play(self, packet, mode):
+        """Play-mode prediction. raw: the model's own completion, checked, never repaired.
+
+        constrained: the same completion when it already passes every check (path "model");
+        otherwise, if the reasoning is recoverable, the move field is chosen from the packet's
+        legal list after that reasoning (path "constrained_move"); else the call head is supplied,
+        the model writes the reasoning and the move is chosen the same way (path
+        "constrained_forced_reasoning"); else no move is returned (code constrained_no_reasoning).
+        An illegal move is never returned in constrained mode.
+        """
+        if mode not in MODES:
+            raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+        legal_moves = packet.get("legal_moves")
+        if mode == "constrained" and not legal_moves:
+            raise ValueError("constrained mode needs a non-empty packet legal_moves")
+        started = time.perf_counter()
+        prompt_ids, new, text = self._free_play(packet)
+        fields, extra = play_module.resolve(
+            text, legal_moves or [], mode,
+            lambda prefix, suffix: self._constrain_move(packet, prompt_ids, prefix, suffix),
+            lambda: self._force_reasoning(packet, self._play_prompt_ids(packet)[0], prompt_ids))
+        out = dict(fields, raw_reply=text, input_tokens=len(prompt_ids), output_tokens=len(new) + extra)
+        return PlayPrediction(latency_ms=(time.perf_counter() - started) * 1000, **out)

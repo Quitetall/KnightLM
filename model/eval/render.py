@@ -14,7 +14,10 @@ def fmt(value):
 def render_markdown(card):
     axes, modes = card["axes"], card["modes"]
     inputs = card.get("inputs", {})
+    kind = card.get("prompt_kind", "move")
     lines = [f"# Scorecard: {inputs.get('settings', {}).get('label', '?')}", "",
+             f"Prompt kind: **{kind}**" + (" (play prompt and submit_move tool call; not comparable with a move-only card)"
+                                           if kind == "play" else " (move-only prompt)") + ".",
              f"Rows: {axes['rows']}. Modes: {', '.join(modes)}. **No composite score**: each axis stands alone.",
              "Every legality/match rate uses all rows as denominator; failures are counted, not dropped.", ""]
 
@@ -27,6 +30,26 @@ def render_markdown(card):
         r = axes["raw_legality"]
         table("Raw legality", ["legal", "n", "rate", "gate", "gate met"],
               [[r["legal"], r["n"], r["rate"], r["gate"]["threshold"], r["gate"]["met"]]])
+    if "play_raw_legality" in axes:
+        r = axes["play_raw_legality"]
+        table("Play raw legality (completion parses, names a legal move, agrees with its reasoning)",
+              ["legal", "n", "rate", "gate", "gate met"],
+              [[r["legal"], r["n"], r["rate"], r["gate"]["threshold"], r["gate"]["met"]]])
+    if "play_constrained_legality" in axes:
+        c = axes["play_constrained_legality"]
+        table("Play constrained legality", ["legal", "n", "rate"], [[c["legal"], c["n"], c["rate"]]])
+    if "play_completion" in axes:
+        pc = axes["play_completion"]
+        table("Play completions (valid = passes every check; model valid = before any constrained repair)",
+              ["mode", "valid", "model valid", "parsed move legal", "n", "path model", "path constrained_move", "path forced reasoning", "path none"],
+              [[m, v["completion_valid"]["valid"], v["model_completion_valid"]["valid"], v["parsed_move_legal"]["legal"],
+                v["completion_valid"]["n"], v["by_path"]["model"], v["by_path"]["constrained_move"], v["by_path"]["constrained_forced_reasoning"],
+                v["by_path"]["none"]]
+               for m, v in pc.items()])
+        codes = sorted({c for v in pc.values() for c, k in v["by_code"].items() if k and c != "ok"})
+        if codes:
+            table("Play completion refusal codes", ["mode", *codes],
+                  [[m, *(v["by_code"][c] for c in codes)] for m, v in pc.items()])
     if "constrained_legality" in axes:
         c = axes["constrained_legality"]
         table("Constrained legality", ["legal", "n", "rate"], [[c["legal"], c["n"], c["rate"]]])
@@ -52,10 +75,10 @@ def render_markdown(card):
     table("Latency (ms)", ["mode", "n", "p50", "p90", "p95", "p99", "max"],
           [[m, v.get("n"), v.get("p50"), v.get("p90"), v.get("p95"), v.get("p99"), v.get("max")]
            for m, v in axes["latency_ms"].items()])
-    table("Failure accounting", ["mode", "failures", "rate", "illegal", "unparseable", "empty", "exception", "timeout",
-                                 "missing", "claim disagrees"],
-          [[m, v["total"], v["rate"], *(v["by_kind"][k] for k in ("illegal", "unparseable", "empty", "exception",
-                                                                  "timeout", "missing")),
+    kinds = ("illegal", "unparseable", "empty", "exception", "timeout", "missing") + (
+        ("inconsistent",) if kind == "play" else ())
+    table("Failure accounting", ["mode", "failures", "rate", *kinds, "claim disagrees"],
+          [[m, v["total"], v["rate"], *(v["by_kind"][k] for k in kinds),
             v["predictor_legal_claim_disagrees"]] for m, v in axes["failures"].items()])
     lc0 = axes.get("lc0_strength")
     if lc0 and lc0.get("status") == "skipped":
@@ -87,6 +110,17 @@ def render_markdown(card):
         table("Claims by type", ["type", "checkable", "failed"],
               [[k, v["checkable"], v["failed"]] for k, v in expl["claim_types"].items()])
         table("Seen but not checkable", ["reason", "count"], list(expl["unchecked_claims"].items()))
+    pex = axes.get("play_explanation")
+    if pex:
+        for m, expl in pex.items():
+            lines.extend([f"## Play reasoning checked against the board ({m})", "",
+                          f"{expl['n']} completions ({expl['explanations_missing']} with no reasoning, "
+                          f"{expl['explanations_with_a_failed_claim']} with a failed claim, "
+                          f"{expl['explanations_without_checkable_claims']} with no checkable claim). "
+                          "Counts per claim type; no composite.", ""])
+            table(f"Claims by type ({m})", ["type", "checkable", "failed"],
+                  [[k, v["checkable"], v["failed"]] for k, v in expl["claim_types"].items()])
+            table(f"Seen but not checkable ({m})", ["reason", "count"], list(expl["unchecked_claims"].items()))
     games = axes.get("games")
     if games:
         lines.extend(["## Games vs fixed Stockfish", "",
