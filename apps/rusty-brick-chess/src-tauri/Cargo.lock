@@ -2703,6 +2703,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "knightlm-contract"
+version = "0.1.0"
+dependencies = [
+ "knightlm-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "knightlm-core"
 version = "0.1.0"
 dependencies = [
@@ -4007,6 +4016,7 @@ name = "rbc-ai"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "knightlm-contract",
  "knightlm-core",
  "rbc-db",
  "serde",
