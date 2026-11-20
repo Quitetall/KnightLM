@@ -1849,7 +1849,7 @@ narrative, not a strength claim — the strength axis stays in W-0008.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Serving entry point | `model/serve/server.py` | verified |
+| D-001 | Serving entry point | `model/serve/server.py` | drift |
 
 #### KLM-WAR-0010 — The Leptos viewer: any notation in, board and facts out, all formats back out
 

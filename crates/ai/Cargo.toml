@@ -14,6 +14,7 @@ provider = ["core", "dep:ureq", "dep:sha2"]
 host = ["provider", "dep:rbc-db"]
 
 [dependencies]
+knightlm-contract = { path = "../contract" }
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 anyhow = { workspace = true, optional = true }

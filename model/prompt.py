@@ -26,7 +26,7 @@ def user_chat(packet):
 
 from pathlib import Path
 
-TOOLS_PATH = Path(__file__).resolve().parent.parent / "crates" / "ai" / "schemas" / "model_tools.json"
+TOOLS_PATH = Path(__file__).resolve().parent.parent / "crates" / "contract" / "schemas" / "model_tools.json"
 
 MODES = ("play", "coach")
 MAX_SUMMARY_CHARS = 1200
@@ -154,7 +154,7 @@ def combined_text(packet, mode, summary=None, recent=(), schemas=None):
 # The exact completion a play row is trained to write: one submit_move call whose
 # arguments are `reasoning` then `move`, nothing outside the block. The Rust parser
 # (crates/ai/src/model_turn.rs) and this one are pinned by
-# crates/ai/schemas/play_completion_cases.json.
+# crates/contract/schemas/play_completion_cases.json.
 
 import re
 
@@ -237,7 +237,7 @@ def parse_play_completion(text):
 
 # --- Deterministic chat summarizer -------------------------------------------------
 # No model call. Mirrors summarize_chat / roll_chat in model_turn.rs, pinned by
-# crates/ai/schemas/chat_summary_cases.json.
+# crates/contract/schemas/chat_summary_cases.json.
 
 
 def _excerpt(text):

@@ -997,7 +997,7 @@ fn builtin_specs() -> Vec<ToolSpec> {
 //
 // The KnightLM model sees one of two small tool schemas, never both at once and
 // never the app registry above. The schemas are defined here once; the checked-in
-// `crates/ai/schemas/model_tools.json` is generated from them (a test pins the
+// `crates/contract/schemas/model_tools.json` is generated from them (a test pins the
 // two together) and `model/prompt.py` reads that file. Contract:
 // `docs/model/modes-and-tools.md`.
 
@@ -1033,7 +1033,7 @@ pub const TOOL_CALL_OPEN: &str = "<tool_call>";
 pub const TOOL_CALL_CLOSE: &str = "</tool_call>";
 
 /// The checked-in JSON form of the model tool schemas, read by Python.
-pub const MODEL_TOOLS_JSON: &str = include_str!("../schemas/model_tools.json");
+pub use knightlm_contract::MODEL_TOOLS_JSON;
 
 fn square_prop() -> Value {
     json!({"type": "string", "minLength": 2, "maxLength": 2})
@@ -1872,7 +1872,7 @@ mod tests {
     fn checked_in_model_tools_json_matches_the_rust_schemas() {
         let generated = serde_json::to_string_pretty(&model_tools_json()).unwrap() + "\n";
         if std::env::var_os("UPDATE_MODEL_TOOLS").is_some() {
-            let path = concat!(env!("CARGO_MANIFEST_DIR"), "/schemas/model_tools.json");
+            let path = format!("{}/model_tools.json", knightlm_contract::schemas_dir());
             std::fs::write(path, &generated).unwrap();
         }
         let on_disk: Value = serde_json::from_str(MODEL_TOOLS_JSON).unwrap();
