@@ -54,7 +54,7 @@ keys, or an over-long reasoning are refused with a stable code: `not_one_call`,
 still read leniently by `parse_model_call`, which ignores text outside the block.)
 **Implemented:** `parse_play_completion` / `format_play_completion` in
 `crates/ai/src/model_turn.rs` and `model/prompt.py`, pinned to each other by
-`crates/ai/schemas/play_completion_cases.json`.
+`crates/contract/schemas/play_completion_cases.json`.
 
 Play tools (all act on the packet position only; the model never reaches an
 engine, tablebase, database or opening explorer):
@@ -91,7 +91,7 @@ Chat context is a rolling summary (at most 1200 characters), or the last
 a summary or message over its bound is an error, not silent truncation. The
 summarizer is a separate step outside the model and makes no model call.
 **Implemented:** `summarize_chat` / `roll_chat` (Rust and Python, pinned by
-`crates/ai/schemas/chat_summary_cases.json`). Each folded message becomes
+`crates/contract/schemas/chat_summary_cases.json`). Each folded message becomes
 `U: <excerpt>` or `A: <excerpt>` (whitespace flattened, at most 120 characters, a
 cut ends in `…`), entries are joined with ` | `, the previous summary comes first,
 and when the result exceeds 1200 characters the oldest whole entries are dropped
@@ -131,13 +131,13 @@ prefix: combined instruction, call format, `Play tools:` and `Coach tools:` JSON
 The turn's mode follows it on a `Mode: play|coach` line, then the chat context,
 then the packet last, so the prefix stays cacheable. **Implemented:**
 `combined_prefix` / `combined_prompt` (Rust) and `combined_prefix` /
-`combined_text` (Python), byte-pinned by `crates/ai/schemas/model_prompts.json`.
+`combined_text` (Python), byte-pinned by `crates/contract/schemas/model_prompts.json`.
 
 ## 4. Tool schemas
 
 Defined once in `crates/ai/src/tools.rs` (`model_tool_specs`). The registry is
 separate from the app registry, so the model cannot name `analyze`, `evaluate`,
-`play_move` or any other app tool. `crates/ai/schemas/model_tools.json` is
+`play_move` or any other app tool. `crates/contract/schemas/model_tools.json` is
 generated from the Rust specs (`UPDATE_MODEL_TOOLS=1 cargo test -p rbc-ai
 model_tools_json`); a Rust test fails when it drifts, and Python reads that file.
 Schema version is `TOOL_SCHEMA_VERSION`. Every schema has

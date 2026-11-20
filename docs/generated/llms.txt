@@ -93,6 +93,10 @@
 > -
 - doc:docs/model/plan.md · document · - · KnightLM implementation contract · docs/model/plan.md:1
 
+## docs/model/seam.md
+> -
+- doc:docs/model/seam.md · document · - · The seam between RBC and KnightLM · docs/model/seam.md:1
+
 ## docs/model/strength-baseline.md
 > -
 - doc:docs/model/strength-baseline.md · document · - · KnightLM strength baseline protocol · docs/model/strength-baseline.md:1

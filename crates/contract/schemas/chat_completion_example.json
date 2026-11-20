@@ -1,0 +1,38 @@
+{
+  "id": "chatcmpl-0123456789abcdef01234567",
+  "object": "chat.completion",
+  "created": 1700000000,
+  "model": "knightlm",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_0123456789abcdef01234567",
+            "type": "function",
+            "function": {
+              "name": "submit_move",
+              "arguments": "{\"reasoning\": \"White to move. I choose e2e4.\", \"move\": \"e2e4\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 9,
+    "completion_tokens": 5,
+    "total_tokens": 14
+  },
+  "knightlm": {
+    "path": "model",
+    "code": "ok",
+    "raw_code": "ok",
+    "legal": true,
+    "manifest_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

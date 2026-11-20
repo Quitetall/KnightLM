@@ -6,7 +6,7 @@
 //! the deterministic chat summarizer. `play.rs` wires them to a provider.
 //!
 //! Prompt text, the completion format and the summarizer exist twice, here and in
-//! `model/prompt.py`. `schemas/model_prompts.json`, `play_completion_cases.json`
+//! `model/prompt.py`. `crates/contract/schemas/model_prompts.json`, `play_completion_cases.json`
 //! and `chat_summary_cases.json` pin the two together: Rust generates or checks
 //! them and the Python tests read the same files.
 
@@ -835,7 +835,7 @@ mod tests {
     }
 
     fn check_fixture(file: &str, generated: &Value) {
-        let path = format!("{}/schemas/{file}", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{}/{file}", knightlm_contract::schemas_dir());
         if std::env::var_os("UPDATE_MODEL_TOOLS").is_some() {
             std::fs::write(
                 &path,

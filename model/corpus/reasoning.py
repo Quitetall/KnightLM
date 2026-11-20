@@ -18,7 +18,7 @@ from pathlib import Path
 import subprocess
 
 GENERATOR_VERSION = "reasoning-v1"
-MAX_CHARS = 400  # the submit_move `reasoning` bound (crates/ai/schemas/model_tools.json)
+MAX_CHARS = 400  # the submit_move `reasoning` bound (crates/contract/schemas/model_tools.json)
 MAX_WORDS = 60
 BACK_RANK = {"white": "1", "black": "8"}
 
