@@ -2960,6 +2960,7 @@ dependencies = [
  "knightlm-player",
  "serde",
  "serde_json",
+ "shakmaty",
 ]
 
 [[package]]
