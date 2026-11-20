@@ -7,8 +7,10 @@ Writes DIR/dataset.jsonl (every train shard converted, in manifest order, one
 and converted hashes plus the hashes that pin the prompt and this converter).
 
 The prompt is `model.prompt.user_text(packet)` verbatim, the same function the
-model is served with; the completion is the played UCI move. Nothing here
-re-implements prompt text. The corpus is audited first (`python3 -m
+model is served with; the completion is the played UCI move. A reasoning corpus
+(`knightlm-lichess-v2-reasoning-v1`) is rendered by `model.corpus.render` instead:
+`model.prompt.play_text(packet)` and one `submit_move` call carrying the row's
+reasoning and the played move. Nothing here re-implements prompt text. The corpus is audited first (`python3 -m
 model.corpus.pipeline audit CORPUS`) and a failed audit refuses the conversion.
 
 Re-running on an existing DIR re-hashes dataset.jsonl against the receipt and
@@ -27,6 +29,7 @@ from knightlm_blut.common import repo_root, sha256_bytes, sha256_file
 
 RECEIPT_FORMAT = "knightlm-blut-materialized-v1"
 CORPUS_FORMAT = "knightlm-lichess-v2"
+REASONING_FORMAT = "knightlm-lichess-v2-reasoning-v1"
 DATASET = "dataset.jsonl"
 RECEIPT = "receipt.json"
 
@@ -44,8 +47,21 @@ def _prompt_module(root):
     return prompt
 
 
-def convert_row(row, prompt_module):
+def _render_module(root):
+    sys.path.insert(0, str(root))
+    try:
+        from model.corpus import render
+    finally:
+        sys.path.remove(str(root))
+    return render
+
+
+def convert_row(row, prompt_module, render_module=None):
     """One corpus row -> one SFT row. The only place the prompt is built."""
+    if "reasoning" in row:
+        if render_module is None:
+            raise MaterializeError("a reasoning row needs model.corpus.render")
+        return render_module.render_play(row["packet"], row["reasoning"], row["target"])
     return {"prompt": prompt_module.user_text(row["packet"]), "completion": row["target"]}
 
 
@@ -66,11 +82,14 @@ def run_audit(corpus, root):
 
 def pins(corpus, root):
     """Hashes that decide whether an existing materialization is still valid."""
-    return {
+    found = {
         "corpus_manifest_sha256": sha256_file(Path(corpus) / "manifest.json"),
         "prompt_py_sha256": sha256_file(root / "model" / "prompt.py"),
         "materializer_sha256": sha256_file(Path(__file__)),
     }
+    if json.loads((Path(corpus) / "manifest.json").read_text()).get("format") == REASONING_FORMAT:
+        found["render_py_sha256"] = sha256_file(root / "model" / "corpus" / "render.py")
+    return found
 
 
 def existing_receipt(out, expected):
@@ -93,8 +112,9 @@ def existing_receipt(out, expected):
 
 def build(corpus, out, root, prompt_module):
     manifest = json.loads((corpus / "manifest.json").read_text())
-    if manifest.get("format") != CORPUS_FORMAT:
+    if manifest.get("format") not in (CORPUS_FORMAT, REASONING_FORMAT):
         raise MaterializeError(f"unsupported corpus format {manifest.get('format')!r}")
+    render_module = _render_module(root) if manifest["format"] == REASONING_FORMAT else None
     out.mkdir(parents=True, exist_ok=True)
     tmp = out / (DATASET + ".tmp")
     shards, total = [], 0
@@ -105,7 +125,7 @@ def build(corpus, out, root, prompt_module):
                 raise MaterializeError(f"{entry['file']} changed since the audit")
             converted, rows = [], 0
             for line in source.splitlines():
-                converted.append(encode_row(convert_row(json.loads(line), prompt_module)))
+                converted.append(encode_row(convert_row(json.loads(line), prompt_module, render_module)))
                 rows += 1
             if rows != entry["games"]:
                 raise MaterializeError(f"{entry['file']} row count differs from the manifest")
@@ -138,7 +158,9 @@ def materialize(corpus, out, root=None):
         "corpus_dir": str(corpus),
         "corpus_audit": audit_note,
         **expected,
-        "instruction": prompt_module.INSTRUCTION,
+        "instruction": prompt_module.PLAY_INSTRUCTION
+        if "render_py_sha256" in expected
+        else prompt_module.INSTRUCTION,
         "dataset_sha256": sha256_file(out / DATASET),
         "rows": total,
         "shards": shards,

@@ -289,6 +289,12 @@ impl Recipe for KnightlmLora {
         let prompt_sha = sha256_file(&crate::runctx::repo_root().join("model/prompt.py"))
             .map_err(|e| bad("corpus_dir", format!("cannot read model/prompt.py: {e}")))?;
         let dataset_name = format!("knightlm-{}-{}", &manifest_sha[..12], &prompt_sha[..8]);
+        // v2 and the reasoning variant share this recipe; the registry records which one this is.
+        let corpus_format = std::fs::read_to_string(&manifest)
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|value| value["format"].as_str().map(str::to_owned))
+            .unwrap_or_else(|| "knightlm-lichess-v2".into());
 
         let config = json!({
             "base": prof.key, "batch_size": args.batch_size, "grad_accum": args.grad_accum,
@@ -361,7 +367,7 @@ impl Recipe for KnightlmLora {
                     name: dataset_name,
                     kind: "sft".into(),
                     metadata: Some(
-                        json!({"corpus_format": "knightlm-lichess-v2",
+                        json!({"corpus_format": corpus_format,
                                "corpus_manifest_sha256": manifest_sha,
                                "prompt_py_sha256": prompt_sha})
                         .to_string(),

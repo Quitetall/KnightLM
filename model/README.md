@@ -68,6 +68,21 @@ Run 1 is 200,000 training games and 10,000 later holdout games drawn from a
 
 Keep the shards in the artifact store, not in git.
 
+### Run 1 with a reasoning field (`knightlm-lichess-v2-reasoning-v1`)
+
+The same builder, split and audit with `--reasoning` adds a `reasoning` string to every
+row, written by `model/corpus/reasoning.py` (generator `reasoning-v1`) from rules facts
+only (`knightlm corpus-facts`: shakmaty on the notation crate; no engine, no model). Every
+sentence is a board fact or what the human move does; none calls a move good or best.
+`model.eval.explain` checks it (zero failed claims, `model/corpus/test_reasoning.py`). The
+reasoning is derived from the played move, so it explains the move after the fact; it is not
+evidence of the model's own analysis. The materializer renders such rows with
+`model/corpus/render.py`: prompt `model.prompt.play_text(packet)`, completion
+`format_play_completion(reasoning, move)`. Re-derive every reasoning from a built corpus with
+`python3 -m model.corpus.pipeline audit CORPUS --knightlm target/release/knightlm`.
+The served and evaluated path for an adapter trained on it is play mode with a tool-call
+parser, not the move prompt of `model.serve` and `model.eval`.
+
 The trainer uses the checkpoint's chat template and masks loss on the prompt
 and padding. It runs one epoch, checks for finite gradients and adapter updates,
 then reloads the adapter and checks logits on a holdout prompt. The run manifest

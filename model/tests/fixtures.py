@@ -5,7 +5,8 @@ from pathlib import Path
 
 from model.corpus.pipeline import MANIFEST, read_corpus, sha256_file, write_corpus
 
-PROVENANCE_KEYS = ("source", "compiler_sha256", "candidates", "candidate_window", "selection", "split", "target")
+PROVENANCE_KEYS = ("source", "compiler_sha256", "candidates", "candidate_window", "selection", "split", "target",
+                   "reasoning")
 
 
 def slice_corpus(source, output, train_games, holdout_games, shard_games=64):
@@ -19,4 +20,5 @@ def slice_corpus(source, output, train_games, holdout_games, shard_games=64):
     provenance = {key: manifest[key] for key in PROVENANCE_KEYS if key in manifest}
     provenance["slice_of"] = {"manifest_sha256": sha256_file(source / MANIFEST),
                               "train_games": train_games, "holdout_games": holdout_games}
-    return write_corpus(output, train[:train_games], holdout[:holdout_games], shard_games, provenance)
+    return write_corpus(output, train[:train_games], holdout[:holdout_games], shard_games, provenance,
+                        manifest["format"])

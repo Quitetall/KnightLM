@@ -5,6 +5,7 @@ use knightlm_model::{ModelProfile, smoke, verify_model};
 use std::{fs::File, io::BufReader, path::PathBuf};
 
 mod corpus;
+mod facts;
 mod score_cmd;
 
 #[derive(Parser)]
@@ -61,6 +62,8 @@ enum Command {
         #[arg(long)]
         source: String,
     },
+    /// Rules-only position facts (side, check, material, captures, a move's effect) for JSONL on stdin.
+    CorpusFacts,
     /// Replay JSONL SAN lines ({id, fen?, sans}) and report validated FENs.
     ReplayLines,
     /// Check observed board placement against the authoritative ledger.
@@ -258,6 +261,10 @@ fn main() -> Result<()> {
             std::io::stdin().lock(),
             std::io::BufWriter::new(std::io::stdout().lock()),
             &source,
+        )?,
+        Command::CorpusFacts => facts::write_facts(
+            std::io::stdin().lock(),
+            std::io::BufWriter::new(std::io::stdout().lock()),
         )?,
         Command::ReplayLines => corpus::replay_lines(
             std::io::stdin().lock(),

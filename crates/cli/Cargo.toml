@@ -27,3 +27,4 @@ knightlm-play = { path = "../play" }
 knightlm-model = { path = "../model" }
 knightlm-engine = { path = "../engine" }
 knightlm-notation = { path = "../notation" }
+shakmaty.workspace = true
