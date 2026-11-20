@@ -81,6 +81,10 @@
 > -
 - doc:docs/model/history/verification.md · document · - · Scaffold verification · docs/model/history/verification.md:1
 
+## docs/model/modes-and-tools.md
+> -
+- doc:docs/model/modes-and-tools.md · document · - · Modes and tools contract · docs/model/modes-and-tools.md:1
+
 ## docs/model/plan.md
 > -
 - doc:docs/model/plan.md · document · - · KnightLM implementation contract · docs/model/plan.md:1
