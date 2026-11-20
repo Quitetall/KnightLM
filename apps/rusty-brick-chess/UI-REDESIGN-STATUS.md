@@ -2,9 +2,15 @@
 
 Cutover is **BLOCKED: 59 PASS, 1 UNKNOWN, 0 unresolved product FAIL** out of 60 checklist rows. Checked boxes in [the plan](UI-REDESIGN-PLAN.md) refer to this candidate's named Linux browser checks, not desktop release qualification.
 
-Candidate fingerprint: `de86a9aa91c4f080f842a25657a9b30fdbf552f2568c60877cbd5d4757fda9f4` (server plus served entrypoint/JS/WASM hashes).
+Candidate fingerprint: `671ec47edd738438108f2fa0c342b6969c2295b7f5be32b84b7ae631ae5a9ac6` (server plus served entrypoint/JS/WASM hashes), re-verified after merging `origin/main` (3b137e6) on 2026-11-20.
 
-Local evidence: `/mnt/4tb/artifacts/KnightLM/keep/rbc-ui-parity-verified-20261113-token-ref/`. Its `candidate-build.json` identifies the individual receipts; `parity-ledger.json` maps all 60 IDs to those receipts. Earlier failed runs are retained. This checkpoint aggregates passing suites for the identical server/assets after test repairs, rather than presenting a failed batch as green.
+Local evidence: `/mnt/4tb/artifacts/KnightLM/keep/rbc-ui-parity-verified-20261120-main-merge-ledger/` (receipts: `rbc-ui-parity-verified-20261120-main-merge`, `rbc-main-merge-live-accounts-20261120`, `rbc-main-merge-live-model-20261120`; the 2026-11-13 directory is the previous candidate). Its `candidate-build.json` identifies the individual receipts; `parity-ledger.json` maps all 60 IDs to those receipts. Earlier failed runs are retained. This checkpoint aggregates passing suites for the identical server/assets after test repairs, rather than presenting a failed batch as green.
+
+## Merged with main (2026-11-20)
+
+- Merge of `origin/main` 3b137e6: two conflicts. `src-tauri/src/main.rs` taken from main (per-launch token, single-instance, signal quit; main already keeps native pickers off the UI thread and quits through the predefined item, which is what this branch's earlier fix did). `crates/ai/src/provider/mod.rs` keeps both `cancel_transport` and `knightlm_serve`. `tests/knightlm_serve.rs` (main's) needed the branch's new `AppState.tournament_actions` field.
+- The redesigned frontend works with the shell unchanged: it makes only same-origin relative requests, so the `/?rbc_token=` cookie covers it; it listens for `rbc-imported` (`cdp_home_profile`); the shell's `PUT /api/settings` and `POST /api/databases/switch` are handled by the merged server.
+- Re-run on the merged tree: `make check`, `make check-apps`, the 56 browser suites, both live suites, the parity validator (59 PASS, 1 UNKNOWN; the full cutover command still exits 1 for LIB-09), `make check-desktop` (fmt, clippy, build, Xvfb smoke: window, token gating, second-launch PGN handoff, quit cleanup). The first `live_model_controls` run failed once with "KnightLM did not load" on a cold model; the rerun passed.
 
 ## Verified
 

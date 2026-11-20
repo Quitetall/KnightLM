@@ -101,6 +101,10 @@
 > -
 - doc:docs/model/trackb-smolvlm-study.md · document · - · Track B — SmolVLM architecture study (Burn-native admission) · docs/model/trackb-smolvlm-study.md:1
 
+## docs/model/training-glossary.md
+> -
+- doc:docs/model/training-glossary.md · document · - · Training vocabulary and where KnightLM sits · docs/model/training-glossary.md:1
+
 ## docs/releases/benchmarks.md
 > -
 - doc:docs/releases/benchmarks.md · document · - · Benchmarks · docs/releases/benchmarks.md:1
