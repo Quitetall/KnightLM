@@ -168,6 +168,7 @@ fn main() -> Result<()> {
             &game(&path)?.compile(PacketOptions {
                 legal_choices,
                 derived_features: features,
+                ..PacketOptions::default()
             }),
             compact,
         )?,

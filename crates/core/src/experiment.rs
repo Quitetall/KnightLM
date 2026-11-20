@@ -143,6 +143,7 @@ pub fn prepare(
         let packet = state.compile(PacketOptions {
             legal_choices: matches!(config.arm, Arm::LegalChoices | Arm::Combined),
             derived_features: matches!(config.arm, Arm::DerivedFeatures | Arm::Combined),
+            ..PacketOptions::default()
         });
         prompt.push_str("\nCURRENT_STATE\n");
         prompt.push_str(&serde_json::to_string(&packet)?);

@@ -97,6 +97,7 @@ impl MovePlayer for ModelPlayer {
         let packet = state.compile(PacketOptions {
             legal_choices: true,
             derived_features: false,
+            ..PacketOptions::default()
         });
         let body = serde_json::json!({
             "packet": packet,

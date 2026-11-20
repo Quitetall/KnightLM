@@ -123,5 +123,105 @@ class RustParity(unittest.TestCase):
         self.assertNotIn("submit_move", tool_names("coach", schemas))
 
 
+SCHEMAS_DIR = prompt.TOOLS_PATH.parent
+
+
+def _fixture(name):
+    return json.loads((SCHEMAS_DIR / name).read_text(encoding="utf-8"))
+
+
+class PromptParity(unittest.TestCase):
+    """prompt.py equals the prompts Rust renders (model_prompts.json)."""
+
+    def setUp(self):
+        self.fx = _fixture("model_prompts.json")
+
+    def test_constants_match_rust(self):
+        c = self.fx["constants"]
+        self.assertEqual(prompt.PLAY_INSTRUCTION, c["play_instruction"])
+        self.assertEqual(prompt.COACH_INSTRUCTION, c["coach_instruction"])
+        self.assertEqual(prompt.COMBINED_INSTRUCTION, c["combined_instruction"])
+        self.assertEqual(prompt.TOOL_CALL_FORMAT, c["tool_call_format"])
+        self.assertEqual(prompt.MAX_SUMMARY_CHARS, c["max_summary_chars"])
+        self.assertEqual(prompt.MAX_RECENT_MESSAGES, c["max_recent_messages"])
+        self.assertEqual(prompt.MAX_MESSAGE_CHARS, c["max_message_chars"])
+        self.assertEqual(prompt.MAX_REASONING_CHARS, c["max_reasoning_chars"])
+        self.assertEqual(prompt.EXCERPT_CHARS, c["excerpt_chars"])
+
+    def test_prefixes_and_example_prompts_match_rust_bytes(self):
+        self.assertEqual(prompt.prefix("play"), self.fx["prefixes"]["play"])
+        self.assertEqual(prompt.prefix("coach"), self.fx["prefixes"]["coach"])
+        self.assertEqual(prompt.combined_prefix(), self.fx["prefixes"]["combined"])
+        ex = self.fx["example"]
+        packet = json.loads(ex["packet"])
+        self.assertEqual(prompt.packet_json(packet), ex["packet"])
+        self.assertEqual(play_text(packet), ex["play"])
+        self.assertEqual(coach_text(packet, ex["summary"], ex["recent"]), ex["coach"])
+        self.assertEqual(prompt.combined_text(packet, "play", ex["summary"], ex["recent"]), ex["combined_play"])
+        self.assertEqual(prompt.combined_text(packet, "coach", ex["summary"], ex["recent"]), ex["combined_coach"])
+
+    def test_combined_prefix_shows_both_schemas_and_is_stable(self):
+        both = prompt.combined_prefix()
+        for name in tool_names("play") + tool_names("coach"):
+            self.assertIn(name, both)
+        a = prompt.combined_text(PACKET, "play")
+        b = prompt.combined_text(dict(PACKET, fen="8/8/8/8/8/8/8/K6k w - - 0 1"), "coach", summary="s")
+        self.assertTrue(a.startswith(both) and b.startswith(both))
+        self.assertTrue(a.endswith(prompt.packet_json(PACKET)))
+        with self.assertRaises(ValueError):
+            prompt.combined_text(PACKET, "both")
+
+    def test_coach_rule_is_provisional_and_play_prompt_has_no_provisional(self):
+        self.assertIn("Provisional:", prompt.COACH_INSTRUCTION)
+        self.assertNotIn("Provisional", prompt.PLAY_INSTRUCTION)
+        self.assertNotIn("Move:", prompt.COACH_INSTRUCTION)
+
+
+class PlayCompletionParity(unittest.TestCase):
+    def test_every_shared_case_gives_the_same_answer(self):
+        cases = _fixture("play_completion_cases.json")
+        self.assertGreater(len(cases), 20)
+        for case in cases:
+            text = case["text"]
+            if "ok" in case:
+                self.assertEqual(prompt.parse_play_completion(text), case["ok"], text)
+                self.assertEqual(
+                    prompt.format_play_completion(case["ok"]["reasoning"], case["ok"]["move"]), text.strip()
+                )
+            else:
+                with self.assertRaises(prompt.PlayCompletionError, msg=text) as ctx:
+                    prompt.parse_play_completion(text)
+                self.assertEqual(ctx.exception.code, case["error"], text)
+
+    def test_plain_json_extras_are_refused(self):
+        for text in (
+            '<tool_call>{"name":"submit_move","arguments":{"reasoning":NaN,"move":"e2e4"}}</tool_call>',
+            '<tool_call>{"name":"submit_move","arguments":{"reasoning":"a","move":"e2e4\\n"}}</tool_call>',
+        ):
+            with self.assertRaises(prompt.PlayCompletionError):
+                prompt.parse_play_completion(text)
+
+
+class ChatSummaryParity(unittest.TestCase):
+    def test_shared_cases(self):
+        cases = _fixture("chat_summary_cases.json")
+        for case in cases:
+            got = prompt.summarize_chat(case["previous"], case["messages"])
+            self.assertEqual(got, case["summary"])
+            self.assertLessEqual(len(got), prompt.MAX_SUMMARY_CHARS)
+
+    def test_deterministic_rolling_and_in_bounds_for_chat_context(self):
+        msgs = [{"role": "user" if i % 2 == 0 else "assistant", "text": f"{i} " + "word " * 100} for i in range(40)]
+        summary, recent = prompt.roll_chat(None, msgs)
+        self.assertEqual((summary, recent), prompt.roll_chat(None, msgs))
+        self.assertEqual(recent, msgs[-prompt.MAX_RECENT_MESSAGES:])
+        self.assertTrue(summary.startswith("\u2026"))
+        self.assertIn("A: 33 ", summary)
+        self.assertNotIn("U: 0 ", summary)
+        # The result always fits the chat-context bound.
+        prompt.chat_context(summary, [])
+        self.assertEqual(prompt.roll_chat("keep", msgs[:3]), ("keep", msgs[:3]))
+
+
 if __name__ == "__main__":
     unittest.main()
