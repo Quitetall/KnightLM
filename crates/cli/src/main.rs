@@ -64,6 +64,17 @@ enum Command {
     },
     /// Rules-only position facts (side, check, material, captures, a move's effect) for JSONL on stdin.
     CorpusFacts,
+    /// Render a position as Chess Graph Text (cgt/1); see docs/model/graph-text.md.
+    Cgt {
+        #[arg(long)]
+        fen: String,
+        /// `lite` (board + legal moves per piece) or `full` (plus edges).
+        #[arg(long, default_value = "full")]
+        variant: String,
+        /// Repetition count from the packet; omitted means `rep ?` (unknown).
+        #[arg(long)]
+        rep: Option<u32>,
+    },
     /// Replay JSONL SAN lines ({id, fen?, sans}) and report validated FENs.
     ReplayLines,
     /// Check observed board placement against the authoritative ledger.
@@ -266,6 +277,26 @@ fn main() -> Result<()> {
             std::io::stdin().lock(),
             std::io::BufWriter::new(std::io::stdout().lock()),
         )?,
+        Command::Cgt { fen, variant, rep } => {
+            let variant = match variant.as_str() {
+                "lite" => knightlm_notation::cgt::CgtVariant::Lite,
+                "full" => knightlm_notation::cgt::CgtVariant::Full,
+                other => anyhow::bail!("unknown cgt variant {other:?}; use lite or full"),
+            };
+            let parsed = knightlm_notation::fen::parse_fen(&fen)?;
+            ensure!(
+                parsed.has_clocks,
+                "cgt needs a six-field FEN (halfmove and fullmove clocks)"
+            );
+            let facts = knightlm_notation::cgt::CgtFacts {
+                repetition_count: rep,
+                terminal_reason: None,
+            };
+            let text = knightlm_notation::cgt::render_cgt(&parsed.position, &facts, variant);
+            // Refuse to print anything the parser would not read back.
+            knightlm_notation::cgt::parse_cgt(&text)?;
+            println!("{text}");
+        }
         Command::ReplayLines => corpus::replay_lines(
             std::io::stdin().lock(),
             std::io::BufWriter::new(std::io::stdout().lock()),
