@@ -83,6 +83,17 @@ class FakeUciOracleTests(unittest.TestCase):
         self.assertEqual(axis["engine"]["nodes"], 800)
         self.assertEqual(len(axis["engine"]["weights_sha256"]), 64)
 
+    def test_backend_is_pinned_by_option_or_env_and_recorded(self):
+        records = predict_rows(ROWS, fakes.worked_example(), MODES, 1)
+        axis = oracles.lc0_axis(records, MODES, self.oracle())
+        self.assertEqual(axis["engine"]["backend"], "lc0 default")
+        self.assertNotIn("name Backend", self.log.read_text())
+        with mock.patch.dict(os.environ, {"LC0_BACKEND": "blas"}):
+            axis = oracles.lc0_axis(records, MODES, self.oracle())
+        self.assertEqual(axis["engine"]["backend"], "blas")
+        self.assertIn("setoption name Backend value blas", self.log.read_text())
+        self.assertEqual(self.oracle(backend="eigen").info()["backend"], "eigen")
+
     def test_maia_match_counts_every_row_and_reports_the_human_reference(self):
         with mock.patch.dict(os.environ, {"FAKE_UCI_SCRIPT": str(script(self.tmp / "m.json", maia_other_for=(2,)))}):
             weights = self.tmp / "maia-1500.pb.gz"
