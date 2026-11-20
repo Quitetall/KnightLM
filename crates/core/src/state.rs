@@ -70,7 +70,14 @@ pub struct DerivedFeatures {
 pub struct PacketOptions {
     pub legal_choices: bool,
     pub derived_features: bool,
+    /// Experiment arm "state plus consequences" (docs/model/modes-and-tools.md
+    /// section 6): adds `legal_move_effects` and sets the packet to schema v2.
+    /// Off by default; with it off the packet bytes are exactly v1.
+    pub legal_move_effects: bool,
 }
+
+/// Packet schema version written when [`PacketOptions::legal_move_effects`] is on.
+pub const PACKET_SCHEMA_V2: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -87,6 +94,10 @@ pub struct ContextPacket {
     pub legal_moves: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub features: Option<DerivedFeatures>,
+    /// Packet v2 only: per legal move, the rule consequences it would have
+    /// (`repeats:N`, `resets_clock`). Moves with no consequence are omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legal_move_effects: Option<BTreeMap<String, Vec<String>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -365,7 +376,11 @@ impl GameState {
 
     pub fn compile(&self, options: PacketOptions) -> ContextPacket {
         ContextPacket {
-            schema_version: SCHEMA_VERSION,
+            schema_version: if options.legal_move_effects {
+                PACKET_SCHEMA_V2
+            } else {
+                SCHEMA_VERSION
+            },
             ruleset: if self.variant == Variant::Chess {
                 "standard-untimed-v1".to_owned()
             } else {
@@ -377,7 +392,42 @@ impl GameState {
             facts: self.facts(),
             legal_moves: options.legal_choices.then(|| self.legal_moves()),
             features: options.derived_features.then(|| self.features()),
+            legal_move_effects: options
+                .legal_move_effects
+                .then(|| self.legal_move_effects()),
         }
+    }
+
+    /// What each legal move would do to the repetition count and the halfmove
+    /// clock, by playing it on a copy: `repeats:N` when the position reached
+    /// would have occurred N >= 2 times (only when the history is complete, as
+    /// for `repetition_count`), and `resets_clock` for a pawn move or capture.
+    pub fn legal_move_effects(&self) -> BTreeMap<String, Vec<String>> {
+        let mut effects = BTreeMap::new();
+        for uci in self.legal_moves() {
+            let mut next = self.clone();
+            if next.play(&uci).is_err() {
+                continue;
+            }
+            let mut tags = Vec::new();
+            if self.record.history_complete {
+                let count = next
+                    .repetitions
+                    .get(&next.position_key())
+                    .copied()
+                    .unwrap_or(0);
+                if count >= 2 {
+                    tags.push(format!("repeats:{count}"));
+                }
+            }
+            if next.board.halfmoves() == 0 {
+                tags.push("resets_clock".to_owned());
+            }
+            if !tags.is_empty() {
+                effects.insert(uci, tags);
+            }
+        }
+        effects
     }
 
     pub fn verify_observation(&self, observation: &BoardObservation) -> Result<()> {
@@ -466,6 +516,34 @@ pub struct ToolReply {
     pub error: Option<String>,
 }
 
+/// The answer to one read query: rules facts only, never a score or a ranking.
+#[derive(Debug, Serialize)]
+pub struct ReadReply {
+    pub call: usize,
+    pub ok: bool,
+    pub result: Option<serde_json::Value>,
+    pub error: Option<String>,
+}
+
+impl ReadReply {
+    fn ok(call: usize, result: serde_json::Value) -> Self {
+        Self {
+            call,
+            ok: true,
+            result: Some(result),
+            error: None,
+        }
+    }
+    fn err(call: usize, error: impl Into<String>) -> Self {
+        Self {
+            call,
+            ok: false,
+            result: None,
+            error: Some(error.into()),
+        }
+    }
+}
+
 impl RuleSession {
     pub fn new(state: GameState, budget: usize) -> Self {
         Self {
@@ -476,6 +554,105 @@ impl RuleSession {
     }
     pub fn calls(&self) -> usize {
         self.calls
+    }
+    pub fn budget(&self) -> usize {
+        self.budget
+    }
+    pub fn remaining(&self) -> usize {
+        self.budget.saturating_sub(self.calls)
+    }
+
+    /// Charge one call against the shared budget. Every read query below goes
+    /// through here, so queries and `simulate` spend the same budget.
+    fn charge(&mut self) -> Result<usize> {
+        ensure!(self.calls < self.budget, "rule-tool budget exhausted");
+        self.calls += 1; // Bad requests also consume budget.
+        Ok(self.calls)
+    }
+
+    /// Every legal move at the session root (the packet position), as UCI.
+    pub fn list_legal_moves(&mut self) -> Result<ReadReply> {
+        let call = self.charge()?;
+        let moves = self.states[0].legal_moves();
+        Ok(ReadReply::ok(call, serde_json::json!({"moves": moves})))
+    }
+
+    /// Play up to eight UCI moves on a scratch copy of the root. Rules facts
+    /// only: no score, no ranking.
+    pub fn what_if(&mut self, moves: &[String]) -> Result<ReadReply> {
+        let call = self.charge()?;
+        if moves.is_empty() || moves.len() > 8 {
+            return Ok(ReadReply::err(call, "what_if takes 1 to 8 moves"));
+        }
+        let mut state = self.states[0].clone();
+        for (index, mv) in moves.iter().enumerate() {
+            if let Err(err) = state.play(mv) {
+                return Ok(ReadReply::err(
+                    call,
+                    format!("move {} is not playable ({err}); {index} played", index + 1),
+                ));
+            }
+        }
+        let facts = state.facts();
+        Ok(ReadReply::ok(
+            call,
+            serde_json::json!({
+                "fen": state.fen(),
+                "in_check": facts.in_check,
+                "legal_move_count": state.legal_moves().len(),
+                "terminal_reason": facts.terminal_reason,
+            }),
+        ))
+    }
+
+    /// Squares of the pieces that attack the piece on `square`: the opposing
+    /// colour's pieces. Pins are ignored, like `DerivedFeatures::attacks`.
+    pub fn attackers_of(&mut self, square: &str) -> Result<ReadReply> {
+        self.pressure(square, true)
+    }
+
+    /// Squares of the same-colour pieces that defend the piece on `square`.
+    pub fn defenders_of(&mut self, square: &str) -> Result<ReadReply> {
+        self.pressure(square, false)
+    }
+
+    fn pressure(&mut self, square: &str, attackers: bool) -> Result<ReadReply> {
+        let call = self.charge()?;
+        let Ok(sq) = square.parse::<Square>() else {
+            return Ok(ReadReply::err(call, "not a square"));
+        };
+        let board = self.states[0].board();
+        let Some(piece) = board.piece_at(sq) else {
+            return Ok(ReadReply::err(call, "no piece on that square"));
+        };
+        let color = if attackers {
+            piece.color.other()
+        } else {
+            piece.color
+        };
+        let mut squares: Vec<String> = board
+            .attacks_to(sq, color, board.occupied())
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+        squares.sort();
+        Ok(ReadReply::ok(
+            call,
+            serde_json::json!({"square": square, "squares": squares}),
+        ))
+    }
+
+    /// Whether a legal move gives check (or mate) at the session root.
+    pub fn gives_check(&mut self, mv: &str) -> Result<ReadReply> {
+        let call = self.charge()?;
+        let mut state = self.states[0].clone();
+        if let Err(err) = state.play(mv) {
+            return Ok(ReadReply::err(call, format!("not a legal move ({err})")));
+        }
+        Ok(ReadReply::ok(
+            call,
+            serde_json::json!({"move": mv, "gives_check": state.facts().in_check}),
+        ))
     }
     pub fn simulate(&mut self, branch: usize, mv: &str) -> Result<ToolReply> {
         ensure!(self.calls < self.budget, "rule-tool budget exhausted");

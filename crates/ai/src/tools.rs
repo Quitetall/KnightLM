@@ -1333,6 +1333,23 @@ impl SubmitMoveGate {
         self.attempts
     }
 
+    /// Count one failed attempt that was not a move: a malformed call, a tool
+    /// outside the schema or bad arguments (docs/model/modes-and-tools.md
+    /// section 5: each counts as an attempt).
+    pub fn reject(&mut self, error: String) -> SubmitOutcome {
+        if self.attempts >= self.max_attempts {
+            return SubmitOutcome::Fallback;
+        }
+        self.attempts += 1;
+        if self.attempts >= self.max_attempts {
+            return SubmitOutcome::Fallback;
+        }
+        SubmitOutcome::Rejected {
+            error,
+            attempts_left: self.max_attempts - self.attempts,
+        }
+    }
+
     pub fn submit(&mut self, mv: &str) -> SubmitOutcome {
         if self.attempts >= self.max_attempts {
             return SubmitOutcome::Fallback;

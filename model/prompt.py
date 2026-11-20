@@ -33,19 +33,15 @@ MAX_SUMMARY_CHARS = 1200
 MAX_RECENT_MESSAGES = 6
 MAX_MESSAGE_CHARS = 800
 
-PLAY_INSTRUCTION = (
-    "You are playing chess in competition mode. Write one short reasoning field, "
-    "then call submit_move with a legal UCI move. Use only the tools listed; "
-    "reply with a single tool call.\n"
-)
-COACH_INSTRUCTION = (
-    "You are a chess coach playing a game. Your first line must be "
-    "`Move: <legal UCI move>`; then reply to the user. Use only the tools listed.\n"
-)
+PLAY_INSTRUCTION = 'You are playing chess in competition mode. Reply with exactly one tool call: call submit_move with a short reasoning field first, then a legal UCI move. Use only the tools listed.\n'
+COACH_INSTRUCTION = 'You are a chess coach playing a game. Your first line must be `Provisional: <legal UCI move>`. You may think aloud and later write another `Provisional: <legal UCI move>` line to change it; the last legal one is your move when you stop. Then reply to the user. Use only the tools listed.\n'
+COMBINED_INSTRUCTION = "You are a chess coach that also plays competitively. The line `Mode: play` or `Mode: coach` after the tool lists names this turn's mode; call only that mode's tools. In play mode reply with exactly one submit_move call, reasoning field first, then a legal UCI move. In coach mode your first line must be `Provisional: <legal UCI move>`, which a later `Provisional:` line may revise (the last legal one is your move), then reply to the user.\n"
 _INSTRUCTIONS = {"play": PLAY_INSTRUCTION, "coach": COACH_INSTRUCTION}
 TOOL_CALL_FORMAT = (
     '<tool_call>{"name": "<tool>", "arguments": {...}}</tool_call>\n'
 )
+MAX_REASONING_CHARS = 400
+EXCERPT_CHARS = 120
 
 
 def load_tool_schemas(path=None):
@@ -118,3 +114,157 @@ def coach_text(packet, summary=None, recent=(), schemas=None):
 def mode_chat(text):
     """Wrap a mode prompt as one user turn, like user_chat."""
     return [{"role": "user", "content": [{"type": "text", "text": text}]}]
+
+
+# --- Combined prefix for a long chat -------------------------------------------
+# Both schemas in one fixed prefix; each call is still checked against the schema
+# of the mode named on the `Mode:` line (docs/model/modes-and-tools.md section 3).
+
+
+def _blob(mode, schemas):
+    return json.dumps(schemas["modes"][mode], sort_keys=True, separators=(",", ":"))
+
+
+def combined_prefix(schemas=None):
+    schemas = schemas or load_tool_schemas()
+    return (
+        COMBINED_INSTRUCTION
+        + TOOL_CALL_FORMAT
+        + "Play tools:\n"
+        + _blob("play", schemas)
+        + "\nCoach tools:\n"
+        + _blob("coach", schemas)
+        + "\n"
+    )
+
+
+def combined_text(packet, mode, summary=None, recent=(), schemas=None):
+    """Long chat: both schemas, then this turn's mode, chat context, packet last."""
+    _check_mode(mode)
+    return (
+        combined_prefix(schemas)
+        + f"Mode: {mode}\n"
+        + chat_context(summary, recent)
+        + "Position packet:\n"
+        + packet_json(packet)
+    )
+
+
+# --- Play-mode completion format -------------------------------------------------
+# The exact completion a play row is trained to write: one submit_move call whose
+# arguments are `reasoning` then `move`, nothing outside the block. The Rust parser
+# (crates/ai/src/model_turn.rs) and this one are pinned by
+# crates/ai/schemas/play_completion_cases.json.
+
+import re
+
+TOOL_CALL_OPEN = "<tool_call>"
+TOOL_CALL_CLOSE = "</tool_call>"
+_UCI = re.compile(r"[a-h][1-8][a-h][1-8][qrbn]?")
+
+
+class PlayCompletionError(ValueError):
+    """`code` is the spelling shared with Rust's PlayCompletionError::code."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+class _Obj(list):
+    """A JSON object as ordered (key, value) pairs, duplicates kept."""
+
+
+def _no_constant(name):
+    raise ValueError(name)
+
+
+def format_play_completion(reasoning, move):
+    return (
+        TOOL_CALL_OPEN
+        + '{"name":"submit_move","arguments":{"reasoning":'
+        + json.dumps(reasoning, ensure_ascii=False)
+        + ',"move":'
+        + json.dumps(move, ensure_ascii=False)
+        + "}}"
+        + TOOL_CALL_CLOSE
+    )
+
+
+def parse_play_completion(text):
+    """Return {"reasoning", "move"} or raise PlayCompletionError. Legality is not checked."""
+    err = PlayCompletionError
+    if text.count(TOOL_CALL_OPEN) != 1 or text.count(TOOL_CALL_CLOSE) != 1:
+        raise err("not_one_call")
+    start, end = text.index(TOOL_CALL_OPEN), text.index(TOOL_CALL_CLOSE)
+    if end < start:
+        raise err("not_one_call")
+    if text[:start].strip() or text[end + len(TOOL_CALL_CLOSE):].strip():
+        raise err("extra_text")
+    try:
+        top = json.loads(
+            text[start + len(TOOL_CALL_OPEN):end].strip(),
+            object_pairs_hook=_Obj,
+            parse_constant=_no_constant,
+        )
+    except ValueError:
+        raise err("malformed") from None
+    if not isinstance(top, _Obj):
+        raise err("malformed")
+    keys = [k for k, _ in top]
+    fields = dict(top)
+    if sorted(keys) != ["arguments", "name"] or not isinstance(fields["name"], str):
+        raise err("malformed")
+    args = fields["arguments"]
+    if not isinstance(args, _Obj):
+        raise err("malformed")
+    if fields["name"] != "submit_move":
+        raise err("wrong_tool")
+    names = [k for k, _ in args]
+    if names != ["reasoning", "move"]:
+        if names == ["move", "reasoning"]:
+            raise err("key_order")
+        raise err("reasoning_missing" if names == ["move"] else "malformed")
+    reasoning, move = args[0][1], args[1][1]
+    if not isinstance(reasoning, str) or not reasoning.strip():
+        raise err("reasoning_missing")
+    if len(reasoning) > MAX_REASONING_CHARS:
+        raise err("reasoning_too_long")
+    if not isinstance(move, str) or not _UCI.fullmatch(move):
+        raise err("bad_move")
+    return {"reasoning": reasoning, "move": move}
+
+
+# --- Deterministic chat summarizer -------------------------------------------------
+# No model call. Mirrors summarize_chat / roll_chat in model_turn.rs, pinned by
+# crates/ai/schemas/chat_summary_cases.json.
+
+
+def _excerpt(text):
+    flat = " ".join(text.split())
+    return flat if len(flat) <= EXCERPT_CHARS else flat[: EXCERPT_CHARS - 1] + "\u2026"
+
+
+def summarize_chat(previous, dropped):
+    """Fold dropped messages into the rolling summary, bounded by MAX_SUMMARY_CHARS."""
+    parts = [previous] if previous else []
+    for message in dropped:
+        tag = "U" if message["role"] == "user" else "A"
+        parts.append(f"{tag}: {_excerpt(message['text'])}")
+    joined = " | ".join(parts)
+    if len(joined) <= MAX_SUMMARY_CHARS:
+        return joined
+    tail = joined[-(MAX_SUMMARY_CHARS - 1):]
+    cut = tail.find(" | ")
+    if cut >= 0:
+        tail = tail[cut + 3:]
+    return "\u2026" + tail
+
+
+def roll_chat(summary, messages):
+    """Keep the last MAX_RECENT_MESSAGES messages; fold older ones into the summary."""
+    messages = list(messages)
+    skip = max(0, len(messages) - MAX_RECENT_MESSAGES)
+    if skip == 0:
+        return summary, messages
+    return summarize_chat(summary, messages[:skip]), messages[skip:]

@@ -395,6 +395,7 @@ fn packet_carries_repetition_and_clock_facts_without_per_move_flags() {
     let packet = serde_json::to_value(s.compile(PacketOptions {
         legal_choices: true,
         derived_features: false,
+        ..PacketOptions::default()
     }))
     .unwrap();
     let facts = packet["facts"].as_object().unwrap();
