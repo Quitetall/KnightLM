@@ -42,7 +42,7 @@ class DataTests(unittest.TestCase):
         x2 = np.asarray(render_board(MID, b, 7))
         self.assertTrue((x1 == x2).all())
         self.assertFalse((x1 == np.asarray(render_board(MID, b, 8))).all())  # noise seed matters
-        self.assertFalse((np.asarray(render_board(MID, a, 7)) == x1).all())  # styles differ
+        self.assertNotEqual(np.asarray(render_board(MID, a, 7)).shape, x1.shape)  # styles differ
 
     def test_flip_gives_same_labels(self):
         from model.perceiver.render import render_board, board_to_cells
