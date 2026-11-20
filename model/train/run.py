@@ -114,7 +114,7 @@ def trainer_encode_matches_harness(rows, data, processor, harness_encode):
             # the prompt ids are a prefix, loss covers the whole completion, and it ends on end-of-turn.
             tokenizer = processor.tokenizer
             tail = tokenizer.decode(ours[1][len(ours[0]):], skip_special_tokens=False)
-            if not tail.startswith(record["completion"]) or ours[1][:len(ours[0])] != ours[0]:
+            if not tail.lstrip().startswith(record["completion"]) or not tail.endswith("<end_of_utterance>") or ours[1][:len(ours[0])] != ours[0]:
                 raise Refused(f"reasoning row for game {row['game_id']} does not encode as prompt + completion + end")
             continue
         reference = harness_encode(row, processor)
