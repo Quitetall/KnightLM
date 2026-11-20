@@ -13,7 +13,8 @@ from model.eval.render import fmt
 
 # (axis path suffix) -> "up" or "down" is better. Unlisted numeric leaves get no arrow.
 LOWER_IS_BETTER = ("centipawn_loss", "latency_ms", "token_cost", "failures", "rows_unscored")
-SKIP = ("gate", "set", "engine", "protocol", "tokenizer_recount")
+LOWER_IS_BETTER_LEAVES = ("failed", "failed_total", "explanations_missing", "explanations_with_a_failed_claim")
+SKIP = ("gate", "set", "engine", "protocol", "tokenizer_recount", "rating", "status", "source")
 
 
 def load(path):
@@ -41,6 +42,8 @@ def direction(path):
         return "up"
     if leaf.startswith("engine_best"):
         return "up"
+    if leaf in LOWER_IS_BETTER_LEAVES or (leaf in ("mean", "median", "p90") and path.startswith("lc0_strength.")):
+        return "down"
     if any(part in path.split(".") for part in LOWER_IS_BETTER) or leaf == "losses":
         return "down"
     if leaf in ("rate", "accuracy", "score", "matches", "correct", "legal", "wins"):
@@ -58,6 +61,10 @@ def comparability(a, b):
         "stockfish binary": lambda i: (i.get("stockfish") or {}).get("stockfish_sha256"),
         "tactical set": lambda i: (i.get("tactical_set") or {}).get("sha256"),
         "modes": lambda i: i.get("settings", {}).get("modes"),
+        "lc0 nodes": lambda i: i.get("settings", {}).get("lc0_nodes"),
+        "lc0 weights": lambda i: ((i.get("oracles") or {}).get("lc0") or {}).get("weights_sha256"),
+        "maia rating": lambda i: i.get("settings", {}).get("maia_rating"),
+        "maia weights": lambda i: ((i.get("oracles") or {}).get("maia") or {}).get("weights_sha256"),
     }
     for name, get in checks.items():
         if get(ia) != get(ib):

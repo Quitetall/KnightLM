@@ -53,7 +53,7 @@ class StockfishScorer:
     def _run(self, command, rows):
         payload = "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows)
         env = dict(os.environ, STOCKFISH_PATH=str(self.stockfish))
-        done = subprocess.run([str(self.binary), *command], input=payload, capture_output=True,
+        done = subprocess.run([str(self.binary), *command, *self.extra_args()], input=payload, capture_output=True,
                               text=True, timeout=self.timeout_s, env=env)
         if done.returncode != 0:
             raise RuntimeError(f"{command[0]} failed: {done.stderr.strip()[:500]}")
@@ -61,6 +61,10 @@ class StockfishScorer:
         if len(out) != len(rows):
             raise RuntimeError(f"{command[0]} returned {len(out)} results for {len(rows)} inputs")
         return out
+
+    def extra_args(self):
+        """Extra `knightlm score-moves/rank-positions` flags; subclasses add oracle options."""
+        return []
 
     def _sharded(self, command, rows):
         if not rows:
