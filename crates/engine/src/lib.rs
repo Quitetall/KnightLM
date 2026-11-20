@@ -105,6 +105,8 @@ pub struct Engine {
     name: String,
     version: String,
     timeout: Duration,
+    /// `go nodes N` instead of `go depth N` (Leela and Maia net engines search by nodes).
+    limit_nodes: bool,
 }
 
 /// One MultiPV line as the engine reported it: depth, score, mate score,
@@ -153,6 +155,7 @@ impl Engine {
             name: String::new(),
             version: String::new(),
             timeout: Duration::from_secs(timeout_secs),
+            limit_nodes: false,
         };
         eng.handshake()?;
         for cmd in options.commands() {
@@ -237,6 +240,21 @@ impl Engine {
         self.wait_ready()
     }
 
+    /// Make the numeric limit passed to `analyse` a node count (`go nodes N`)
+    /// rather than a depth. A node limit of 1 asks a policy-head engine (Maia
+    /// through lc0) for its raw top move.
+    pub fn set_node_limit(&mut self, nodes: bool) {
+        self.limit_nodes = nodes;
+    }
+
+    fn go_command(&self, limit: u32) -> String {
+        if self.limit_nodes {
+            format!("go nodes {limit}")
+        } else {
+            format!("go depth {limit}")
+        }
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -248,7 +266,8 @@ impl Engine {
     pub fn analyse(&mut self, fen: &str, depth: u32) -> Result<Analysis> {
         self.send("setoption name MultiPV value 1")?;
         self.send(&format!("position fen {fen}"))?;
-        self.send(&format!("go depth {depth}"))?;
+        let go = self.go_command(depth);
+        self.send(&go)?;
 
         let mut best_move = String::new();
         let mut score_cp = None;
@@ -318,10 +337,11 @@ impl Engine {
         let n = lines.clamp(1, 8);
         self.send(&format!("setoption name MultiPV value {n}"))?;
         self.send(&format!("position fen {fen}"))?;
-        self.send(&format!("go depth {depth}"))?;
+        let go = self.go_command(depth);
+        self.send(&go)?;
         let mut best: BTreeMap<u16, MultiPvLine> = BTreeMap::new();
         let deadline = Instant::now() + self.timeout;
-        loop {
+        let bestmove = loop {
             match self.recv_until(deadline)? {
                 UciMessage::Info(attrs) => {
                     let idx = attrs
@@ -363,11 +383,19 @@ impl Engine {
                     }
                     best.insert(idx, (d, score, mate, pv, nodes, nps));
                 }
-                UciMessage::BestMove { .. } => break,
+                UciMessage::BestMove { best_move: bm, .. } => break bm.to_string(),
                 _ => {}
             }
-        }
+        };
         let _ = self.send("setoption name MultiPV value 1");
+        // An engine that answers `bestmove` without a usable info line (a
+        // one-node policy search) still names its first line.
+        let first = best
+            .entry(1)
+            .or_insert((0, None, None, Vec::new(), None, None));
+        if first.3.is_empty() {
+            first.3 = vec![bestmove];
+        }
         Ok(best
             .into_iter()
             .map(|(idx, (d, score, mate, pv, nodes, nps))| Analysis {

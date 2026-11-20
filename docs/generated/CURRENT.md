@@ -36,10 +36,11 @@ SAS revision **0.1.0** (accepted), sha256:`bd9924af9b4f5fc12792e794f6a3e00277de6
 
 ## Decisions
 
-0 accepted decision(s), expanded; 1 proposed, one line each.
+0 accepted decision(s), expanded; 2 proposed, one line each.
 
 ### Proposed
 
+- [KLM-ADR-modes-and-tools](../../docs/adr/atoms/KLM-ADR-modes-and-tools.md) — Two modes, two tool schemas, packet last
 - [KLM-ADR-viewer-single-rbc](../../docs/adr/atoms/KLM-ADR-viewer-single-rbc.md) — RustyBrickChess is the single viewer
 
 ## Roadmap

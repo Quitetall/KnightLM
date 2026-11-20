@@ -25,6 +25,10 @@
 > -
 - doc:docs/README.md · document · - · Documentation · docs/README.md:1
 
+## docs/adr/atoms/KLM-ADR-modes-and-tools.md
+> -
+- KLM-ADR-modes-and-tools · adr · - · Two modes, two tool schemas, packet last · docs/adr/atoms/KLM-ADR-modes-and-tools.md:1
+
 ## docs/adr/atoms/KLM-ADR-viewer-single-rbc.md
 > -
 - KLM-ADR-viewer-single-rbc · adr · - · RustyBrickChess is the single viewer · docs/adr/atoms/KLM-ADR-viewer-single-rbc.md:1
@@ -76,6 +80,10 @@
 ## docs/model/history/verification.md
 > -
 - doc:docs/model/history/verification.md · document · - · Scaffold verification · docs/model/history/verification.md:1
+
+## docs/model/modes-and-tools.md
+> -
+- doc:docs/model/modes-and-tools.md · document · - · Modes and tools contract · docs/model/modes-and-tools.md:1
 
 ## docs/model/plan.md
 > -

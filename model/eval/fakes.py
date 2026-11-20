@@ -134,3 +134,21 @@ def first_legal():
 
 def worked_example():
     return WorkedExample()
+
+
+class Explaining(Perfect):
+    """Perfect moves plus a scripted explanation: row 0 is wrong twice, row 1 true, the rest say nothing checkable."""
+
+    def explain(self, packet):
+        i = self.index.get(packet["fen"], -1)
+        if i == 0:
+            return "The queen on d4 is strong, and Qh7 follows."
+        if i == 1:
+            return "The knight on d5 is well placed."
+        if i == 2:
+            raise RuntimeError("explain failed")
+        return "A fine developing move."
+
+
+def explaining():
+    return Explaining()

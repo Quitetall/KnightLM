@@ -57,6 +57,36 @@ def render_markdown(card):
           [[m, v["total"], v["rate"], *(v["by_kind"][k] for k in ("illegal", "unparseable", "empty", "exception",
                                                                   "timeout", "missing")),
             v["predictor_legal_claim_disagrees"]] for m, v in axes["failures"].items()])
+    lc0 = axes.get("lc0_strength")
+    if lc0 and lc0.get("status") == "skipped":
+        lines.extend(["## lc0 strength oracle", "", f"Skipped: {lc0['reason']}", ""])
+    elif lc0:
+        eng = lc0["engine"]
+        table(f"lc0 centipawn loss ({eng['engine']}, {eng['nodes']} nodes, weights {eng['weights_sha256'][:12]}); "
+              "not comparable to Stockfish centipawns",
+              ["mode", "scored", "unscored", "n", "mean", "median", "p90", "scored = lc0 best"],
+              [[m, lc0[m]["rows_scored"], lc0[m]["rows_unscored"], lc0[m]["n"], lc0[m]["mean"], lc0[m]["median"],
+                lc0[m]["p90"], lc0[m]["engine_best_move_rate_of_scored"]] for m in modes])
+    maia = axes.get("maia_human_likeness")
+    if maia and maia.get("status") == "skipped":
+        lines.extend(["## Maia human-likeness", "", f"Skipped: {maia['reason']}", ""])
+    elif maia:
+        ref = maia["reference_human_move_matches_maia"]
+        table(f"Move match to Maia {maia['rating']} top move (reference: the human move matches it in "
+              f"{ref['matches']}/{ref['n']} rows)", ["mode", "matches", "n", "rate"],
+              [[m, maia[m]["matches"], maia[m]["n"], maia[m]["rate"]] for m in modes])
+    expl = axes.get("explanation")
+    if expl and expl.get("status") == "skipped":
+        lines.extend(["## Explanation claims", "", f"Skipped: {expl['reason']}", ""])
+    elif expl:
+        lines.extend(["## Explanation claims checked against the board", "",
+                      f"{expl['n']} explanations ({expl['explanations_missing']} missing, "
+                      f"{expl['explanations_with_a_failed_claim']} with a failed claim, "
+                      f"{expl['explanations_without_checkable_claims']} with no checkable claim). "
+                      "Counts per claim type; no composite.", ""])
+        table("Claims by type", ["type", "checkable", "failed"],
+              [[k, v["checkable"], v["failed"]] for k, v in expl["claim_types"].items()])
+        table("Seen but not checkable", ["reason", "count"], list(expl["unchecked_claims"].items()))
     games = axes.get("games")
     if games:
         lines.extend(["## Games vs fixed Stockfish", "",
