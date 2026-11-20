@@ -34,6 +34,16 @@ pub fn to_san_state(state: &GameState, uci: &str) -> Result<String> {
     to_san(state.position(), uci)
 }
 
+/// Play one SAN move: the resulting position and the UCI move. Refuses
+/// malformed, illegal or ambiguous SAN; the input position is untouched.
+pub fn play_san(pos: &shakmaty::Chess, san: &str) -> Result<(shakmaty::Chess, String)> {
+    let parsed = SanPlus::from_ascii(san.as_bytes()).context("malformed SAN")?;
+    let mv = parsed.san.to_move(pos).context("illegal SAN")?;
+    let uci = UciMove::from_move(mv, CastlingMode::Standard).to_string();
+    let next = pos.clone().play(mv).context("play failed")?;
+    Ok((next, uci))
+}
+
 /// Parse SAN into a UCI move for the position in `state`.
 pub fn parse_san_state(state: &GameState, san: &str) -> Result<String> {
     parse_san_mode(state.position(), san, state.castling_mode())

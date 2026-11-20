@@ -22,6 +22,21 @@ jobs:
       # `make check` never sees `apps/`: the server and wasm frontend crates are
       # excluded from the workspace, so their lints and tests need this step.
       - run: make check-apps
+  # The Tauri desktop shell: lint it, build it, launch it under a virtual display
+  # and check the window, the per-launch token, single-instance and shutdown.
+  desktop-shell:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: rustup update stable && rustup default stable
+      - run: rustup component add rustfmt clippy
+      - name: Tauri system libraries, virtual display and Stockfish
+        run: |
+          timeout 120 sudo apt-get update
+          timeout 300 sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
+            xvfb xdotool imagemagick curl stockfish
+      - run: make check-desktop
   mojo-parity:
     runs-on: ubuntu-latest
     steps:

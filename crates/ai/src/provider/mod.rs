@@ -30,9 +30,11 @@ use serde::{Deserialize, Serialize};
 use crate::protocol::{ErrorInfo, ModelRef, ProviderKind, StopReason, ToolCall, TurnRole, Usage};
 
 mod cancel_transport;
+pub mod knightlm_serve;
 pub mod openai;
 pub mod sse;
 
+pub use knightlm_serve::{KnightLmServeProvider, SERVE_MODEL, SERVE_PROVIDER};
 pub use openai::OpenAiProvider;
 pub use sse::{SseEvent, SseParser};
 

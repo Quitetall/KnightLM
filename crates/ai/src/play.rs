@@ -279,7 +279,9 @@ pub fn request_move(
     policy: &PlayPolicy,
     cancel: &Cancellation,
 ) -> Result<ModelMove, ErrorInfo> {
-    if model.provider == "local:LAMU" && model.model == "knightlm-smolvlm-500m" {
+    let lamu_knightlm = model.provider == "local:LAMU" && model.model == "knightlm-smolvlm-500m";
+    let served_knightlm = model.provider == crate::provider::SERVE_PROVIDER;
+    if lamu_knightlm || served_knightlm {
         let (request, legal) = knightlm_move_request(game, model)
             .map_err(|failure| error(error_code::PROTOCOL, failure.to_string(), false))?;
         let uci = complete_knightlm_move(provider, &request, &legal, cancel)?;

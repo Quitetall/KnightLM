@@ -37,7 +37,7 @@ A second person should be able to repeat a run from this section alone.
 | Game opponent | Stockfish 19, fixed depth 1, 1 thread, a fresh engine process per game. |
 | Game openings | `model/eval/openings.txt` (12 six-ply openings), sha256 recorded. |
 
-Stockfish is used only after the model has committed to a move: scoring the
+Stockfish (and the optional lc0 and Maia oracles below) is used only after the model has committed to a move: scoring the
 chosen move, and as the opponent in games. Nothing in `model/serve` calls an
 engine (WAR-0005 engine-zero). The harness reaches Stockfish only through the
 Rust tool (`knightlm score-moves`, `knightlm rank-positions`, `knightlm-match`),
@@ -164,6 +164,92 @@ With 24 games the score has a wide uncertainty (a single game is 4 points of
 score). Treat game results as a sanity check on playing at all, not as an Elo
 estimate.
 
+## Extra oracles: lc0 and Maia (optional axes)
+
+Stockfish stays the scoring engine and the game opponent. Two more axes are
+available behind `--oracles lc0 maia`; each is separate, none is combined with
+another, and a run without the flag is unchanged.
+
+| Axis | Oracle | Setting | Reads as |
+| --- | --- | --- | --- |
+| `lc0_strength` | Leela Chess Zero with an lc0 network | `go nodes 800` (`--lc0-nodes`), 1 thread, no Hash option, `WeightsFile` from `LC0_WEIGHTS` or `--lc0-weights` | Centipawn loss of each legal chosen move under a second strength oracle, with the same unscored-rows rule as Stockfish CPL. Leela centipawns come from a value head and are not comparable to Stockfish centipawns; read the two axes side by side, never summed. |
+| `maia_human_likeness` | A Maia network (human move prediction at a set rating) run through lc0 | `go nodes 1` (the policy head's own top move), rating `--maia-rating` (default 1500; nets exist for 1100 to 1900 in steps of 100), weights from `MAIA_WEIGHTS_DIR/maia-RATING.pb.gz` or `--maia-weights` | Rows where the model's move equals Maia's top move / N, per mode, every row in the denominator, beside the same rate for the human move (how well Maia itself predicts the holdout). It measures resemblance to a rating's typical move, not strength. |
+
+Both run through the same Rust UCI client as Stockfish
+(`knightlm score-moves` / `rank-positions`, `crates/engine`), now with `--nodes`
+(treat the limit as `go nodes N`), `--threads`, `--hash-mb` (0 sends no Hash
+option) and repeatable `--option NAME=VALUE`. Python never speaks UCI.
+
+If the binary or a network is missing the axis is written as
+`{"status": "skipped", "reason": ...}` with a named reason (for example
+`lc0 binary not found (set LC0_PATH or --lc0-path)`), a notice goes to stderr, and
+every other axis still scores. A skip is never a zero. `inputs.json` records the
+lc0 binary and weights sha256 and the node limit, and `model.eval.compare` flags
+two scorecards as NOT COMPARABLE when lc0 nodes, Maia rating or either weights
+digest differ.
+
+lc0 code is GPL-3. Network weights are separate files whose licences have not
+been verified here; check the licence of each net before copying it into a
+run's artifacts. Nothing is downloaded by this repository. Leela search with a
+node limit is repeatable on one backend but not bit-exact across GPUs or
+backends, so record the machine in the run notes.
+
+Engine-zero (WAR-0005) holds for these oracles. They are called only by
+`model.eval` after the model has committed to a move. `model.eval.test_oracles`
+scans `model/serve` and `model/prompt.py` for imports of `model.eval` or
+`chess.engine`, and walks the crate dependency graph from the inference crates
+(`knightlm-core`, `-model`, `-player`, `-notation`, `rbc-ai`) to prove none reaches
+`knightlm-engine` or `knightlm-play`, with planted violations to show the scan
+fails when it should. The tests use a scripted UCI engine
+(`model/eval/fixtures/fake_uci.py`) in place of lc0, so they need no network
+file.
+
+## Explanation scorecard (optional axis)
+
+`--explain` asks the predictor's optional `explain(packet) -> str` for a
+free-text explanation of each row; `--explanations FILE.jsonl` (`{fen, text}`
+per line) scores text produced elsewhere. A predictor without `explain` is a
+named skip. `model/eval/explain.py` extracts the claims that can be checked
+without judgment and checks them against the position and the compiler's legal
+move list. It uses no engine, no model and no dependency (a small board built
+from the FEN; the tests cross-check it against python-chess when that is
+installed).
+
+| Claim type | Example text | Fails when |
+| --- | --- | --- |
+| `piece_on_square` | "the knight on f3", "white pawns on e4 and d4", "the e5 pawn" | the square does not hold that piece (or that colour when named) |
+| `square_state` | "e4 is empty" | the occupancy is the other way |
+| `move_legal` | `Nf3`, `exd5`, `O-O`, `e7e8q`, "play e4" | no legal move matches |
+| `move_capture` | `Nxe5` | the move captures nothing |
+| `move_check` | `Qh5+`, "this gives check" | the move does not give check |
+| `capture_target` | "captures the bishop on h5" | an enemy piece of that kind is not there |
+| `material` | "White has two rooks", "Black is up a pawn", "material is equal" | the count or point lead differs (P1 N3 B3 R5 Q9) |
+
+The axis reports, per claim type, `checkable` and `failed` counts, the number of
+explanations with a failed claim, the number with no checkable claim at all
+(silence is not truth), the number missing, and the claims seen but not
+checkable with a reason. It reports no rate across types and no composite.
+`compare` shows failed counts as lower-is-better.
+
+Limits, stated so they are not read as more than they are:
+
+- Only claims of the kinds above are checked. A fluent explanation with
+  strategic errors passes; this is a floor on truthfulness, not a quality score.
+- Moves are checked for the side to move in the given position. A sentence with
+  `then`, `reply`, `respond`, `answer`, `after`, `if`, `threat...`, `opponent` or
+  an ellipsis is a later-ply or hypothetical sentence: its claims are counted as
+  `later_ply_or_hypothetical`, not as true or false. That also hides a wrong move
+  inside such a sentence.
+- `#` is checked as check only (`mate_not_verified` is counted). A "gives
+  check" sentence with no named move is attributed to the move the model
+  committed to in raw mode, or counted `check_without_named_move`.
+- Pawn pushes are recognized as a move only after "play(s/ed)" or "push(es/ed)";
+  a bare square name is a square, not a move.
+- The extractor is regex-based, so unusual phrasing is missed (counted nowhere)
+  and the fixture set (`model/eval/fixtures/explanations.json`) only plants
+  one refusal per claim type. QUEEN's reported rate of about 2.7 factual errors
+  per explanation is unverified and is not reproduced here.
+
 ## Worked scoring example
 
 Fixture: six real Run 1 holdout rows in `model/eval/fixtures/worked-corpus`
@@ -216,6 +302,11 @@ oneoff cargo build --release -p knightlm-cli
 python3 -m model.eval.run --predictor <module:factory returning a serve Predictor> \
     --label base-untrained --rows 10000 --games 24
 python3 -m model.eval.run --predictor http://127.0.0.1:8000 --label run1 --rows 10000 --games 24
+
+# add the optional axes (missing oracles are named skips; nothing is downloaded)
+LC0_PATH=/path/to/lc0 LC0_WEIGHTS=/path/to/net.pb.gz MAIA_WEIGHTS_DIR=/path/to/maia \
+  python3 -m model.eval.run --predictor <spec> --label run1 --rows 10000 \
+    --oracles lc0 maia --maia-rating 1500 --explain
 
 # per-axis deltas, B minus A, with a comparability check
 python3 -m model.eval.compare /mnt/4tb/artifacts/KnightLM/keep/eval-base-untrained-... \

@@ -2956,10 +2956,10 @@ dependencies = [
  "knightlm-engine",
  "knightlm-model",
  "knightlm-notation",
+ "knightlm-play",
+ "knightlm-player",
  "serde",
  "serde_json",
- "ureq 3.4.2",
- "vampirc-uci",
 ]
 
 [[package]]
@@ -3006,6 +3006,29 @@ dependencies = [
  "serde",
  "serde_json",
  "shakmaty",
+]
+
+[[package]]
+name = "knightlm-play"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "knightlm-core",
+ "knightlm-engine",
+ "knightlm-notation",
+ "knightlm-player",
+ "serde",
+ "serde_json",
+ "ureq 3.4.2",
+ "vampirc-uci",
+]
+
+[[package]]
+name = "knightlm-player"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "knightlm-core",
 ]
 
 [[package]]

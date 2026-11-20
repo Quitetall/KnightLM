@@ -36,7 +36,12 @@ SAS revision **0.1.0** (accepted), sha256:`bd9924af9b4f5fc12792e794f6a3e00277de6
 
 ## Decisions
 
-0 accepted decision(s), expanded; 0 proposed, one line each.
+0 accepted decision(s), expanded; 2 proposed, one line each.
+
+### Proposed
+
+- [KLM-ADR-modes-and-tools](../../docs/adr/atoms/KLM-ADR-modes-and-tools.md) — Two modes, two tool schemas, packet last
+- [KLM-ADR-viewer-single-rbc](../../docs/adr/atoms/KLM-ADR-viewer-single-rbc.md) — RustyBrickChess is the single viewer
 
 ## Roadmap
 
@@ -191,7 +196,7 @@ by kind, and `war sign` needs a terminal or an ssh agent loaded with `-c`.
 |---|---|---|---|
 | D-001 | OpenWarrant adoption and the project's agent instructions | `AGENTS.md` | verified |
 | D-002 | Warrant corpus root | `docs/warrants/KLM-WAR-0001/manifest.toml` | verified |
-| D-003 | The repository's own check entry point | `scripts/check_all.sh` | drift |
+| D-003 | The repository's own check entry point | `scripts/check_all.sh` | verified |
 
 ### No roadmap phase
 
@@ -2064,9 +2069,7 @@ matters more than any single board pixel.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | The Leptos viewer | `apps/viewer/src/app.rs` | verified |
-| D-002 | Viewer board component | `apps/viewer/src/board.rs` | verified |
-| D-003 | Unified app shell | `apps/rusty-brick-chess/src/lib.rs` | drift |
+| D-003 | Unified app shell | `apps/rusty-brick-chess/src/lib.rs` | verified |
 
 #### KLM-WAR-0011 — Track B seed: Burn environment, SmolVLM study, and an honest-red parity battery
 
@@ -2775,7 +2778,7 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Provider trait and streaming adapter | `crates/ai/src/provider/mod.rs` | drift |
+| D-001 | Provider trait and streaming adapter | `crates/ai/src/provider/mod.rs` | verified |
 | D-002 | Agent loop with tools, retries and cancellation | `crates/ai/src/agent.rs` | verified |
 | D-003 | Approval service | `crates/ai/src/approval.rs` | verified |
 | D-004 | Runtime tests | `crates/ai/tests/agent_loop.rs` | verified |
@@ -2933,8 +2936,8 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Assistant tab and session rail | `apps/rusty-brick-chess/frontend/src/views/assistant.rs` | drift |
-| D-002 | Streaming and context inspector UI | `apps/rusty-brick-chess/frontend/src/views/analysis.rs` | drift |
+| D-001 | Assistant tab and session rail | `apps/rusty-brick-chess/frontend/src/views/assistant.rs` | verified |
+| D-002 | Streaming and context inspector UI | `apps/rusty-brick-chess/frontend/src/views/analysis.rs` | verified |
 | D-003 | Assistant CDP suites | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_ai_rail.js` | verified |
 
 #### KLM-WAR-0016 — Play and arena: human vs AI, watch mode, match loop, PGN
@@ -3063,9 +3066,9 @@ until the release gate records otherwise.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Match state machine and PGN | `crates/ai/src/game.rs` | drift |
-| D-002 | Play policy and watch mode | `crates/ai/src/play.rs` | drift |
-| D-003 | Match UI | `apps/rusty-brick-chess/frontend/src/views/play.rs` | drift |
+| D-001 | Match state machine and PGN | `crates/ai/src/game.rs` | verified |
+| D-002 | Play policy and watch mode | `crates/ai/src/play.rs` | verified |
+| D-003 | Match UI | `apps/rusty-brick-chess/frontend/src/views/play.rs` | verified |
 | D-004 | Play and watch CDP suites | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_ai_play.js` | verified |
 
 #### KLM-WAR-0017 — Tournaments and ratings: Swiss, knockout, round robin, Glicko-2
@@ -3197,7 +3200,7 @@ until the release gate records otherwise.
 |---|---|---|---|
 | D-001 | Glicko-2 ratings | `crates/ai/src/glicko.rs` | verified |
 | D-002 | Tournament formats | `crates/ai/src/tournament.rs` | verified |
-| D-003 | Tournament UI and leaderboard | `apps/rusty-brick-chess/frontend/src/views/play.rs` | drift |
+| D-003 | Tournament UI and leaderboard | `apps/rusty-brick-chess/frontend/src/views/play.rs` | verified |
 | D-004 | Leaderboard CDP suite | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_leaderboard.js` | verified |
 
 #### KLM-WAR-0018 — Structured studies: editor, chapters, boards, versions, progress, import/export
@@ -3407,7 +3410,7 @@ until the release gate records otherwise.
 | id | title | target | digest |
 |---|---|---|---|
 | D-001 | Study tools and their locks | `crates/ai/src/board.rs` | verified |
-| D-002 | Study editor | `apps/rusty-brick-chess/frontend/src/views/study.rs` | drift |
+| D-002 | Study editor | `apps/rusty-brick-chess/frontend/src/views/study.rs` | verified |
 | D-003 | Study bundle import/export | `crates/ai/src/study_bundle.rs` | verified |
 | D-004 | Study suites | `scripts/check_studies.sh` | verified |
 | D-005 | Study editor CDP suite | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_study.js` | verified |
@@ -3543,7 +3546,7 @@ until the release gate records otherwise.
 |---|---|---|---|
 | D-001 | Structural diff engine | `crates/ai/src/diff.rs` | verified |
 | D-002 | Diff tests | `crates/ai/tests/diff.rs` | verified |
-| D-003 | Compare UI | `apps/rusty-brick-chess/frontend/src/views/compare.rs` | drift |
+| D-003 | Compare UI | `apps/rusty-brick-chess/frontend/src/views/compare.rs` | verified |
 | D-004 | Compare CDP suite | `apps/rusty-brick-chess/frontend/tests/cdp/cdp_compare.js` | verified |
 
 #### KLM-WAR-0020 — Core MCP server: stdio, localhost HTTP, tools, resources, prompts, approvals
@@ -3681,7 +3684,7 @@ until the release gate records otherwise.
 | id | title | target | digest |
 |---|---|---|---|
 | D-001 | MCP protocol core | `crates/ai/src/mcp.rs` | verified |
-| D-002 | MCP transports, token and rate limit | `apps/rusty-brick-chess/src/mcp.rs` | drift |
+| D-002 | MCP transports, token and rate limit | `apps/rusty-brick-chess/src/mcp.rs` | verified |
 | D-003 | MCP setup documentation | `docs/app/mcp.md` | verified |
 | D-004 | MCP protocol tests | `crates/ai/tests/mcp.rs` | verified |
 | D-005 | MCP end-to-end suite | `scripts/check_mcp.sh` | verified |
@@ -3816,8 +3819,8 @@ until the release gate records otherwise.
 |---|---|---|---|
 | D-001 | Security review | `docs/app/security.md` | verified |
 | D-002 | Security tests | `crates/ai/tests/security.rs` | verified |
-| D-003 | The full check suite | `scripts/check_all.sh` | drift |
-| D-004 | Running and packaging documentation | `docs/app/running.md` | drift |
+| D-003 | The full check suite | `scripts/check_all.sh` | verified |
+| D-004 | Running and packaging documentation | `docs/app/running.md` | verified |
 
 ## Replaced
 
@@ -3863,5 +3866,7 @@ Every command here has been judged by the act's dry run (`war sign <target> --dr
 | authorize | KLM-WAR-0019 | `war sign KLM-WAR-0019` | would record | revision 1 awaits authorization |
 | authorize | KLM-WAR-0020 | `war sign KLM-WAR-0020` | would record | revision 1 awaits authorization |
 | authorize | KLM-WAR-0021 | `war sign KLM-WAR-0021` | would record | revision 1 awaits authorization |
+| accept | specification | `war sign spec` | would record | 20 of 20 specification record(s) await acceptance (0 edited since accepted, 20 new) |
+| sign off | t-3458 | `war sign t-3458/i-c50d --ssh-sign` | would record | "Data Engineer — Build and audit the Run 1 corpus" is finished and waits on a signature |
 | accept | SAS 0.2.0 | `war sign 0.2.0` | would refuse: sign.needs-decision | a proposed SAS revision awaits acceptance |
 | accept | SAS 0.2.1 | `war sign 0.2.1` | would refuse: sign.needs-decision | a proposed SAS revision awaits acceptance |

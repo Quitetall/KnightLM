@@ -1479,7 +1479,7 @@ pub async fn model_match_move(
                 .unwrap_or(0.6);
             let (played, vote) = rbc_ai::play::request_sampled_knightlm_move(
                 &mut game,
-                &provider,
+                &*provider,
                 &seat,
                 &cancel,
                 samples,
@@ -1488,7 +1488,7 @@ pub async fn model_match_move(
             .map_err(|error| error.message)?;
             (played, Some(vote))
         } else {
-            let played = rbc_ai::play::request_move(&mut game, &provider, &seat, &policy, &cancel)
+            let played = rbc_ai::play::request_move(&mut game, &*provider, &seat, &policy, &cancel)
                 .map_err(|error| error.message)?;
             (played, None)
         };
@@ -1560,7 +1560,7 @@ pub async fn chat_match(
     let reply = tokio::task::spawn_blocking(move || {
         let provider = provider_for(&url, &seat, false, false)?;
         let cancel = rbc_ai::provider::Cancellation::new();
-        rbc_ai::play::request_chat(&game, &provider, &seat, &policy, &message, &cancel)
+        rbc_ai::play::request_chat(&game, &*provider, &seat, &policy, &message, &cancel)
             .map_err(|error| error.message)
     })
     .await
@@ -1588,6 +1588,9 @@ fn match_endpoint(
     default: Option<&str>,
     seat: &rbc_ai::protocol::ModelRef,
 ) -> Result<String, ApiError> {
+    if seat.provider == rbc_ai::provider::SERVE_PROVIDER {
+        return Ok(crate::providers::knightlm_serve_url());
+    }
     if seat.provider == "local:LAMU" {
         return Ok(format!(
             "{}/chat/completions",
@@ -1622,7 +1625,16 @@ fn provider_for(
     seat: &rbc_ai::protocol::ModelRef,
     move_only: bool,
     thinking: bool,
-) -> Result<rbc_ai::provider::OpenAiProvider, String> {
+) -> Result<Box<dyn rbc_ai::provider::Provider>, String> {
+    if seat.provider == rbc_ai::provider::SERVE_PROVIDER {
+        // The served checkpoint only plays moves; it has no chat endpoint.
+        if !move_only {
+            return Err("the served KnightLM checkpoint only plays moves".into());
+        }
+        let provider = rbc_ai::provider::KnightLmServeProvider::new(url, 120)
+            .map_err(|error| error.message)?;
+        return Ok(Box::new(provider));
+    }
     let local_move = move_only && seat.provider == "local:LAMU";
     let config = rbc_ai::provider::ProviderConfig::openai_compatible(
         url,
@@ -1640,11 +1652,11 @@ fn provider_for(
         config
     };
     let provider = rbc_ai::provider::OpenAiProvider::new(config).map_err(|error| error.message)?;
-    Ok(match (local_move, thinking) {
+    Ok(Box::new(match (local_move, thinking) {
         (true, true) => provider.with_thinking(2048),
         (true, false) => provider.with_direct_answers(96),
         _ => provider,
-    })
+    }))
 }
 
 /// `POST /api/ai/matches/{id}/watch/step`
@@ -1693,7 +1705,7 @@ async fn watch_match_steps(
                 (&seats.black, &black_url)
             };
             let provider = provider_for(url, seat, true, false)?;
-            match rbc_ai::play::watch_step(&mut game, &provider, &seats, &cancel) {
+            match rbc_ai::play::watch_step(&mut game, &*provider, &seats, &cancel) {
                 Ok(step) => steps.push(step),
                 // A model that cannot produce a legal move stops the run; the
                 // plies already played are kept.
