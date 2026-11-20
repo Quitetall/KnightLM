@@ -14,12 +14,13 @@ from pathlib import Path
 
 from model.eval import explain as explain_module
 from model.eval import games as games_module
+from model.eval import playmode
 from model.eval import oracles
 from model.eval.corpus import load_holdout, sha256_file
 from model.eval.engine import REPO, StockfishScorer
 from model.eval.predictors import MODES, load_predictor, predictor_manifest
 from model.eval.render import render_markdown
-from model.eval.scorecard import attach_cpl, build_scorecard, call_with_timeout, predict_rows
+from model.eval.scorecard import PROMPT_KINDS, attach_cpl, build_scorecard, call_with_timeout, predict_rows
 from model.eval.tactics import load_tactics
 
 KEEP_ROOT = Path("/mnt/4tb/artifacts/KnightLM/keep")
@@ -104,20 +105,35 @@ def collect_explanations(args, rows, records, predictor):
     return axis
 
 
+def play_settings(play):
+    """What fixes the play prompt and decode, so compare can refuse a mismatch. Empty for move-only."""
+    if not play:
+        return {}
+    import hashlib
+    from model import prompt as prompt_module
+    from model.serve.inference import PLAY_MAX_NEW_TOKENS
+    return {"play_prompt_sha256": hashlib.sha256(prompt_module.prefix("play").encode()).hexdigest(),
+            "play_max_new_tokens": PLAY_MAX_NEW_TOKENS}
+
+
 def evaluate(args, predictor, description):
     rows, corpus_info = load_holdout(args.corpus, args.rows)
     modes = tuple(args.modes)
     tactics = load_tactics(args.tactics, rows) if args.tactics else None
-    records = predict_rows(rows, predictor, modes, args.timeout_s)
+    play = args.prompt_kind == "play"
+    records = predict_rows(rows, predictor, modes, args.timeout_s, args.prompt_kind)
     scorer = None if args.no_stockfish else StockfishScorer(args.depth, args.workers)
     if scorer:
         attach_cpl(records, scorer, modes)
     if args.tokenizer:
         recount_output_tokens(records, modes, args.tokenizer)
     extra_axes, oracle_info = add_oracle_axes(args, records, modes)
-    if args.explain or args.explanations:
+    if play:  # the reasoning the model wrote is the explanation; no second call
+        extra_axes["play_explanation"] = playmode.explanation_axis(rows, records, modes)
+    elif args.explain or args.explanations:
         extra_axes["explanation"] = collect_explanations(args, rows, records, predictor)
-    scorecard = build_scorecard(records, modes, scorer.info() if scorer else None, tactics, len(rows))
+    scorecard = build_scorecard(records, modes, scorer.info() if scorer else None, tactics, len(rows),
+                                args.prompt_kind)
     scorecard["axes"].update(extra_axes)
     if args.tokenizer:
         for mode in modes:
@@ -134,7 +150,8 @@ def evaluate(args, predictor, description):
                      "cpl_depth": args.depth, "label": args.label,
                      "oracles": list(args.oracles), "maia_rating": args.maia_rating if "maia" in args.oracles else None,
                      "lc0_nodes": args.lc0_nodes if "lc0" in args.oracles else None,
-                     "explain": bool(args.explain or args.explanations)},
+                     "explain": bool(args.explain or args.explanations),
+                     "prompt_kind": args.prompt_kind, **play_settings(play)},
         "python": platform.python_version(),
     }
     return records, scorecard, inputs
@@ -201,6 +218,9 @@ def main(argv=None):
                         help="score explanations from the predictor's explain(packet)")
     parser.add_argument("--explanations", type=Path, default=None,
                         help="JSONL of {fen, text} explanations to score instead of calling the predictor")
+    parser.add_argument("--prompt-kind", default="move", choices=PROMPT_KINDS,
+                        help="move: the move-only prompt. play: the play-mode prompt and tool-call completion "
+                             "(the reasoning corpus format); scores the reasoning too")
     parser.add_argument("--out-root", type=Path, default=KEEP_ROOT)
     args = parser.parse_args(argv)
     if args.no_tactics:
@@ -209,7 +229,7 @@ def main(argv=None):
     out = args.out_root / f"eval-{args.label}-{stamp}"
     if out.exists():
         parser.error(f"{out} already exists")
-    predictor, description = load_predictor(args.predictor)
+    predictor, description = load_predictor(args.predictor, args.prompt_kind)
     records, scorecard, inputs = evaluate(args, predictor, description)
     games_summary = play_games(args, predictor, description) if args.games else None
     write_outputs(out, records, scorecard, inputs, games_summary)

@@ -26,7 +26,9 @@ Items 1 and 2 are byte-identical across all turns of a mode. **Implemented:**
 The existing move prompt (`INSTRUCTION` + packet, `user_text`, `user_chat`) is
 unchanged. Existing corpora, the baseline eval and the served model use it;
 `model/tests/test_prompt.py` pins its bytes. The mode prompts are additive and
-are not used to build any current training row.
+are not used to build any current training row. Play mode is served (`POST /v1/play`) and
+scored (`model.eval.run --prompt-kind play`) by `model.serve` and `model.eval`; see
+`docs/model/strength-baseline.md`.
 
 ## 2. Play mode (competition, chat off)
 

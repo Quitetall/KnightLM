@@ -1,8 +1,14 @@
-"""python -m model.eval.compare [--changed-only] A B: per-axis deltas side by side. No composite.
+"""python -m model.eval.compare [--changed-only] [--allow-prompt-mismatch] A B: per-axis deltas side by side. No composite.
 
 A and B are scorecard directories (or scorecard.json files). Deltas are B - A.
 Whether higher is better differs per axis, so the direction column says which
 way is improvement; nothing is summed or weighted across axes.
+
+A scorecard has a prompt kind: "move" (the move-only prompt) or "play" (the play-mode prompt
+and tool-call completion, with the reasoning scored). Cards of different kinds measure different
+tasks: compare prints NOT COMPARABLE and exits 3 without a table, unless
+--allow-prompt-mismatch is given (the notes still print, marked ALLOWED). A card with no
+prompt_kind is a move card.
 """
 
 import json
@@ -46,15 +52,26 @@ def direction(path):
         return "down"
     if any(part in path.split(".") for part in LOWER_IS_BETTER) or leaf == "losses":
         return "down"
-    if leaf in ("rate", "accuracy", "score", "matches", "correct", "legal", "wins"):
+    if leaf in ("rate", "accuracy", "score", "matches", "correct", "legal", "wins", "valid"):
         return "up"
     return ""
 
 
+PROMPT_MISMATCH = "NOT COMPARABLE: prompt kind differs"
+
+
+def prompt_kind(card):
+    return card.get("prompt_kind", "move")
+
+
 def comparability(a, b):
     notes = []
+    if prompt_kind(a) != prompt_kind(b):
+        notes.append(f"{PROMPT_MISMATCH} ({prompt_kind(a)} vs {prompt_kind(b)}): the two scorecards measure different tasks")
     ia, ib = a.get("inputs", {}), b.get("inputs", {})
     checks = {
+        "play prompt": lambda i: i.get("settings", {}).get("play_prompt_sha256"),
+        "play max new tokens": lambda i: i.get("settings", {}).get("play_max_new_tokens"),
         "corpus manifest": lambda i: i.get("corpus", {}).get("corpus_manifest_sha256"),
         "rows": lambda i: i.get("corpus", {}).get("rows_used"),
         "stockfish depth": lambda i: (i.get("stockfish") or {}).get("depth"),
@@ -85,14 +102,22 @@ def compare(a, b):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     changed_only = "--changed-only" in argv
-    argv = [a for a in argv if a != "--changed-only"]
+    allow_prompt = "--allow-prompt-mismatch" in argv
+    argv = [a for a in argv if a not in ("--changed-only", "--allow-prompt-mismatch")]
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2
     a, b = load(argv[0]), load(argv[1])
     print(f"A = {argv[0]}\nB = {argv[1]}\nDeltas are B - A. No composite score is computed.")
+    refused = False
     for note in comparability(a, b):
+        if note.startswith(PROMPT_MISMATCH):
+            refused = not allow_prompt
+            note = note if refused else "ALLOWED (--allow-prompt-mismatch) " + note
         print(note)
+    if refused:
+        print("No table: pass --allow-prompt-mismatch to print one anyway.", file=sys.stderr)
+        return 3
     table = [r for r in compare(a, b) if not changed_only or r[3] != 0]
     width = max((len(r[0]) for r in table), default=10)
     print(f"{'axis':<{width}}  {'A':>10}  {'B':>10}  {'delta':>10}  better")

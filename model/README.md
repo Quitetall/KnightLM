@@ -81,7 +81,8 @@ evidence of the model's own analysis. The materializer renders such rows with
 `format_play_completion(reasoning, move)`. Re-derive every reasoning from a built corpus with
 `python3 -m model.corpus.pipeline audit CORPUS --knightlm target/release/knightlm`.
 The served and evaluated path for an adapter trained on it is play mode with a tool-call
-parser, not the move prompt of `model.serve` and `model.eval`.
+parser (`POST /v1/play`, `model.eval.run --prompt-kind play`), not the move prompt:
+see "Play mode" below and `docs/model/strength-baseline.md`.
 
 The trainer uses the checkpoint's chat template and masks loss on the prompt
 and padding. It runs one epoch, checks for finite gradients and adapter updates,
@@ -127,6 +128,28 @@ writes a no-op adapter and proves it equals the base; `model/serve/probe_holdout
 records raw and constrained behaviour on holdout positions. Tests:
 `python -m unittest model.serve.test_serve` (the real-model test runs only with
 `KNIGHTLM_BASE_DIR` set and CUDA present).
+
+### Play mode (adapters trained on the reasoning corpus)
+
+`model/serve/play.py` checks a play completion and `Predictor.predict_play(packet, mode)` produces
+one: `raw` is the model's own text, parsed with `parse_play_completion`, never repaired;
+`constrained` keeps a valid completion and otherwise chooses only the move field from the legal
+list after the model's reasoning. Every refusal has a stable code (`not_one_call`, `extra_text`,
+`malformed`, `wrong_tool`, `key_order`, `reasoning_missing`, `reasoning_too_long`, `bad_move`,
+`illegal_move`, `stated_move_mismatch`, `constrained_no_reasoning`) and every answer says which
+`path` chose the move (`model`, `constrained_move`, `constrained_forced_reasoning`, `none`).
+
+```sh
+/mnt/4tb/venvs/knightlm-serve/bin/python -m model.serve.server \
+  --base-dir $BASE --adapter-dir $CKPT/adapter --mode constrained --prompt play --port 8000
+# POST /v1/play  -> {move, reasoning, code, path, raw_code, legal, raw_reply, manifest_hash}
+# --prompt play also makes /v1/move answer through the play prompt, so knightlm-uci works:
+target/release/knightlm-uci --player model --model http://127.0.0.1:8000/v1/move
+```
+
+Without `--prompt play`, `/v1/move` and its manifest are unchanged (pinned by
+`model/serve/test_play.py`). The UCI path in play mode drops the reasoning (the protocol has no
+place for it) and fails the move on a refusal, as it does for the move prompt.
 
 ## KnightLM development checks
 
