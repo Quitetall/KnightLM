@@ -56,6 +56,13 @@ enum Command {
         #[arg(long)]
         limit: usize,
     },
+    /// Replay PGN main lines on notation; emit comment rows and quarantine failures.
+    CorpusCommentary {
+        #[arg(long)]
+        source: String,
+    },
+    /// Replay JSONL SAN lines ({id, fen?, sans}) and report validated FENs.
+    ReplayLines,
     /// Check observed board placement against the authoritative ledger.
     VerifyObservation { game: PathBuf, observation: PathBuf },
     /// Apply a bounded sequence of single-ply hypothetical moves.
@@ -245,6 +252,15 @@ fn main() -> Result<()> {
             std::io::BufWriter::new(std::io::stdout().lock()),
             &source,
             limit,
+        )?,
+        Command::CorpusCommentary { source } => corpus::write_commentary(
+            std::io::stdin().lock(),
+            std::io::BufWriter::new(std::io::stdout().lock()),
+            &source,
+        )?,
+        Command::ReplayLines => corpus::replay_lines(
+            std::io::stdin().lock(),
+            std::io::BufWriter::new(std::io::stdout().lock()),
         )?,
         Command::VerifyObservation {
             game: path,
