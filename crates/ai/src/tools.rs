@@ -993,6 +993,367 @@ fn builtin_specs() -> Vec<ToolSpec> {
     ]
 }
 
+// --- Model-facing mode tools (play and coach) ---------------------------------
+//
+// The KnightLM model sees one of two small tool schemas, never both at once and
+// never the app registry above. The schemas are defined here once; the checked-in
+// `crates/ai/schemas/model_tools.json` is generated from them (a test pins the
+// two together) and `model/prompt.py` reads that file. Contract:
+// `docs/model/modes-and-tools.md`.
+
+/// Which mode the model is in. Chat off is [`ModelMode::Play`] (competition);
+/// chat on is [`ModelMode::Coach`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModelMode {
+    Play,
+    Coach,
+}
+
+impl ModelMode {
+    pub const ALL: [ModelMode; 2] = [ModelMode::Play, ModelMode::Coach];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Play => "play",
+            Self::Coach => "coach",
+        }
+    }
+
+    const fn session_mode(self) -> SessionMode {
+        match self {
+            Self::Play => SessionMode::Play,
+            Self::Coach => SessionMode::Chat,
+        }
+    }
+}
+
+/// Opening and closing markers of a tool call in model output.
+pub const TOOL_CALL_OPEN: &str = "<tool_call>";
+pub const TOOL_CALL_CLOSE: &str = "</tool_call>";
+
+/// The checked-in JSON form of the model tool schemas, read by Python.
+pub const MODEL_TOOLS_JSON: &str = include_str!("../schemas/model_tools.json");
+
+fn square_prop() -> Value {
+    json!({"type": "string", "minLength": 2, "maxLength": 2})
+}
+
+fn uci_prop() -> Value {
+    json!({"type": "string", "minLength": 4, "maxLength": 5})
+}
+
+fn uci_list_prop(max: u64) -> Value {
+    json!({
+        "type": "array",
+        "items": {"type": "string"},
+        "minItems": 1,
+        "maxItems": max
+    })
+}
+
+fn model_spec(
+    mode: ModelMode,
+    effects: ToolEffect,
+    name: &str,
+    description: &str,
+    parameters: Value,
+) -> ToolSpec {
+    spec(
+        name,
+        description,
+        parameters,
+        effects,
+        &[mode.session_mode()],
+    )
+}
+
+/// The tool specs one mode may see, in a fixed order.
+///
+/// Play: `submit_move` plus rules-only queries on the packet position. Coach:
+/// scratch-board, marks and game-pointer tools, with no real-move submission.
+/// Neither set can reach an engine, a database or the app registry.
+pub fn model_tool_specs(mode: ModelMode) -> Vec<ToolSpec> {
+    use ToolEffect::{BoardWrite, Read};
+    match mode {
+        ModelMode::Play => vec![
+            model_spec(
+                mode,
+                BoardWrite,
+                "submit_move",
+                "Submit your move for the position in the packet, as UCI, after a short reasoning field written before it. Ends the turn when legal.",
+                object(
+                    json!({
+                        "reasoning": {"type": "string", "maxLength": 400},
+                        "move": uci_prop()
+                    }),
+                    &["move"],
+                ),
+            ),
+            model_spec(
+                mode,
+                Read,
+                "list_legal_moves",
+                "List every legal move in the packet position, as UCI.",
+                object(json!({}), &[]),
+            ),
+            model_spec(
+                mode,
+                Read,
+                "what_if",
+                "Play up to eight UCI moves on a scratch copy of the packet position; returns the resulting FEN, check state and legal-move count.",
+                object(json!({"moves": uci_list_prop(8)}), &["moves"]),
+            ),
+            model_spec(
+                mode,
+                Read,
+                "attackers_of",
+                "List the squares of pieces that attack a square in the packet position.",
+                object(json!({"square": square_prop()}), &["square"]),
+            ),
+            model_spec(
+                mode,
+                Read,
+                "defenders_of",
+                "List the squares of pieces that defend the piece on a square in the packet position.",
+                object(json!({"square": square_prop()}), &["square"]),
+            ),
+            model_spec(
+                mode,
+                Read,
+                "gives_check",
+                "Say whether a legal UCI move gives check in the packet position.",
+                object(json!({"move": uci_prop()}), &["move"]),
+            ),
+        ],
+        ModelMode::Coach => vec![
+            model_spec(
+                mode,
+                Read,
+                "scratch_set",
+                "Set the scratch board to a FEN. The real game is not changed.",
+                object(json!({"fen": {"type": "string", "minLength": 1}}), &["fen"]),
+            ),
+            model_spec(
+                mode,
+                Read,
+                "scratch_step",
+                "Play up to eight UCI moves on the scratch board.",
+                object(json!({"moves": uci_list_prop(8)}), &["moves"]),
+            ),
+            model_spec(
+                mode,
+                Read,
+                "show_game_move",
+                "Point at a ply of the game on the board, by ply number.",
+                object(json!({"ply": {"type": "integer", "minimum": 0}}), &["ply"]),
+            ),
+            model_spec(
+                mode,
+                BoardWrite,
+                "mark_arrow",
+                "Draw an arrow between two squares.",
+                object(
+                    json!({"from": square_prop(), "to": square_prop(), "color": color_prop()}),
+                    &["from", "to"],
+                ),
+            ),
+            model_spec(
+                mode,
+                BoardWrite,
+                "mark_square",
+                "Highlight one square.",
+                object(
+                    json!({"square": square_prop(), "color": color_prop()}),
+                    &["square"],
+                ),
+            ),
+            model_spec(
+                mode,
+                BoardWrite,
+                "clear_marks",
+                "Remove every arrow and highlight the model drew.",
+                object(json!({}), &[]),
+            ),
+        ],
+    }
+}
+
+/// The wire JSON of the model tool schemas: `{schema_version, modes: {mode: [tool]}}`
+/// where each tool is `{name, description, parameters}`.
+pub fn model_tools_json() -> Value {
+    let mut modes = serde_json::Map::new();
+    for mode in ModelMode::ALL {
+        let tools: Vec<Value> = model_tool_specs(mode)
+            .into_iter()
+            .map(|t| json!({"name": t.name, "description": t.description, "parameters": t.parameters}))
+            .collect();
+        modes.insert(mode.as_str().to_string(), Value::Array(tools));
+    }
+    json!({"schema_version": TOOL_SCHEMA_VERSION, "modes": modes})
+}
+
+/// A parsed `<tool_call>` block.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelCall {
+    pub name: String,
+    pub arguments: Value,
+}
+
+/// Why model output did not yield an acceptable tool call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelCallError {
+    /// No `<tool_call>` block, an unclosed one, or more than one.
+    NotOneCall,
+    /// The block is not `{"name": string, "arguments": object}` JSON.
+    Malformed(String),
+    /// The tool is not in the schema this mode sees (including tools of the other
+    /// mode and tools that do not exist).
+    NotVisible { mode: ModelMode, name: String },
+    /// The tool is visible but its arguments break the schema.
+    Arguments(ArgumentError),
+}
+
+impl fmt::Display for ModelCallError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotOneCall => f.write_str("expected exactly one tool call"),
+            Self::Malformed(why) => write!(f, "malformed tool call: {why}"),
+            Self::NotVisible { mode, name } => {
+                write!(
+                    f,
+                    "tool `{name}` is not available in {} mode",
+                    mode.as_str()
+                )
+            }
+            Self::Arguments(err) => write!(f, "bad arguments: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for ModelCallError {}
+
+/// Parse exactly one `<tool_call>{"name":..,"arguments":{..}}</tool_call>` block.
+/// Text outside the block is ignored; the harness shows none of it.
+pub fn parse_model_call(text: &str) -> Result<ModelCall, ModelCallError> {
+    if text.matches(TOOL_CALL_OPEN).count() != 1 || text.matches(TOOL_CALL_CLOSE).count() != 1 {
+        return Err(ModelCallError::NotOneCall);
+    }
+    let start = text.find(TOOL_CALL_OPEN).expect("counted above") + TOOL_CALL_OPEN.len();
+    let end = text.find(TOOL_CALL_CLOSE).expect("counted above");
+    if end < start {
+        return Err(ModelCallError::NotOneCall);
+    }
+    let value: Value = serde_json::from_str(text[start..end].trim())
+        .map_err(|err| ModelCallError::Malformed(err.to_string()))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| ModelCallError::Malformed("not an object".into()))?;
+    if let Some(key) = object.keys().find(|k| *k != "name" && *k != "arguments") {
+        return Err(ModelCallError::Malformed(format!("unknown field `{key}`")));
+    }
+    let name = object
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ModelCallError::Malformed("missing string `name`".into()))?
+        .to_string();
+    let arguments = object
+        .get("arguments")
+        .cloned()
+        .ok_or_else(|| ModelCallError::Malformed("missing `arguments`".into()))?;
+    Ok(ModelCall { name, arguments })
+}
+
+/// The tools one mode sees, and nothing else.
+#[derive(Debug, Clone)]
+pub struct ModelToolbox {
+    mode: ModelMode,
+    registry: ToolRegistry,
+}
+
+impl ModelToolbox {
+    pub fn new(mode: ModelMode) -> Self {
+        let registry =
+            ToolRegistry::new(model_tool_specs(mode)).expect("model tool registry must be valid");
+        Self { mode, registry }
+    }
+
+    pub fn mode(&self) -> ModelMode {
+        self.mode
+    }
+
+    pub fn registry(&self) -> &ToolRegistry {
+        &self.registry
+    }
+
+    /// Accept a call only if the tool is in this mode's schema and the arguments
+    /// match it. A tool of the other mode is refused exactly like an unknown one.
+    pub fn check_call(&self, call: &ModelCall) -> Result<&ToolSpec, ModelCallError> {
+        match self.registry.validate_call(&call.name, &call.arguments) {
+            Ok(spec) => Ok(spec),
+            Err(CallError::UnknownTool(name)) => Err(ModelCallError::NotVisible {
+                mode: self.mode,
+                name,
+            }),
+            Err(CallError::InvalidArguments(err)) => Err(ModelCallError::Arguments(err)),
+        }
+    }
+}
+
+/// What the harness does with one `submit_move` attempt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubmitOutcome {
+    /// The move is legal; play it and end the turn.
+    Accepted(String),
+    /// Illegal: return `error` to the model as the tool result and let it retry.
+    Rejected { error: String, attempts_left: u32 },
+    /// Attempts are spent: fall back to the existing constrained-decoding path.
+    Fallback,
+}
+
+/// Bounded error-and-retry for `submit_move`. `max_attempts` counts every
+/// submission, like `MatchConfig::max_retries`; at least one is always allowed.
+#[derive(Debug, Clone)]
+pub struct SubmitMoveGate {
+    legal: Vec<String>,
+    max_attempts: u32,
+    attempts: u32,
+}
+
+impl SubmitMoveGate {
+    pub fn new(legal: Vec<String>, max_attempts: u32) -> Self {
+        Self {
+            legal,
+            max_attempts: max_attempts.max(1),
+            attempts: 0,
+        }
+    }
+
+    pub fn attempts(&self) -> u32 {
+        self.attempts
+    }
+
+    pub fn submit(&mut self, mv: &str) -> SubmitOutcome {
+        if self.attempts >= self.max_attempts {
+            return SubmitOutcome::Fallback;
+        }
+        self.attempts += 1;
+        if let Some(found) = self.legal.iter().find(|m| m.as_str() == mv) {
+            return SubmitOutcome::Accepted(found.clone());
+        }
+        if self.attempts >= self.max_attempts {
+            return SubmitOutcome::Fallback;
+        }
+        let shown: String = mv.chars().take(8).collect();
+        SubmitOutcome::Rejected {
+            error: format!(
+                "`{shown}` is not a legal move in this position. Call list_legal_moves or submit another UCI move."
+            ),
+            attempts_left: self.max_attempts - self.attempts,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1340,5 +1701,168 @@ mod tests {
                 .is_some()
         );
         assert!(registry.get_version("get_board", "0.9.0").is_none());
+    }
+
+    // --- model mode tools ---------------------------------------------------
+
+    fn model_names(mode: ModelMode) -> Vec<String> {
+        model_tool_specs(mode).into_iter().map(|t| t.name).collect()
+    }
+
+    fn call(name: &str, arguments: Value) -> ModelCall {
+        ModelCall {
+            name: name.into(),
+            arguments,
+        }
+    }
+
+    #[test]
+    fn model_tool_sets_are_disjoint_valid_and_engine_free() {
+        let play = model_names(ModelMode::Play);
+        let coach = model_names(ModelMode::Coach);
+        assert!(play.iter().all(|n| !coach.contains(n)));
+        for mode in ModelMode::ALL {
+            ToolRegistry::new(model_tool_specs(mode)).unwrap();
+            for spec in model_tool_specs(mode) {
+                assert!(
+                    matches!(spec.effects, ToolEffect::Read | ToolEffect::BoardWrite),
+                    "{} must not reach an engine or study state",
+                    spec.name
+                );
+                for banned in ["engine", "analy", "evaluat", "stockfish", "tablebase"] {
+                    assert!(!spec.name.contains(banned), "{}", spec.name);
+                }
+            }
+        }
+        // Real-move submission exists only in play mode.
+        assert!(play.contains(&"submit_move".to_string()));
+        assert!(
+            !coach
+                .iter()
+                .any(|n| n.contains("submit") || n.contains("move") && n != "show_game_move")
+        );
+    }
+
+    #[test]
+    fn call_outside_the_visible_schema_is_rejected() {
+        let play = ModelToolbox::new(ModelMode::Play);
+        let coach = ModelToolbox::new(ModelMode::Coach);
+        let cross = call("scratch_set", json!({"fen": "8/8/8/8/8/8/8/8 w - - 0 1"}));
+        assert!(matches!(
+            play.check_call(&cross),
+            Err(ModelCallError::NotVisible {
+                mode: ModelMode::Play,
+                ..
+            })
+        ));
+        let submit = call("submit_move", json!({"move": "e2e4"}));
+        assert!(matches!(
+            coach.check_call(&submit),
+            Err(ModelCallError::NotVisible {
+                mode: ModelMode::Coach,
+                ..
+            })
+        ));
+        // App-registry and engine tools do not exist for the model at all.
+        for name in ["analyze", "play_move", "evaluate", "get_position"] {
+            for toolbox in [&play, &coach] {
+                assert!(matches!(
+                    toolbox.check_call(&call(name, json!({"board_id": "b"}))),
+                    Err(ModelCallError::NotVisible { .. })
+                ));
+            }
+        }
+        assert!(
+            play.check_call(&call("submit_move", json!({"move": "e2e4"})))
+                .is_ok()
+        );
+        assert!(matches!(
+            play.check_call(&call("submit_move", json!({"move": "e2e4", "extra": 1}))),
+            Err(ModelCallError::Arguments(_))
+        ));
+        assert!(matches!(
+            play.check_call(&call("submit_move", json!({}))),
+            Err(ModelCallError::Arguments(_))
+        ));
+    }
+
+    #[test]
+    fn tool_call_text_parses_exactly_one_block() {
+        let ok =
+            r#"thinking <tool_call>{"name":"submit_move","arguments":{"move":"g1f3"}}</tool_call>"#;
+        let parsed = parse_model_call(ok).unwrap();
+        assert_eq!(parsed.name, "submit_move");
+        assert_eq!(parsed.arguments, json!({"move": "g1f3"}));
+        assert_eq!(parse_model_call("g1f3"), Err(ModelCallError::NotOneCall));
+        let two = format!("{ok}{ok}");
+        assert_eq!(parse_model_call(&two), Err(ModelCallError::NotOneCall));
+        assert!(matches!(
+            parse_model_call("<tool_call>{nope</tool_call>"),
+            Err(ModelCallError::Malformed(_))
+        ));
+        assert!(matches!(
+            parse_model_call(r#"<tool_call>{"name":"x","arguments":{},"z":1}</tool_call>"#),
+            Err(ModelCallError::Malformed(_))
+        ));
+    }
+
+    #[test]
+    fn illegal_submit_move_errors_retries_then_falls_back() {
+        let legal = vec!["e2e4".to_string(), "g1f3".to_string()];
+        let mut gate = SubmitMoveGate::new(legal.clone(), 3);
+        let SubmitOutcome::Rejected {
+            error,
+            attempts_left,
+        } = gate.submit("e2e5")
+        else {
+            panic!("illegal move must be rejected");
+        };
+        assert!(error.contains("not a legal move") && error.contains("list_legal_moves"));
+        assert_eq!(attempts_left, 2);
+        assert!(matches!(
+            gate.submit("zzzz"),
+            SubmitOutcome::Rejected {
+                attempts_left: 1,
+                ..
+            }
+        ));
+        // The last attempt is spent: fall back, and stay fallen back.
+        assert_eq!(gate.submit("a1a1"), SubmitOutcome::Fallback);
+        assert_eq!(gate.submit("e2e4"), SubmitOutcome::Fallback);
+        assert_eq!(gate.attempts(), 3);
+
+        // A legal retry within budget is accepted.
+        let mut gate = SubmitMoveGate::new(legal.clone(), 3);
+        assert!(matches!(
+            gate.submit("h2h9"),
+            SubmitOutcome::Rejected { .. }
+        ));
+        assert_eq!(gate.submit("g1f3"), SubmitOutcome::Accepted("g1f3".into()));
+
+        // Zero is clamped to one attempt; an illegal first move falls back at once.
+        let mut gate = SubmitMoveGate::new(legal, 0);
+        assert_eq!(gate.submit("e2e5"), SubmitOutcome::Fallback);
+
+        // The echoed move is bounded.
+        let mut gate = SubmitMoveGate::new(vec!["e2e4".into()], 2);
+        let SubmitOutcome::Rejected { error, .. } = gate.submit(&"x".repeat(500)) else {
+            panic!()
+        };
+        assert!(error.len() < 200);
+    }
+
+    #[test]
+    fn checked_in_model_tools_json_matches_the_rust_schemas() {
+        let generated = serde_json::to_string_pretty(&model_tools_json()).unwrap() + "\n";
+        if std::env::var_os("UPDATE_MODEL_TOOLS").is_some() {
+            let path = concat!(env!("CARGO_MANIFEST_DIR"), "/schemas/model_tools.json");
+            std::fs::write(path, &generated).unwrap();
+        }
+        let on_disk: Value = serde_json::from_str(MODEL_TOOLS_JSON).unwrap();
+        assert_eq!(
+            on_disk,
+            model_tools_json(),
+            "regenerate with UPDATE_MODEL_TOOLS=1 cargo test -p rbc-ai model_tools_json"
+        );
     }
 }

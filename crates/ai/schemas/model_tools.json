@@ -1,0 +1,241 @@
+{
+  "modes": {
+    "coach": [
+      {
+        "description": "Set the scratch board to a FEN. The real game is not changed.",
+        "name": "scratch_set",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "fen": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "fen"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Play up to eight UCI moves on the scratch board.",
+        "name": "scratch_step",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "moves": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "moves"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Point at a ply of the game on the board, by ply number.",
+        "name": "show_game_move",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "ply": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ply"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Draw an arrow between two squares.",
+        "name": "mark_arrow",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "color": {
+              "enum": [
+                "green",
+                "red",
+                "blue",
+                "yellow"
+              ],
+              "type": "string"
+            },
+            "from": {
+              "maxLength": 2,
+              "minLength": 2,
+              "type": "string"
+            },
+            "to": {
+              "maxLength": 2,
+              "minLength": 2,
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "to"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Highlight one square.",
+        "name": "mark_square",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "color": {
+              "enum": [
+                "green",
+                "red",
+                "blue",
+                "yellow"
+              ],
+              "type": "string"
+            },
+            "square": {
+              "maxLength": 2,
+              "minLength": 2,
+              "type": "string"
+            }
+          },
+          "required": [
+            "square"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Remove every arrow and highlight the model drew.",
+        "name": "clear_marks",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "play": [
+      {
+        "description": "Submit your move for the position in the packet, as UCI, after a short reasoning field written before it. Ends the turn when legal.",
+        "name": "submit_move",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "move": {
+              "maxLength": 5,
+              "minLength": 4,
+              "type": "string"
+            },
+            "reasoning": {
+              "maxLength": 400,
+              "type": "string"
+            }
+          },
+          "required": [
+            "move"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "List every legal move in the packet position, as UCI.",
+        "name": "list_legal_moves",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Play up to eight UCI moves on a scratch copy of the packet position; returns the resulting FEN, check state and legal-move count.",
+        "name": "what_if",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "moves": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "moves"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "List the squares of pieces that attack a square in the packet position.",
+        "name": "attackers_of",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "square": {
+              "maxLength": 2,
+              "minLength": 2,
+              "type": "string"
+            }
+          },
+          "required": [
+            "square"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "List the squares of pieces that defend the piece on a square in the packet position.",
+        "name": "defenders_of",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "square": {
+              "maxLength": 2,
+              "minLength": 2,
+              "type": "string"
+            }
+          },
+          "required": [
+            "square"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Say whether a legal UCI move gives check in the packet position.",
+        "name": "gives_check",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "move": {
+              "maxLength": 5,
+              "minLength": 4,
+              "type": "string"
+            }
+          },
+          "required": [
+            "move"
+          ],
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "schema_version": "1.0.0"
+}

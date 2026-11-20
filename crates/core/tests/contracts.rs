@@ -383,3 +383,35 @@ fn teacher_evaluation_depth_and_score_validation() {
     row.evals[0].pvs[0].mate = Some(2);
     assert!(row.validate().is_err());
 }
+
+/// The modes-and-tools contract (docs/model/modes-and-tools.md section 6) relies on
+/// the packet carrying the repetition count, the claim flags and the halfmove clock.
+/// A per-legal-move consequence flag is proposed there and deliberately absent.
+#[test]
+fn packet_carries_repetition_and_clock_facts_without_per_move_flags() {
+    let mut s = start();
+    cycle(&mut s);
+    s.play("g1f3").unwrap();
+    let packet = serde_json::to_value(s.compile(PacketOptions {
+        legal_choices: true,
+        derived_features: false,
+    }))
+    .unwrap();
+    let facts = packet["facts"].as_object().unwrap();
+    for key in [
+        "repetition_count",
+        "threefold_claim_now",
+        "fivefold_automatic",
+        "fifty_move_claim_now",
+        "seventy_five_move_automatic",
+    ] {
+        assert!(facts.contains_key(key), "missing fact {key}");
+    }
+    assert_eq!(facts["repetition_count"], 2);
+    // Halfmove clock: the fifth FEN field, five plies without a pawn move or capture.
+    assert_eq!(packet["fen"].as_str().unwrap().split(' ').nth(4), Some("5"));
+    assert!(packet["repetition_ledger"].is_object());
+    // Packet shape stays v1: legal_moves is a flat list, with no per-move flags.
+    assert!(packet["legal_moves"][0].is_string());
+    assert!(packet.get("legal_move_effects").is_none());
+}
