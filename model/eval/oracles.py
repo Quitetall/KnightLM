@@ -74,7 +74,7 @@ def find_maia_weights(rating, explicit=None, directory=None):
 class Lc0Oracle(StockfishScorer):
     """The Stockfish scorer's Rust path with lc0 as the UCI engine. `depth` carries the node count."""
 
-    def __init__(self, label, lc0, weights, nodes, workers=2, binary=None, timeout_s=3600):
+    def __init__(self, label, lc0, weights, nodes, workers=2, binary=None, timeout_s=3600, backend=None):
         self.label = label
         self.nodes = self.depth = nodes
         self.workers = workers
@@ -82,15 +82,22 @@ class Lc0Oracle(StockfishScorer):
         self.lc0, self.weights = Path(lc0), Path(weights)
         self.timeout_s = timeout_s
         self.engine_name = None
+        # Unset means "whatever this lc0 build picks first" (onnx-cpu on a source build with onnxruntime; a CUDA
+        # build would pick a GPU backend and take the shared card). Name one (LC0_BACKEND, e.g. blas) to pin it.
+        self.backend = backend or os.environ.get("LC0_BACKEND") or None
         self.stockfish = self.lc0  # `StockfishScorer._run` exports this as STOCKFISH_PATH; unused here
 
     def extra_args(self):
-        return ["--engine", str(self.lc0), "--nodes", "--threads", "1", "--hash-mb", "0",
+        args = ["--engine", str(self.lc0), "--nodes", "--threads", "1", "--hash-mb", "0",
                 "--option", f"WeightsFile={self.weights}"]
+        if self.backend:
+            args += ["--option", f"Backend={self.backend}"]
+        return args
 
     def info(self):
         return {
             "oracle": self.label, "engine": self.engine_name, "limit": "nodes", "nodes": self.nodes, "threads": 1,
+            "backend": self.backend or "lc0 default",
             "lc0_path": str(self.lc0), "lc0_sha256": sha256_path(self.lc0),
             "weights_path": str(self.weights), "weights_sha256": sha256_path(self.weights),
             "knightlm_bin_sha256": sha256_path(self.binary),

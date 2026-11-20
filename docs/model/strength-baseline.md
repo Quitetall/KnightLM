@@ -194,6 +194,13 @@ run's artifacts. Nothing is downloaded by this repository. Leela search with a
 node limit is repeatable on one backend but not bit-exact across GPUs or
 backends, so record the machine in the run notes.
 
+First real-engine run (2026-11-20, lc0 v0.32.1 built from source, no Linux release binary exists; Maia 1100/1500/1900,
+GPL-3 with the maia-chess repo): lc0 has no `Hash` option (`error Unknown option: Hash`), so `--hash-mb 0` is required, as
+built. A source build with onnxruntime present defaults to the `onnx-cpu` backend and a CUDA build would default to a GPU
+one, so set `LC0_BACKEND` (for example `blas`) to pin it; the backend is recorded in the engine block. Maia 1500 at one
+node matched the human move on 144/300 holdout rows (48%), in line with the published figure. No licence was found for the
+Leela network weights, so none was downloaded; the lc0 axis was exercised with a Maia net, which is a weak stand-in.
+
 Engine-zero (WAR-0005) holds for these oracles. They are called only by
 `model.eval` after the model has committed to a move. `model.eval.test_oracles`
 scans `model/serve` and `model/prompt.py` for imports of `model.eval` or
