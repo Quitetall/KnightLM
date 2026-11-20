@@ -74,6 +74,17 @@ enum Command {
         engine: Option<String>,
         #[arg(long, default_value_t = 12)]
         depth: u32,
+        /// Treat --depth as a node count (`go nodes N`); for lc0 and Maia.
+        #[arg(long)]
+        nodes: bool,
+        #[arg(long, default_value_t = 1)]
+        threads: u32,
+        /// Hash size in MB; 0 sends no Hash option (lc0 has none).
+        #[arg(long, default_value_t = 64)]
+        hash_mb: u32,
+        /// Extra UCI option `NAME=VALUE` (repeatable), e.g. WeightsFile=/path.
+        #[arg(long = "option", value_parser = parse_option)]
+        options: Vec<(String, String)>,
         input: Option<PathBuf>,
     },
     /// MultiPV ranking of each `{id?, fen}` JSONL row (tactical-set derivation).
@@ -84,10 +95,30 @@ enum Command {
         depth: u32,
         #[arg(long, default_value_t = 2)]
         lines: u32,
+        /// Treat --depth as a node count (`go nodes N`); for lc0 and Maia.
+        #[arg(long)]
+        nodes: bool,
+        #[arg(long, default_value_t = 1)]
+        threads: u32,
+        /// Hash size in MB; 0 sends no Hash option (lc0 has none).
+        #[arg(long, default_value_t = 64)]
+        hash_mb: u32,
+        /// Extra UCI option `NAME=VALUE` (repeatable), e.g. WeightsFile=/path.
+        #[arg(long = "option", value_parser = parse_option)]
+        options: Vec<(String, String)>,
         input: Option<PathBuf>,
     },
     /// Print missing admission gates, then return a failing exit code.
     VerifyModel { profile: PathBuf },
+}
+
+fn parse_option(raw: &str) -> Result<(String, String), String> {
+    match raw.split_once('=') {
+        Some((name, value)) if !name.trim().is_empty() && !value.trim().is_empty() => {
+            Ok((name.trim().to_owned(), value.trim().to_owned()))
+        }
+        _ => Err(format!("expected NAME=VALUE, got {raw:?}")),
+    }
 }
 
 fn read<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<T> {
@@ -246,14 +277,44 @@ fn main() -> Result<()> {
         Command::ScoreMoves {
             engine,
             depth,
+            nodes,
+            threads,
+            hash_mb,
+            options,
             input,
-        } => score_cmd::run(engine, depth, None, input)?,
+        } => score_cmd::run(
+            engine,
+            depth,
+            None,
+            input,
+            score_cmd::OracleSettings {
+                nodes,
+                threads,
+                hash_mb,
+                options,
+            },
+        )?,
         Command::RankPositions {
             engine,
             depth,
             lines,
+            nodes,
+            threads,
+            hash_mb,
+            options,
             input,
-        } => score_cmd::run(engine, depth, Some(lines), input)?,
+        } => score_cmd::run(
+            engine,
+            depth,
+            Some(lines),
+            input,
+            score_cmd::OracleSettings {
+                nodes,
+                threads,
+                hash_mb,
+                options,
+            },
+        )?,
         Command::VerifyModel { profile } => {
             let report = verify_model(&read::<ModelProfile>(&profile)?)?;
             emit(&report, false)?;
