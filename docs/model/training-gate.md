@@ -2,8 +2,8 @@
 
 Status: nothing in this document has been launched. Every command below is prepared; each GPU command
 needs an explicit "go" from the owner. This page covers the S0 rules-QA arms T0, T2-lite, T2-full, T1 and
-T3. The other prepared arms (T4/T5 board encoder, move-policy head, reasoning v2) are added by their own
-changes.
+T3. The scoring commands for the move-policy head and the board-encoder arms (T4/T5) are at the end of this
+page; reasoning v2 is added by its own change.
 
 ## What the S0 arms test
 
@@ -198,3 +198,73 @@ new rows are meaningless before training).
 No GPU run of any arm. The BLUT recipe's S0 evaluation path and `--baseline` compare on S0 corpora are
 exercised by unit tests with fakes, not against a trained adapter. T1/T3: no GPU training, no evaluation of
 an adapter with new rows, and the serve-side predictor on an extended base is untested.
+
+## Scoring the move-head and board-encoder arms (prepared, not run)
+
+Nothing here has run. The prompts, predictors and eval wiring are tested on a tiny random CPU host and with
+fake predictors; the commands below need trained artifacts that do not exist yet (the joint adapter and head
+run, the pretrained encoder and the aligned projector, the T4/T5 adapters) and a GPU for the 500M host. Each
+needs the owner's go. They score on the move holdout (`--corpus` default `run1-2026-09-a`), the same rows and
+scorecard as the Run 1 control, so arms compare on one table.
+
+| arm | prompt kind | what the model sees | artifacts it needs |
+|---|---|---|---|
+| T0 control | `play` | FEN packet | the Run 1 reasoning adapter |
+| S1 human-only move head | `play-head` | FEN packet, head-read line, head's move | adapter + head (`save_head`) |
+| S1 warm-up probe | `play-head` | the same, frozen host | head only (no adapter) |
+| T4 encoder | `play-enc` | 64 soft tokens + rule facts | adapter + encoder + projector |
+| T5 encoder + cgt | `play-enc-cgt` | soft tokens + rule facts + cgt-lite text | adapter + encoder + projector; `knightlm` binary |
+
+```bash
+export KNIGHTLM_BASE_DIR=/mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98
+export KNIGHTLM_DEVICE=cuda
+RUNS=/mnt/4tb/artifacts/KnightLM/expire/runs      # <...> below are the not-yet-existing run directories
+EVAL="--rows 300 --oracles lc0 maia"              # as the Run 1 play-mode evaluation; add --games N for matches
+
+# T0 control (exists once the Run 1 adapter is at hand)
+KNIGHTLM_ADAPTER_DIR=$RUNS/<run1-reasoning>/adapter python -m model.eval.run \
+  --predictor model.eval.playmode:from_env --prompt-kind play --label t0-control $EVAL
+
+# S1 human-only move head: the head's move scored beside what the completion wrote (agreement)
+KNIGHTLM_ADAPTER_DIR=$RUNS/<s1>/adapter KNIGHTLM_HEAD_DIR=$RUNS/<s1>/head python -m model.eval.run \
+  --predictor model.eval.playmode:head_from_env --prompt-kind play-head --move-head --label s1-head $EVAL
+
+# S1 warm-up probe (frozen host: empty adapter, head only): the head axis is the measurement; completions are noise
+KNIGHTLM_ADAPTER_DIR= KNIGHTLM_HEAD_DIR=$RUNS/<s1-warmup>/head python -m model.eval.run \
+  --predictor model.eval.playmode:head_from_env --prompt-kind play-head --move-head --label s1-warmup \
+  --rows 300 --modes raw --no-tactics
+
+# T4 board encoder (play-enc) and T5 board encoder + cgt text (play-enc-cgt)
+ENC="KNIGHTLM_ENCODER_DIR=$RUNS/encoder-p0-a/encoder KNIGHTLM_PROJECTOR_DIR=$RUNS/projector-smolvlm-a"
+env $ENC KNIGHTLM_ADAPTER_DIR=$RUNS/<t4>/adapter python -m model.eval.run \
+  --predictor model.eval.playmode:from_env --prompt-kind play-enc --label t4-encoder $EVAL
+env $ENC KNIGHTLM_ADAPTER_DIR=$RUNS/<t5>/adapter python -m model.eval.run \
+  --predictor model.eval.playmode:from_env --prompt-kind play-enc-cgt --label t5-encoder-cgt $EVAL
+```
+
+Compare on the one table. Cards of different prompt kinds measure different tasks, so every pair below needs
+`--allow-prompt-mismatch`; the rows, Stockfish depth and tactical set are still checked and a difference there
+still refuses. Read the arms side by side, never summed:
+
+```bash
+python -m model.eval.compare --allow-prompt-mismatch <t0-control dir> <s1-head dir>    # head vs the language move
+python -m model.eval.compare --allow-prompt-mismatch <t0-control dir> <t4-encoder dir>
+python -m model.eval.compare --allow-prompt-mismatch <t4-encoder dir> <t5-encoder dir> # does cgt text add to soft tokens
+```
+
+What to read: for S1, `axes.move_head` (masked top-1/top-3, NLL, ECE, CPL; raw legality and illegal mass as the
+diagnostic) beside `axes.head_agreement` (does the written reasoning agree with the head's move) and
+`axes.play_explanation` (are its claims true); human match is not strength, so read it with the CPL against the
+control (CPL 409, random floor 417). For T4/T5 the same play axes as T0, plus `play_explanation` claim failures:
+the encoder's reason to exist is that a board-grounded model stops asserting false piece placements (Run 1: 65%).
+All numbers carry the arm label ("human-only move head" for S1).
+
+Serving the same artifacts (not part of scoring): `python -m model.serve.server --base-dir DIR --adapter-dir DIR
+--head-dir DIR` or `--encoder-dir DIR --projector-dir DIR --play-prompt-kind play-enc`.
+
+What the training runs must satisfy for these commands to be valid (owed, not written): the S1 adapter and head
+are trained on the two `play-head` views (head read at the last token of the head-read prompt,
+`hidden_states[-1]`; completion on the conditioned prompt) with the same rows, steps and LoRA as T0; the T4/T5
+adapters are trained on `play-enc`/`play-enc-cgt` rows with the projector trainable and the encoder frozen,
+through the `image_hidden_states` path. Not tested: any of this on the real SmolVLM, GPU memory and latency of
+soft-token decoding, and `stop_strings` with embedding-input decoding on the real tokenizer.

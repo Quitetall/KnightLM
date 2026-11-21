@@ -49,7 +49,7 @@ RBC serves the WebAssembly UI and API from one local process. SQLite stores
 games, studies, sessions, and approvals. Rust handles move legality and replay.
 The Assistant compiles inspectable context, and writes that require approval
 enter a queue before they can change a board or study. [App reference](apps/rusty-brick-chess/README.md) ·
-[MCP and approvals](docs/app/mcp.md)
+[MCP and approvals](docs/app/mcp.md) · [Using a model](docs/app/models.md)
 
 KnightLM’s research asks whether a fresh, complete state packet improves
 reasoning and token efficiency compared with carrying the game history forward.

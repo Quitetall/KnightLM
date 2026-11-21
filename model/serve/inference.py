@@ -20,6 +20,7 @@ Modes
 from dataclasses import dataclass
 from pathlib import Path
 import json
+import threading
 import time
 
 from model.corpus.pipeline import sha256_file
@@ -68,6 +69,7 @@ class PlayPrediction:
     input_tokens: int
     output_tokens: int
     latency_ms: float
+    head_move: str | None = None  # the move head's pick, when a head chose the move (model.serve.head)
 
 
 def build_trie(sequences):
@@ -91,7 +93,13 @@ def allowed_next(trie, generated):
 
 
 class Predictor:
-    def __init__(self, base_dir, adapter_dir=None, device="cuda", prompt_kind="play"):
+    n_board_tokens = prompt_module.BOARD_TOKENS
+    _board = None  # (encoder, projector) when serving the board-encoder arms (play-enc, play-enc-cgt)
+    _soft = None   # the current request's soft tokens, set only inside predict_play
+    _play_lock = threading.RLock()
+
+    def __init__(self, base_dir, adapter_dir=None, device="cuda", prompt_kind="play",
+                 encoder_dir=None, projector_dir=None):
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
 
@@ -116,6 +124,47 @@ class Predictor:
             model = peft.PeftModel.from_pretrained(model, self.adapter_dir)
         self.model = model.eval()
         self._torch = torch
+        self.encoder_dir = Path(encoder_dir) if encoder_dir is not None else None
+        self.projector_dir = Path(projector_dir) if projector_dir is not None else None
+        if (self.encoder_dir is None) != (self.projector_dir is None):
+            raise ValueError("a board encoder and its projector are loaded together: pass both or neither")
+        if self.encoder_dir is not None:
+            self._load_board()
+
+    def _load_board(self):
+        """Load the frozen encoder and the host's projector (model/encoder), checked against this host."""
+        from model.encoder.encoder import load_encoder, load_projector
+        encoder = load_encoder(self.encoder_dir).to(self.device).eval()
+        projector = load_projector(self.projector_dir).to(self.device).eval()
+        for module in (encoder, projector):
+            for p in module.parameters():
+                p.requires_grad_(False)
+        hidden = self.model.config.text_config.hidden_size
+        if projector.host_hidden != hidden or projector.d_encoder != encoder.cfg.d_model:
+            raise ValueError(f"projector maps {projector.d_encoder}->{projector.host_hidden}; the encoder emits "
+                             f"{encoder.cfg.d_model} and this host reads {hidden}")
+        self._board = (encoder, projector)
+        self.n_board_tokens = encoder.cfg.n_tokens
+        self.encoder_sha256 = sha256_file(self.encoder_dir / "encoder.pt")
+        self.projector_sha256 = sha256_file(self.projector_dir / "projector.pt")
+
+    def _soft_tokens(self, packet):
+        """(1, n_board_tokens, host_hidden) soft tokens for one packet's position."""
+        from model.encoder.inject import soft_tokens
+        from model.encoder.planes import packet_planes
+        torch = self._torch
+        planes = torch.tensor(packet_planes(packet), dtype=torch.float32, device=self.device).reshape(1, -1, 8, 8)
+        with torch.inference_mode():
+            return soft_tokens(self._board[0], self._board[1], planes)
+
+    def _check_play_kind(self):
+        kind = self.prompt_kind
+        if kind in prompt_module.HEAD_KINDS:
+            raise ValueError(f"prompt kind {kind!r} needs model.serve.head.HeadPredictor (a move head)")
+        if kind in prompt_module.ENC_KINDS and self._board is None:
+            raise ValueError(f"prompt kind {kind!r} needs a board encoder and projector (encoder_dir, projector_dir)")
+        if self._board is not None and kind not in prompt_module.ENC_KINDS:
+            raise ValueError(f"an encoder is loaded but the prompt kind is {kind!r}; use one of {prompt_module.ENC_KINDS}")
 
     def manifest(self):
         """Hashes identifying exactly what answers: base, adapter, prompt, tokenizer, chat template."""
@@ -128,7 +177,11 @@ class Predictor:
         }
         if self.prompt_kind != "play":  # the FEN-packet manifest (and its hash) is unchanged
             manifest["play_prompt_kind"] = self.prompt_kind
-            manifest["compiler_sha256"] = sha256_file(prompt_module.knightlm_binary())
+            if self.prompt_kind not in ("play-head", "play-enc"):  # these two never call the compiler
+                manifest["compiler_sha256"] = sha256_file(prompt_module.knightlm_binary())
+        if self._board is not None:
+            manifest.update(encoder_sha256=self.encoder_sha256, projector_sha256=self.projector_sha256,
+                            board_tokens=self.n_board_tokens)
         return manifest
 
     def _prompt_ids(self, packet):
@@ -182,14 +235,33 @@ class Predictor:
 
     # --- Play mode (docs/model/modes-and-tools.md): play prompt, one submit_move call ---
 
-    def _play_prompt_ids(self, packet):
+    def _play_prompt_ids(self, packet, **prompt_kwargs):
         text = self.processor.apply_chat_template(
-            mode_chat(play_prompt(self.prompt_kind, packet)), tokenize=False, add_generation_prompt=True)
+            mode_chat(play_prompt(self.prompt_kind, packet, n_board_tokens=self.n_board_tokens, **prompt_kwargs)),
+            tokenize=False, add_generation_prompt=True)
         return text, self.tokenizer.encode(text, add_special_tokens=False)
 
     def _generate(self, prompt_ids, max_new_tokens, **extra):
         torch = self._torch
         input_ids = torch.tensor([prompt_ids], device=self.device)
+        if self._soft is not None:
+            # Board arms: the soft tokens are merged into the `<image>` slots (the documented idefics3 path),
+            # then the host decodes from embeddings. `generate` returns only the new tokens, and a
+            # prefix_allowed_tokens_fn is shown the prompt ids again so it sees what it sees without soft tokens.
+            from model.encoder.inject import check_slots, injected_embeds
+            check_slots(input_ids, self._image_token_id(), self._soft)
+            fn = extra.pop("prefix_allowed_tokens_fn", None)
+            if fn is not None:
+                extra["prefix_allowed_tokens_fn"] = lambda batch, ids: fn(batch, torch.cat([input_ids[0], ids]))
+            with torch.inference_mode():
+                embeds = injected_embeds(self.model, input_ids, self._soft)
+                out = self.model.generate(
+                    inputs_embeds=embeds, attention_mask=torch.ones_like(input_ids), do_sample=False,
+                    max_new_tokens=max_new_tokens, eos_token_id=self.tokenizer.eos_token_id,
+                    pad_token_id=self.tokenizer.pad_token_id, **extra)
+            new = out[0].tolist()
+            eos = self.tokenizer.eos_token_id
+            return new[:new.index(eos) + 1] if eos in new else new
         with torch.inference_mode():
             out = self.model.generate(
                 input_ids=input_ids, attention_mask=torch.ones_like(input_ids), do_sample=False,
@@ -198,6 +270,29 @@ class Predictor:
         new = out[0, len(prompt_ids):].tolist()
         eos = self.tokenizer.eos_token_id
         return new[:new.index(eos) + 1] if eos in new else new
+
+    def _image_token_id(self):
+        return self.model.config.image_token_id
+
+    def last_hidden(self, prompt_ids, soft=None):
+        """The host's last hidden state at the final prompt token, (1, H) float32: the move head's input.
+
+        The contract (docs/model/move-head.md): `hidden_states[-1]` of the language model, after its final
+        norm, at the last position of the chat-templated prompt. Soft tokens, when given, go through the
+        documented `image_hidden_states` path (model/encoder/inject.py)."""
+        from model.policy_head.head import last_hidden
+        torch = self._torch
+        if soft is None and self._image_token_id() in prompt_ids:
+            raise ValueError("the prompt has <image> slots but no soft tokens were given")
+        input_ids = torch.tensor([prompt_ids], device=self.device)
+        mask = torch.ones_like(input_ids)
+        with torch.inference_mode():
+            if soft is None:
+                out = self.model(input_ids=input_ids, attention_mask=mask, output_hidden_states=True)
+            else:
+                from model.encoder.inject import host_forward
+                out = host_forward(self.model, input_ids, soft, attention_mask=mask, output_hidden_states=True)
+        return last_hidden(out.hidden_states[-1], mask).float()
 
     def complete(self, prompt_text):
         """Raw greedy completion of an arbitrary prompt text in the play chat shape (S0 rules QA).
@@ -277,14 +372,20 @@ class Predictor:
         legal_moves = packet.get("legal_moves")
         if mode == "constrained" and not legal_moves:
             raise ValueError("constrained mode needs a non-empty packet legal_moves")
-        started = time.perf_counter()
-        prompt_ids, new, text = self._free_play(packet)
-        fields, extra = play_module.resolve(
-            text, legal_moves or [], mode,
-            lambda prefix, suffix: self._constrain_move(packet, prompt_ids, prefix, suffix),
-            lambda: self._force_reasoning(packet, self._play_prompt_ids(packet)[0], prompt_ids))
-        out = dict(fields, raw_reply=text, input_tokens=len(prompt_ids), output_tokens=len(new) + extra)
-        return PlayPrediction(latency_ms=(time.perf_counter() - started) * 1000, **out)
+        self._check_play_kind()
+        with self._play_lock:
+            started = time.perf_counter()
+            self._soft = self._soft_tokens(packet) if self._board is not None else None
+            try:
+                prompt_ids, new, text = self._free_play(packet)
+                fields, extra = play_module.resolve(
+                    text, legal_moves or [], mode,
+                    lambda prefix, suffix: self._constrain_move(packet, prompt_ids, prefix, suffix),
+                    lambda: self._force_reasoning(packet, self._play_prompt_ids(packet)[0], prompt_ids))
+            finally:
+                self._soft = None
+            out = dict(fields, raw_reply=text, input_tokens=len(prompt_ids), output_tokens=len(new) + extra)
+            return PlayPrediction(latency_ms=(time.perf_counter() - started) * 1000, **out)
 
     def predict_coach(self, prompt_text):
         """Free greedy decode of a coach turn (model/serve/coach.py reads the commit rule off it)."""

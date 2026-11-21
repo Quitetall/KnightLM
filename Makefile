@@ -14,7 +14,7 @@ check:
 		model.serve.test_play model.serve.test_chat model.encoder.test_encoder \
 		model.tokenizer.test_tokenizer model.tokenizer.test_hf model.tokenizer.test_arms model.train.test_ctok model.perceiver.test_perceiver \
 		model.policy_head.test_policy_head model.eval.test_move_head model.serve.test_coach \
-		model.serve.test_uci_gate
+		model.serve.test_head model.eval.test_playhead model.serve.test_uci_gate
 	python3 scripts/test_run_py_tests.py
 	python3 scripts/check_cli.py
 	python3 scripts/check_ports.py

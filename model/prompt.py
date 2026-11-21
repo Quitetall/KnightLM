@@ -284,8 +284,12 @@ import subprocess
 # (model/tokenizer/arms.py). They need the extended tokenizer (model/tokenizer/hf.py); the completion
 # is the same host-text play call, so parse_play_completion reads their replies unchanged.
 CTOK_KINDS = ("play-t1", "play-t3", "play-t3-full")
-PLAY_KINDS = ("play", "play-cgt", "play-cgt-full", *CTOK_KINDS)
-CGT_VARIANT = {"play-cgt": "lite", "play-cgt-full": "full"}
+# `play-head` is the move-head arm (docs/model/move-head.md); `play-enc` and `play-enc-cgt` are the board
+# encoder arms T4 and T5 (docs/model/board-encoder.md). All three are additive: every older kind keeps its bytes.
+HEAD_KINDS = ("play-head",)
+ENC_KINDS = ("play-enc", "play-enc-cgt")
+PLAY_KINDS = ("play", "play-cgt", "play-cgt-full", *CTOK_KINDS, *HEAD_KINDS, *ENC_KINDS)
+CGT_VARIANT = {"play-cgt": "lite", "play-cgt-full": "full", "play-enc-cgt": "lite"}
 CGT_LABEL = "Position graph:\n"
 _REPO = Path(__file__).resolve().parent.parent
 
@@ -320,12 +324,50 @@ def check_play_kind(kind):
         raise ValueError(f"unknown play prompt kind {kind!r}; expected one of {PLAY_KINDS}")
 
 
-def play_prompt(kind, packet, schemas=None, binary=None):
+# --- Move-head and board-encoder prompts ---------------------------------------------------------
+# play-head: the packet prompt plus a closing label. The move head reads the host's last hidden state at
+# the end of this text (head_prompt, no move), so it cannot name its own answer. The language stage then
+# sees the same text with the head's move after the label (head_move=m*), writes the usual play call
+# (reasoning, then move) and the move field is pinned to m*. The completion format is unchanged.
+# play-enc / play-enc-cgt: no FEN. The board is `n_board_tokens` host `<image>` placeholders (the encoder's
+# soft tokens replace them, model/encoder/inject.py); the text carries only the packet's rule facts (legal
+# moves and facts, no FEN and no repetition ledger, whose keys spell the placement). play-enc-cgt adds the
+# cgt/1 lite text beside the soft tokens.
+
+HEAD_LABEL = "\nMove head:"
+ENC_LABEL = "Board tokens:\n"
+RULES_LABEL = "\nRules:\n"
+IMAGE_TOKEN = "<image>"
+BOARD_TOKENS = 64  # SmolVLM-500M image_seq_len; the encoder default
+_ENC_HIDDEN = ("fen", "repetition_ledger")
+
+
+def rules_json(packet):
+    """The packet without the position: nothing here lets the model read the board as text."""
+    return packet_json({k: v for k, v in packet.items() if k not in _ENC_HIDDEN})
+
+
+def play_prompt(kind, packet, schemas=None, binary=None, head_move=None, n_board_tokens=BOARD_TOKENS):
     """The play prompt for a kind: `play` is play_text; `play-cgt*` swap the packet for CGT text;
-    `play-t1` and `play-t3*` swap it for ctok/1 token strings."""
+    `play-t1` and `play-t3*` swap it for ctok/1 token strings; `play-head` ends in HEAD_LABEL (plus the
+    head's move when `head_move` is given); `play-enc*` replace the position with board-token slots."""
     check_play_kind(kind)
+    if head_move is not None and kind not in HEAD_KINDS:
+        raise ValueError(f"head_move only applies to {HEAD_KINDS}, not {kind!r}")
     if kind == "play":
         return play_text(packet, schemas)
+    if kind in HEAD_KINDS:
+        text = play_text(packet, schemas) + HEAD_LABEL
+        if head_move is None:
+            return text
+        if head_move not in packet.get("legal_moves", ()):
+            raise ValueError(f"head move {head_move!r} is not legal in the packet")
+        return text + " " + head_move
+    if kind in ENC_KINDS:
+        text = prefix("play", schemas) + ENC_LABEL + IMAGE_TOKEN * n_board_tokens + RULES_LABEL + rules_json(packet)
+        if kind == "play-enc-cgt":
+            text += "\n" + CGT_LABEL + cgt_text(packet, CGT_VARIANT[kind], binary)
+        return text
     if kind in CTOK_KINDS:
         from model.tokenizer import arms
 
