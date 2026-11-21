@@ -63,3 +63,30 @@ OpenAI-compatible server works the same. `provider/knightlm_serve.rs` still serv
   the `knightlm` extension, which is ours and refuses them. Request types are ours and refuse them.
 - A change to a golden is a change to the contract: regenerate in Rust, and the Python
   parity tests (`model.tests.test_prompt`, `model.serve.test_chat`) must pass unchanged or change with it.
+
+## Layering and the pin rule
+
+The code that decides what is true on the board is the rules layer, and everything else
+sits above it:
+
+| Layer | Crates | May depend on |
+|---|---|---|
+| Rules | `crates/core` (compiler, packet), `crates/notation` (FEN, PGN, CGT on shakmaty) | the rules layer only |
+| Contract | `crates/contract` | rules |
+| Above the rules | `crates/ai`, `crates/play`, `crates/player`, `crates/model`, `crates/cli`, `apps/*` | rules, contract |
+
+`crates/brick-chess*` is not part of the rules layer: `cargo metadata` shows the compiler
+(`knightlm cgt`, `corpus-facts`) needs only core and notation, and the check does not treat
+brick-chess as a dependency either way. `scripts/check_layers.py` (in `make check`, with planted
+violations in `scripts/test_check_layers.py`) fails if a rules crate declares a path dependency
+outside the rules layer or any dependency named after a crate above it. Today core has no workspace
+dependency and notation depends on core only.
+
+Pin rule: a corpus that bakes in compiler answers (the S0 rules-QA corpus, `model/corpus/s0.py`)
+records the git tree ids of `crates/core` and `crates/notation` and the sha256 of the `knightlm`
+binary that built it. The audit refuses a corpus whose recorded tree ids differ from the checkout in
+use, or a checkout with uncommitted changes to those crates, unless `--allow-rules-drift` is passed;
+`--knightlm BIN` additionally refuses a binary other than the recorded one and re-derives every
+answer and prompt. A change to the rules layer therefore invalidates such corpora on purpose:
+rebuild them, or say aloud that the drift is accepted. Changes elsewhere (the app, the server, the
+evaluator) do not move the tree ids and leave corpora valid.

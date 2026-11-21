@@ -195,9 +195,16 @@ def read_split(root, name, entry, source, reasoning=False):
     return rows
 
 
-def read_corpus(root):
-    """Return (train, holdout) rows after checking every manifest claim."""
+def read_corpus(root, allow_rules_drift=False):
+    """Return (train, holdout) rows after checking every manifest claim.
+
+    An S0 rules-QA corpus (model/corpus/s0.py) is dispatched to its own reader, which also refuses
+    a recorded rules revision that differs from the one in use unless `allow_rules_drift`."""
     manifest = json.loads((root / MANIFEST).read_text())
+    if manifest["format"] == "knightlm-s0-rules-qa-v1":
+        from model.corpus import s0
+
+        return s0.read_corpus(root, allow_rules_drift)
     if manifest["format"] not in FORMATS:
         raise ValueError("unsupported corpus format")
     reasoning = manifest["format"] == REASONING_FORMAT
@@ -310,9 +317,19 @@ def build(args, parser):
 
 def audit(args, parser):
     try:
-        train, holdout = read_corpus(args.corpus)
-        if args.knightlm:
-            if json.loads((args.corpus / MANIFEST).read_text())["format"] != REASONING_FORMAT:
+        manifest_format = json.loads((args.corpus / MANIFEST).read_text())["format"]
+        train, holdout = read_corpus(args.corpus, args.allow_rules_drift)
+        if args.knightlm and manifest_format == "knightlm-s0-rules-qa-v1":
+            from model.corpus import s0
+
+            manifest = json.loads((args.corpus / MANIFEST).read_text())
+            if sha256_file(args.knightlm) != manifest["rules"]["binary_sha256"] and not args.allow_rules_drift:
+                raise ValueError("--knightlm binary differs from the one that built the corpus (rules.binary_sha256); "
+                                 "pass --allow-rules-drift to re-derive anyway")
+            for split in (train, holdout):
+                s0.verify_rows(split, args.knightlm.resolve(), manifest["arm"])
+        elif args.knightlm:
+            if manifest_format != REASONING_FORMAT:
                 raise ValueError("--knightlm re-derives reasoning, and this corpus has none")
             for split in (train, holdout):
                 verify_reasoning(split, args.knightlm)
@@ -342,7 +359,9 @@ def main():
     make.set_defaults(run=build)
     check = commands.add_parser("audit", help="re-check a corpus directory against its manifest")
     check.add_argument("corpus", type=Path)
-    check.add_argument("--knightlm", type=Path, help="reasoning corpora: also re-derive every reasoning with this binary")
+    check.add_argument("--knightlm", type=Path, help="reasoning and S0 corpora: also re-derive every reasoning or answer with this binary")
+    check.add_argument("--allow-rules-drift", action="store_true",
+                       help="S0 corpora: accept a recorded rules revision or compiler binary that differs from the one in use")
     check.set_defaults(run=audit)
     args = parser.parse_args()
     args.run(args, parser)

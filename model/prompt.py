@@ -268,3 +268,70 @@ def roll_chat(summary, messages):
     if skip == 0:
         return summary, messages
     return summarize_chat(summary, messages[:skip]), messages[skip:]
+
+
+# --- Play prompt with Chess Graph Text (arms T0 / T2) ---------------------------------
+# `play` is the FEN packet prompt above (arm T0, the control). `play-cgt` and `play-cgt-full`
+# are the same prompt with the position rendered as cgt/1 text (docs/model/graph-text.md)
+# instead of the packet JSON: same instruction, same play schema, same completion format, and the
+# position last. The text comes from the Rust compiler (`knightlm cgt`), never from Python.
+
+import functools
+import os
+import subprocess
+
+PLAY_KINDS = ("play", "play-cgt", "play-cgt-full")
+CGT_VARIANT = {"play-cgt": "lite", "play-cgt-full": "full"}
+CGT_LABEL = "Position graph:\n"
+_REPO = Path(__file__).resolve().parent.parent
+
+
+def knightlm_binary(explicit=None):
+    """The compiler binary: explicit path, KNIGHTLM_BIN, then target/release and target/debug."""
+    candidates = [explicit, os.environ.get("KNIGHTLM_BIN"), _REPO / "target/release/knightlm", _REPO / "target/debug/knightlm"]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return Path(candidate).resolve()
+    raise FileNotFoundError("knightlm binary not found: build it (cargo build --release -p knightlm-cli) or set KNIGHTLM_BIN")
+
+
+@functools.lru_cache(maxsize=65536)
+def _cgt(binary, fen, rep, variant):
+    cmd = [binary, "cgt", "--fen", fen, "--variant", variant]
+    if rep is not None:
+        cmd += ["--rep", str(rep)]
+    return subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30).stdout.rstrip("\n")
+
+
+def cgt_text(packet, variant, binary=None):
+    """cgt/1 text for a packet's position. The repetition count is the packet's own (`?` if absent)."""
+    if variant not in ("lite", "full"):
+        raise ValueError(f"unknown cgt variant {variant!r}")
+    rep = packet["facts"].get("repetition_count")
+    return _cgt(str(knightlm_binary(binary)), packet["fen"], rep, variant)
+
+
+def check_play_kind(kind):
+    if kind not in PLAY_KINDS:
+        raise ValueError(f"unknown play prompt kind {kind!r}; expected one of {PLAY_KINDS}")
+
+
+def play_prompt(kind, packet, schemas=None, binary=None):
+    """The play prompt for a kind: `play` is play_text; `play-cgt*` swap the packet for CGT text."""
+    check_play_kind(kind)
+    if kind == "play":
+        return play_text(packet, schemas)
+    return prefix("play", schemas) + CGT_LABEL + cgt_text(packet, CGT_VARIANT[kind], binary)
+
+
+# --- S0 rules-QA prompt (docs/model/s0 corpus: model/corpus/s0.py) -----------------------
+# A question about the position, appended after it. The completion is the play call whose
+# `reasoning` field is the answer.
+
+QA_LABEL = "\nQuestion: "
+
+
+def qa_prompt(kind, packet, question, schemas=None, binary=None):
+    if "\n" in question:
+        raise ValueError("a question is one line")
+    return play_prompt(kind, packet, schemas, binary) + QA_LABEL + question
