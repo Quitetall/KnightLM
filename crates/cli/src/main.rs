@@ -4,6 +4,7 @@ use knightlm_core::{data::*, experiment::*, state::*};
 use knightlm_model::{ModelProfile, smoke, verify_model};
 use std::{fs::File, io::BufReader, path::PathBuf};
 
+mod board_labels;
 mod corpus;
 mod facts;
 mod score_cmd;
@@ -64,6 +65,8 @@ enum Command {
     },
     /// Rules-only position facts (side, check, material, captures, a move's effect) for JSONL on stdin.
     CorpusFacts,
+    /// Rules-QA labels (squares, attack maps, legal moves, check, material) for JSONL `{fen}` on stdin; board-encoder pretraining.
+    BoardLabels,
     /// Render a position as Chess Graph Text (cgt/1); see docs/model/graph-text.md.
     Cgt {
         #[arg(long)]
@@ -274,6 +277,10 @@ fn main() -> Result<()> {
             &source,
         )?,
         Command::CorpusFacts => facts::write_facts(
+            std::io::stdin().lock(),
+            std::io::BufWriter::new(std::io::stdout().lock()),
+        )?,
+        Command::BoardLabels => board_labels::write_labels(
             std::io::stdin().lock(),
             std::io::BufWriter::new(std::io::stdout().lock()),
         )?,
