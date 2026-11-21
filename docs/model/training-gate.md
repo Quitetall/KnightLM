@@ -270,3 +270,22 @@ are trained on the two `play-head` views (head read at the last token of the hea
 adapters are trained on `play-enc`/`play-enc-cgt` rows with the projector trainable and the encoder frozen,
 through the `image_hidden_states` path. Not tested: any of this on the real SmolVLM, GPU memory and latency of
 soft-token decoding, and `stop_strings` with embedding-input decoding on the real tokenizer.
+
+## Reasoning v2 (prepared, not run)
+
+Pilot corpora (20,000 train, 1,000 holdout, from the Run 1 reasoning corpus positions; spec in
+docs/model/reasoning-v2.md; evidence in `keep/reasoning-v2-pilot-2026-11/`): `reasoning-v2-pilot-2026-11-a`
+(text) and `-b` (tool quoting). Zero failed claims. Tokens per row (SmolVLM tokenizer, first 5,000 train
+rows): a 1071.7 (p95 1249, max 1686), b 1331.3 (p95 1530, max 2003, under seq_len 2048); Run 1 reasoning 1089.0.
+Time at 14k tokens/s over 625 steps: a 0.42 h, b 0.53 h, plus about 5 minutes of evaluation.
+
+```bash
+python -m model.train.run --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/reasoning-v2-pilot-2026-11-a \
+  --run r2a --baseline <run1short play-mode scorecard dir> --eval-arg=--no-stockfish --eval-arg=--no-tactics --gpu
+python -m model.train.run --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/reasoning-v2-pilot-2026-11-b \
+  --run r2b --baseline <run1short play-mode scorecard dir> --eval-arg=--no-stockfish --eval-arg=--no-tactics --gpu
+```
+
+Preflight (corpus audit, prompt parity, tokenisation) passes for both without `--gpu`. Run `a` first; `b` needs
+the prompt and loss-mask follow-ups listed in the spec. Score on `model.eval.run --prompt-kind play` against
+`keep/eval-run1short-playmode-300-20261120T221837Z` (claim failure rate, claims per explanation).

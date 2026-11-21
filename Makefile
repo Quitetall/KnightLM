@@ -8,7 +8,7 @@ check:
 	python3 -m unittest discover -s model/parity/python
 	# One runner so every skip (module and reason) is printed at the end, not hidden in "skipped=N".
 	python3 scripts/run_py_tests.py \
-		model.corpus.test_pipeline model.corpus.test_v3 model.corpus.test_reasoning model.corpus.test_s0 \
+		model.corpus.test_pipeline model.corpus.test_v3 model.corpus.test_reasoning model.corpus.test_reasoning2 model.corpus.test_s0 \
 		model.tests.test_materialize model.tests.test_train_run model.tests.test_pipeline model.tests.test_prompt \
 		model.eval.test_eval model.eval.test_oracles model.eval.test_explain model.eval.test_playmode model.eval.test_s0 \
 		model.serve.test_play model.serve.test_chat model.encoder.test_encoder \

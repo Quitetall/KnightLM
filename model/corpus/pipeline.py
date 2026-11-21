@@ -205,6 +205,10 @@ def read_corpus(root, allow_rules_drift=False):
         from model.corpus import s0
 
         return s0.read_corpus(root, allow_rules_drift)
+    if manifest["format"] == "knightlm-lichess-v2-reasoning-v2":
+        from model.corpus import reasoning2
+
+        return reasoning2.read_corpus(root, allow_rules_drift)
     if manifest["format"] not in FORMATS:
         raise ValueError("unsupported corpus format")
     reasoning = manifest["format"] == REASONING_FORMAT
@@ -328,6 +332,15 @@ def audit(args, parser):
                                  "pass --allow-rules-drift to re-derive anyway")
             for split in (train, holdout):
                 s0.verify_rows(split, args.knightlm.resolve(), manifest["arm"], manifest_format)
+        elif args.knightlm and manifest_format == "knightlm-lichess-v2-reasoning-v2":
+            from model.corpus import reasoning2
+
+            manifest = json.loads((args.corpus / MANIFEST).read_text())
+            if sha256_file(args.knightlm) != manifest["rules"]["binary_sha256"] and not args.allow_rules_drift:
+                raise ValueError("--knightlm binary differs from the one that built the corpus (rules.binary_sha256); "
+                                 "pass --allow-rules-drift to re-derive anyway")
+            for split in (train, holdout):
+                reasoning2.verify_rows(split, args.knightlm.resolve(), manifest["variant"])
         elif args.knightlm:
             if manifest_format != REASONING_FORMAT:
                 raise ValueError("--knightlm re-derives reasoning, and this corpus has none")

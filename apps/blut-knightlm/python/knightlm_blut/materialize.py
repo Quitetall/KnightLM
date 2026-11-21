@@ -31,6 +31,7 @@ RECEIPT_FORMAT = "knightlm-blut-materialized-v1"
 CORPUS_FORMAT = "knightlm-lichess-v2"
 REASONING_FORMAT = "knightlm-lichess-v2-reasoning-v1"
 S0_FORMATS = ("knightlm-s0-rules-qa-v1", "knightlm-s0-rules-qa-v2")
+REASONING_V2_FORMAT = "knightlm-lichess-v2-reasoning-v2"  # rows carry their own audited prompt and completion
 DATASET = "dataset.jsonl"
 RECEIPT = "receipt.json"
 
@@ -63,6 +64,8 @@ def convert_row(row, prompt_module, render_module=None, kind="play"):
     `kind` is the play prompt kind of a reasoning row (`play` = T0; `play-cgt*` T2; `play-t1`,
     `play-t3*` T1/T3). An S0 row carries its own prompt, so `kind` does not apply to it."""
     if "qa" in row:  # S0 rules QA: the row carries its prompt and completion, audited against model.prompt
+        return {"prompt": row["prompt"], "completion": row["completion"]}
+    if row.get("variant") in ("a", "b") and "completion" in row and "prompt" in row:  # reasoning v2
         return {"prompt": row["prompt"], "completion": row["completion"]}
     if "reasoning" in row:
         if render_module is None:
@@ -99,6 +102,8 @@ def pins(corpus, root, kind="play"):
         found["render_py_sha256"] = sha256_file(root / "model" / "corpus" / "render.py")
     if json.loads((Path(corpus) / "manifest.json").read_text()).get("format") in S0_FORMATS:
         found["s0_py_sha256"] = sha256_file(root / "model" / "corpus" / "s0.py")
+    if json.loads((Path(corpus) / "manifest.json").read_text()).get("format") == REASONING_V2_FORMAT:
+        found["reasoning2_py_sha256"] = sha256_file(root / "model" / "corpus" / "reasoning2.py")
     return found
 
 
@@ -122,7 +127,7 @@ def existing_receipt(out, expected):
 
 def build(corpus, out, root, prompt_module, kind="play"):
     manifest = json.loads((corpus / "manifest.json").read_text())
-    if manifest.get("format") not in (CORPUS_FORMAT, REASONING_FORMAT, *S0_FORMATS):
+    if manifest.get("format") not in (CORPUS_FORMAT, REASONING_FORMAT, REASONING_V2_FORMAT, *S0_FORMATS):
         raise MaterializeError(f"unsupported corpus format {manifest.get('format')!r}")
     render_module = _render_module(root) if manifest["format"] == REASONING_FORMAT else None
     out.mkdir(parents=True, exist_ok=True)

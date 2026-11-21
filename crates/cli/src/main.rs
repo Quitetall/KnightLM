@@ -7,6 +7,7 @@ use std::{fs::File, io::BufReader, path::PathBuf};
 mod board_labels;
 mod corpus;
 mod facts;
+mod reads;
 mod score_cmd;
 
 #[derive(Parser)]
@@ -65,6 +66,8 @@ enum Command {
     },
     /// Rules-only position facts (side, check, material, captures, a move's effect) for JSONL on stdin.
     CorpusFacts,
+    /// Run play-schema read tool calls on a FEN (JSONL `{fen, calls}` on stdin); results rendered as the harness shows them.
+    CorpusReads,
     /// Rules-QA labels (squares, attack maps, legal moves, check, material) for JSONL `{fen}` on stdin; board-encoder pretraining.
     BoardLabels,
     /// Render a position as Chess Graph Text (cgt/1); see docs/model/graph-text.md.
@@ -345,6 +348,10 @@ fn main() -> Result<()> {
             &source,
         )?,
         Command::CorpusFacts => facts::write_facts(
+            std::io::stdin().lock(),
+            std::io::BufWriter::new(std::io::stdout().lock()),
+        )?,
+        Command::CorpusReads => reads::write_reads(
             std::io::stdin().lock(),
             std::io::BufWriter::new(std::io::stdout().lock()),
         )?,
