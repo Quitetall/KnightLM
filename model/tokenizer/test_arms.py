@@ -15,6 +15,7 @@ try:
     from model.tokenizer.test_hf import REAL_TOKENIZER, host_tokenizer
 except ImportError:  # pragma: no cover
     host_tokenizer = None
+    REAL_TOKENIZER = Path("/nonexistent")
 
 try:
     BINARY = prompt.knightlm_binary()
