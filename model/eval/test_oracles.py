@@ -174,6 +174,21 @@ class SkipTests(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
+    def test_maia_weights_dir_accepts_flat_and_stored_layouts(self):
+        flat, stored, empty = self.tmp / "flat", self.tmp / "stored", self.tmp / "empty"
+        for d in (flat, stored / "1500", empty):
+            d.mkdir(parents=True)
+        (flat / "maia-1500.pb.gz").write_bytes(b"f")
+        (stored / "1500" / "maia-1500.pb.gz").write_bytes(b"s")
+        self.assertEqual(oracles.find_maia_weights(1500, directory=flat), (flat / "maia-1500.pb.gz").resolve())
+        self.assertEqual(oracles.find_maia_weights(1500, directory=stored), (stored / "1500" / "maia-1500.pb.gz").resolve())
+        with mock.patch.dict(os.environ, {"MAIA_WEIGHTS_DIR": str(stored)}):
+            self.assertEqual(oracles.find_maia_weights(1500).name, "maia-1500.pb.gz")
+        with self.assertRaises(OracleUnavailable):
+            oracles.find_maia_weights(1500, directory=empty)
+        with self.assertRaises(OracleUnavailable):  # the stored layout has no 1100 here
+            oracles.find_maia_weights(1100, directory=stored)
+
     def test_named_reasons(self):
         with self.assertRaisesRegex(OracleUnavailable, "lc0 binary not found"):
             oracles.find_lc0()

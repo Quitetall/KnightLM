@@ -45,6 +45,10 @@
 > -
 - doc:docs/app/migrations.md · document · - · Database migrations, and the one reset · docs/app/migrations.md:1
 
+## docs/app/models.md
+> -
+- doc:docs/app/models.md · document · - · Using a model from RustyBrickChess · docs/app/models.md:1
+
 ## docs/app/running.md
 > -
 - doc:docs/app/running.md · document · - · Running RustyBrickChess · docs/app/running.md:1
@@ -72,6 +76,10 @@
 ## docs/contributors/work/training-loop.md
 > -
 - doc:docs/contributors/work/training-loop.md · document · - · Four-person training plan · docs/contributors/work/training-loop.md:1
+
+## docs/model/board-encoder.md
+> -
+- doc:docs/model/board-encoder.md · document · - · Board encoder (arms T4 and T5) · docs/model/board-encoder.md:1
 
 ## docs/model/contracts.md
 > -
@@ -105,6 +113,10 @@
 > -
 - doc:docs/model/plan.md · document · - · KnightLM implementation contract · docs/model/plan.md:1
 
+## docs/model/scorecard.md
+> -
+- doc:docs/model/scorecard.md · document · - · KnightLM scorecard: axes, comparability and limits · docs/model/scorecard.md:1
+
 ## docs/model/seam.md
 > -
 - doc:docs/model/seam.md · document · - · The seam between RBC and KnightLM · docs/model/seam.md:1
@@ -120,6 +132,10 @@
 ## docs/model/trackb-smolvlm-study.md
 > -
 - doc:docs/model/trackb-smolvlm-study.md · document · - · Track B — SmolVLM architecture study (Burn-native admission) · docs/model/trackb-smolvlm-study.md:1
+
+## docs/model/training-gate.md
+> -
+- doc:docs/model/training-gate.md · document · - · Training gate: S0 board-grounding arms (prepared, not run) · docs/model/training-gate.md:1
 
 ## docs/model/training-glossary.md
 > -

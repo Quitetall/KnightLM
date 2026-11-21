@@ -12,7 +12,7 @@ This is the master document (OW-ADR-0022): what is authoritative in this reposit
 - **Current by construction.** A Warrant is current unless an authorized Warrant declares `supersedes` → it, or its resolution is annulled. Currency is derived from those relations, never written.
 - **Fully expanded.** Every current Warrant's atoms appear below verbatim, in role order. Nothing is paraphrased.
 - **Replaced subjects are one line.** 0 replaced subject(s) appear under *Replaced* as lineage and nothing else; their text is in the history, when this repository keeps one.
-- **Records as of 2026-11-07** — the latest recorded event. 21 current Warrant(s).
+- **Records as of 2026-11-21** — the latest recorded event. 21 current Warrant(s).
 
 ## In force
 
@@ -1417,7 +1417,7 @@ weekly ingest reports log refusal shapes.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Corpus ingest pipeline | `model/corpus/pipeline.py` | drift |
+| D-001 | Corpus ingest pipeline | `model/corpus/pipeline.py` | verified |
 | D-002 | Corpus documentation | `README.md` | verified |
 
 #### KLM-WAR-0008 — Track A run 1: SmolVLM LoRA harness, execution within cap, per-axis eval
@@ -1849,7 +1849,7 @@ narrative, not a strength claim — the strength axis stays in W-0008.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Serving entry point | `model/serve/server.py` | drift |
+| D-001 | Serving entry point | `model/serve/server.py` | verified |
 
 #### KLM-WAR-0010 — The Leptos viewer: any notation in, board and facts out, all formats back out
 
