@@ -30,7 +30,7 @@ from knightlm_blut.common import repo_root, sha256_bytes, sha256_file
 RECEIPT_FORMAT = "knightlm-blut-materialized-v1"
 CORPUS_FORMAT = "knightlm-lichess-v2"
 REASONING_FORMAT = "knightlm-lichess-v2-reasoning-v1"
-S0_FORMAT = "knightlm-s0-rules-qa-v1"
+S0_FORMATS = ("knightlm-s0-rules-qa-v1", "knightlm-s0-rules-qa-v2")
 DATASET = "dataset.jsonl"
 RECEIPT = "receipt.json"
 
@@ -57,14 +57,17 @@ def _render_module(root):
     return render
 
 
-def convert_row(row, prompt_module, render_module=None):
-    """One corpus row -> one SFT row. The only place the prompt is built."""
+def convert_row(row, prompt_module, render_module=None, kind="play"):
+    """One corpus row -> one SFT row. The only place the prompt is built.
+
+    `kind` is the play prompt kind of a reasoning row (`play` = T0; `play-cgt*` T2; `play-t1`,
+    `play-t3*` T1/T3). An S0 row carries its own prompt, so `kind` does not apply to it."""
     if "qa" in row:  # S0 rules QA: the row carries its prompt and completion, audited against model.prompt
         return {"prompt": row["prompt"], "completion": row["completion"]}
     if "reasoning" in row:
         if render_module is None:
             raise MaterializeError("a reasoning row needs model.corpus.render")
-        return render_module.render_play(row["packet"], row["reasoning"], row["target"])
+        return render_module.render_play(row["packet"], row["reasoning"], row["target"], kind)
     return {"prompt": prompt_module.user_text(row["packet"]), "completion": row["target"]}
 
 
@@ -83,16 +86,18 @@ def run_audit(corpus, root):
     return result.stdout.strip()
 
 
-def pins(corpus, root):
+def pins(corpus, root, kind="play"):
     """Hashes that decide whether an existing materialization is still valid."""
     found = {
         "corpus_manifest_sha256": sha256_file(Path(corpus) / "manifest.json"),
         "prompt_py_sha256": sha256_file(root / "model" / "prompt.py"),
         "materializer_sha256": sha256_file(Path(__file__)),
     }
+    if kind != "play":
+        found["prompt_kind"] = kind
     if json.loads((Path(corpus) / "manifest.json").read_text()).get("format") == REASONING_FORMAT:
         found["render_py_sha256"] = sha256_file(root / "model" / "corpus" / "render.py")
-    if json.loads((Path(corpus) / "manifest.json").read_text()).get("format") == S0_FORMAT:
+    if json.loads((Path(corpus) / "manifest.json").read_text()).get("format") in S0_FORMATS:
         found["s0_py_sha256"] = sha256_file(root / "model" / "corpus" / "s0.py")
     return found
 
@@ -115,9 +120,9 @@ def existing_receipt(out, expected):
     return receipt
 
 
-def build(corpus, out, root, prompt_module):
+def build(corpus, out, root, prompt_module, kind="play"):
     manifest = json.loads((corpus / "manifest.json").read_text())
-    if manifest.get("format") not in (CORPUS_FORMAT, REASONING_FORMAT, S0_FORMAT):
+    if manifest.get("format") not in (CORPUS_FORMAT, REASONING_FORMAT, *S0_FORMATS):
         raise MaterializeError(f"unsupported corpus format {manifest.get('format')!r}")
     render_module = _render_module(root) if manifest["format"] == REASONING_FORMAT else None
     out.mkdir(parents=True, exist_ok=True)
@@ -130,7 +135,7 @@ def build(corpus, out, root, prompt_module):
                 raise MaterializeError(f"{entry['file']} changed since the audit")
             converted, rows = [], 0
             for line in source.splitlines():
-                converted.append(encode_row(convert_row(json.loads(line), prompt_module, render_module)))
+                converted.append(encode_row(convert_row(json.loads(line), prompt_module, render_module, kind)))
                 rows += 1
             if rows != entry["games"]:
                 raise MaterializeError(f"{entry['file']} row count differs from the manifest")
@@ -147,17 +152,17 @@ def build(corpus, out, root, prompt_module):
     return shards, total
 
 
-def materialize(corpus, out, root=None):
+def materialize(corpus, out, root=None, kind="play"):
     """Audit, convert and write the receipt; returns the receipt. Reuses a valid result."""
     root = Path(root) if root else repo_root()
     corpus, out = Path(corpus).resolve(), Path(out)
     audit_note = run_audit(corpus, root)
-    expected = pins(corpus, root)
+    expected = pins(corpus, root, kind)
     reused = existing_receipt(out, expected)
     if reused is not None:
         return {**reused, "reused": True}
     prompt_module = _prompt_module(root)
-    shards, total = build(corpus, out, root, prompt_module)
+    shards, total = build(corpus, out, root, prompt_module, kind)
     receipt = {
         "format": RECEIPT_FORMAT,
         "corpus_dir": str(corpus),
@@ -178,6 +183,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--corpus", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--prompt-kind", default="play",
+                        help="play prompt kind of a reasoning corpus (play, play-cgt, play-cgt-full, play-t1, play-t3, play-t3-full)")
     parser.add_argument("--expect-manifest-sha256", help="refuse unless the corpus manifest has this sha256")
     args = parser.parse_args(argv)
     try:
@@ -186,7 +193,7 @@ def main(argv=None):
             if actual != args.expect_manifest_sha256:
                 raise MaterializeError(
                     f"corpus manifest sha256 {actual} != expected {args.expect_manifest_sha256}")
-        receipt = materialize(args.corpus, args.out)
+        receipt = materialize(args.corpus, args.out, kind=args.prompt_kind)
     except (MaterializeError, OSError, KeyError, ValueError) as error:
         print(f"materialize refused: {error}", file=sys.stderr)
         return 1

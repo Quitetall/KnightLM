@@ -280,7 +280,11 @@ import functools
 import os
 import subprocess
 
-PLAY_KINDS = ("play", "play-cgt", "play-cgt-full")
+# `play-t1`, `play-t3`, `play-t3-full` are arms T1 and T3: the position as ctok/1 token strings
+# (model/tokenizer/arms.py). They need the extended tokenizer (model/tokenizer/hf.py); the completion
+# is the same host-text play call, so parse_play_completion reads their replies unchanged.
+CTOK_KINDS = ("play-t1", "play-t3", "play-t3-full")
+PLAY_KINDS = ("play", "play-cgt", "play-cgt-full", *CTOK_KINDS)
 CGT_VARIANT = {"play-cgt": "lite", "play-cgt-full": "full"}
 CGT_LABEL = "Position graph:\n"
 _REPO = Path(__file__).resolve().parent.parent
@@ -317,10 +321,16 @@ def check_play_kind(kind):
 
 
 def play_prompt(kind, packet, schemas=None, binary=None):
-    """The play prompt for a kind: `play` is play_text; `play-cgt*` swap the packet for CGT text."""
+    """The play prompt for a kind: `play` is play_text; `play-cgt*` swap the packet for CGT text;
+    `play-t1` and `play-t3*` swap it for ctok/1 token strings."""
     check_play_kind(kind)
     if kind == "play":
         return play_text(packet, schemas)
+    if kind in CTOK_KINDS:
+        from model.tokenizer import arms
+
+        text = cgt_text(packet, arms.CGT_VARIANT[kind], binary) if kind in arms.CGT_VARIANT else None
+        return prefix("play", schemas) + arms.LABEL + arms.position_text(kind, packet, text)
     return prefix("play", schemas) + CGT_LABEL + cgt_text(packet, CGT_VARIANT[kind], binary)
 
 

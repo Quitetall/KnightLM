@@ -26,7 +26,7 @@ class Oracle:
         if kind in STATE["garble_types"]:
             return "I do not know", 10, 4, 1.0
         answer = row["qa"]["answer"] + (" (wrong)" if kind in STATE["wrong_types"] else "")
-        return prompt.format_play_completion(answer, row["target"]), 10, 20, 1.0
+        return prompt.format_play_completion(answer, row["move"]), 10, 20, 1.0
 
     def manifest(self):
         return {"fake": "oracle"}
@@ -67,6 +67,21 @@ class S0Axis(unittest.TestCase):
         self.assertEqual(axis["overall"], {"n": 3, "exact": 3, "rate": 1.0, "claim_failure_rate": 0.0, "parse_failures": 0})
         for name, block in axis["by_type"].items():
             self.assertEqual(block["claim_failure_rate"], 0.0, name)
+        self.assertEqual(axis["groups"]["node"]["n"] + axis["groups"]["edge"]["n"], axis["overall"]["n"])
+        self.assertEqual(axis["edge_types"], ["attackers_of", "defenders_of"])
+
+    def test_edge_questions_are_their_own_group(self):
+        from model.eval import s0 as eval_s0
+
+        def record(kind, exact):
+            return {"type": kind, "exact": exact, "code": "ok", "explain": None}
+
+        records = [record("side_to_move", True), record("material", True), record("attackers_of", False),
+                   record("defenders_of", True)]
+        axis = eval_s0.axis(records)
+        self.assertEqual((axis["groups"]["node"]["n"], axis["groups"]["node"]["exact"]), (2, 2))
+        self.assertEqual((axis["groups"]["edge"]["n"], axis["groups"]["edge"]["exact"]), (2, 1))
+        self.assertEqual(axis["groups"]["edge"]["claim_failure_rate"], 0.5)
 
     def test_wrong_and_garbled_answers_are_failures_in_the_denominator(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -126,7 +141,7 @@ class KindGuard(unittest.TestCase):
 
     def test_run_accepts_the_new_kinds(self):
         from model.eval.scorecard import PROMPT_KINDS
-        self.assertEqual(PROMPT_KINDS, ("move", "play", "play-cgt", "play-cgt-full"))
+        self.assertEqual(PROMPT_KINDS, ("move", "play", "play-cgt", "play-cgt-full", "play-t1", "play-t3", "play-t3-full"))
 
 
 if __name__ == "__main__":

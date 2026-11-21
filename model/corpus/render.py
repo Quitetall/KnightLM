@@ -15,5 +15,7 @@ def render_completion(reasoning, move):
     return prompt_module.format_play_completion(reasoning, move)
 
 
-def render_play(packet, reasoning, move):
-    return {"prompt": prompt_module.play_text(packet), "completion": render_completion(reasoning, move)}
+def render_play(packet, reasoning, move, kind="play", binary=None):
+    """`kind` is the arm's prompt kind (`play` = T0 FEN packet; `play-cgt*` T2; `play-t1`/`play-t3*` T1/T3)."""
+    prompt = prompt_module.play_text(packet) if kind == "play" else prompt_module.play_prompt(kind, packet, binary=binary)
+    return {"prompt": prompt, "completion": render_completion(reasoning, move)}
