@@ -1417,7 +1417,7 @@ weekly ingest reports log refusal shapes.
 
 | id | title | target | digest |
 |---|---|---|---|
-| D-001 | Corpus ingest pipeline | `model/corpus/pipeline.py` | verified |
+| D-001 | Corpus ingest pipeline | `model/corpus/pipeline.py` | drift |
 | D-002 | Corpus documentation | `README.md` | verified |
 
 #### KLM-WAR-0008 — Track A run 1: SmolVLM LoRA harness, execution within cap, per-axis eval
