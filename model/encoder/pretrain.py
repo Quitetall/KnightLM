@@ -19,6 +19,7 @@ import torch
 from model.encoder import labels as L
 from model.encoder.encoder import (BoardEncoder, EncoderConfig, RulesHeads, head_losses, save_encoder,
                                    to_targets)
+from model.encoder.manifest import write_encoder_manifest
 from model.encoder.planes import build_planes
 
 AXIS = "board-encoder-rules-qa"
@@ -143,6 +144,11 @@ def label_rows(rows, binary=None, chunk=20000):
     return out
 
 
+def _sha_or_none(path):
+    from model.corpus.pipeline import sha256_file
+    return sha256_file(path) if path and Path(path).is_file() else None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--corpus", type=Path, required=True)
@@ -170,6 +176,11 @@ def main(argv=None):
     axis["train_seconds"] = round(time.time() - started, 1)
     save_encoder(args.out / "encoder", encoder, heads)
     (args.out / "axis.json").write_text(json.dumps(axis, indent=2, sort_keys=True))
+    write_encoder_manifest(args.out / "encoder", corpus_manifest_sha256=_sha_or_none(args.corpus / "manifest.json"),
+                           compiler_sha256=_sha_or_none(L.find_binary(args.knightlm)),
+                           axis_sha256=_sha_or_none(args.out / "axis.json"),
+                           train={"epochs": args.epochs, "batch": args.batch, "lr": args.lr, "train_rows": args.train_rows,
+                                  "walk_share": args.walk_share, "device": args.device, "tiny": args.tiny})
     print(json.dumps(axis, sort_keys=True))
 
 

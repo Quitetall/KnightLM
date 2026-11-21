@@ -150,6 +150,17 @@ peft-wrapped host is unwrapped for the merge. The manifest gains `encoder_sha256
 `board_tokens`; a mismatch of kind and encoder (an enc kind without a board, a board with a text kind) is refused.
 `model.eval.run --prompt-kind play-enc` (or `play-enc-cgt`) scores them on the same axes as every play arm.
 
+## Written layouts and manifests
+
+Pretraining writes `<out>/encoder/` (`encoder.pt`, `config.json`, `heads.pt`, `manifest.json`) and `<out>/axis.json`;
+alignment writes `<out>/` (`projector.pt`, `projector.json`, `manifest.json`). These are the directories the server
+loads (`--encoder-dir`, `--projector-dir`). `model/encoder/manifest.py` writes and checks the manifests: the plane
+fingerprint (the plane builder's output on fixed FENs), corpus and compiler hashes, and for the projector the encoder
+hash and host base hash. `Predictor._load_board` refuses a projector aligned to another encoder or host, a weights
+file that differs from its manifest, and planes that changed; directories without manifests load as before.
+`model.encoder.test_writers` writes both layouts on a tiny host and checks that the server's loader gives the same
+soft tokens and host logits.
+
 ## Projector and freeze policy
 
 `Projector`: LayerNorm, Linear(d_enc, h), GELU, Linear(h, host_hidden); about 1.2M

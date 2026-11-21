@@ -82,7 +82,8 @@ class Preflight(unittest.TestCase):
             (Path(tmp) / "train-00000.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
             plan = train.preflight(tmp, 10, 2)
         self.assertEqual((plan["rows_usable"], plan["rows_refused"], plan["epochs"]), (2, 1, 2))
-        self.assertEqual(train.main(["--gpu"]), 3)
+        self.assertEqual(train.main(["--gpu"]), 2)  # needs --run
+        self.assertEqual(train.main(["--gpu", "--run", "x", "--skip-model"]), 2)  # never with a skipped check
 
 
 @unittest.skipUnless(HAVE, "torch not installed")

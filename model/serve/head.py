@@ -113,9 +113,19 @@ class HeadPredictor(Predictor):
         if head.norm.normalized_shape[0] != hidden:
             raise ValueError(f"head reads {head.norm.normalized_shape[0]}-wide states; this host has {hidden}")
         self.head = head.to(self.device)
+        # A head trained by model.policy_head.train carries a manifest binding it to the base, the adapter and
+        # the ctok/rules revisions; a mismatch is refused here. A head saved without one still loads.
+        from model.policy_head import manifest as head_manifest
+        self.head_manifest = head_manifest.check(
+            self.head_dir, head_sha256=self.head_sha256, hidden_size=hidden,
+            base_sha256=getattr(self, "base_sha256", None),
+            adapter_sha256=(self.adapter_sha256 or "none") if hasattr(self, "adapter_sha256") else None)
 
     def manifest(self):
-        return dict(super().manifest(), head_sha256=self.head_sha256, head_label="human-only move head")
+        out = dict(super().manifest(), head_sha256=self.head_sha256, head_label="human-only move head")
+        if getattr(self, "head_manifest", None) is not None:
+            out["head_bound_adapter_sha256"] = self.head_manifest["adapter_sha256"]
+        return out
 
     def _check_play_kind(self):
         if self.prompt_kind != KIND:

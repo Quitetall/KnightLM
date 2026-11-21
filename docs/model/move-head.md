@@ -1,6 +1,6 @@
 # Move-policy head (arm: human-only move head)
 
-Status: specification and Python reference (`model/policy_head/`, `model/eval/move_head.py`), plus the
+Status: specification and Python reference (`model/policy_head/`, `model/eval/move_head.py`), the trainer (prepared; `--gpu` not run), plus the
 prompt kind `play-head` (`model/prompt.py`), the serve predictor (`model/serve/head.py`) and the eval wiring
 (`--move-head`, `model.eval.playmode:head_from_env`). Nothing trains and nothing has run on a GPU: the serve and
 eval paths are tested on a tiny random CPU host only. This is goal item 5 of the approved plan ("move-policy
@@ -68,18 +68,25 @@ An explanation that disagrees with the head's move is a failure, not a different
   host) is the cheap first probe.
 - Budget matched to the other arms: same rows and steps as the control comparison.
 
-### Prepared command and estimate (not run)
+### Training code, command and estimate (GPU run not executed)
 
-    python3 -m model.policy_head.train --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/run1-2026-09-a --rows 200000 --epochs 1
+`model/policy_head/train.py` (entry, preflight, `--gpu`) and `joint.py` (the loop). `--mode joint` trains the adapter
+and the head on the two views of a reasoning row (head-read prompt -> head; conditioned prompt + play call ->
+language loss); `--mode head-only` is the frozen-host warm-up probe. It reuses the BLUT image-text trainer's data
+code, LoRA config and scheduler; it is a loop beside the recipe, not a stage, because the pinned `hf_sft_train`
+cannot carry a second trainable module. Outputs `adapter/` and `head/` (`head.pt`, `head.json`, `manifest.json`)
+load with `--adapter-dir` and `--head-dir`; the manifest binds the base hash, the adapter hash, the head hash, the
+ctok/1 spec version and vocabulary hash, the ruleset, the prompt kind and the corpus manifest hash, and
+`HeadPredictor.attach_head` refuses a mismatch (a head saved without a manifest still loads).
 
-This is a CPU preflight: it audits rows against the move space and prints rows, steps and the
-estimate. `--gpu` is refused; the launch wiring (host forward plus head step, checkpointing) is owed
-and needs the owner's go.
+    python -m model.policy_head.train --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/run1-reasoning-2026-09-a --rows 20000 --run s1-head-a
+    python -m model.policy_head.train --corpus ... --rows 200000 --run s1-head-a --gpu        # not run
 
-Estimate, unmeasured: Run 1 cost about 75 ms/row (625 steps x 32 rows in 25 minutes) with about 100
-generated tokens per row. A prompt-only forward/backward is assumed 3 to 5 times cheaper, 15-25 ms/row:
-20k rows about 5-8 minutes; 200k rows (one epoch) about 50-85 minutes, plus holdout scoring. Re-measure
-on the first 200 steps before committing to the full pass.
+The preflight checks the corpus audit, that every row is in the move space with a legal target, that masks match the
+packets and a random head's masked argmax is always legal, the pinned base, that head-read and conditioned token ids
+equal the serve ids (`Predictor._play_prompt_ids`) and that each completion agrees with its own target, then runs two
+joint steps on the real base on CPU, writes the outputs and reloads them through the serve loader (logits must
+match). Exact commands, resource checks and estimates (unmeasured) are in `training-gate.md`.
 
 ## Evaluation axis `move_head` (`model/eval/move_head.py`)
 
