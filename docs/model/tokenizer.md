@@ -240,15 +240,23 @@ cannot read its own input:
 
 - `target_modules` as in the existing recipe (attention and MLP projections of the
   text model).
-- `modules_to_save=["embed_tokens", "lm_head"]` (the text model's input embedding
-  and the untied output head). PEFT then trains and saves full copies of both
-  matrices. With `base = 49280` that is `(49280 + 2496) x 960` = 49.7M parameters
-  per matrix, 99M for the pair, against a few million LoRA parameters; adapter size
-  and optimizer state grow accordingly. Freezing the host rows by a gradient mask
-  (train only rows `>= base`) or PEFT's `trainable_token_indices` (input embedding
-  only, which leaves `lm_head` new rows untrained for an untied model) would cut
-  that; neither is tested here, and the plain `modules_to_save` route is the one
-  with a test.
+- **Chosen path: `trainable_token_indices`** for `embed_tokens` and the untied `lm_head`
+  (`model/train/ctok.py`, `LoraConfig(trainable_token_indices={"embed_tokens": ids, "lm_head": ids})`
+  with `ids = range(base, base + 2496)`). PEFT trains and stores only a delta for those rows over the
+  frozen matrix: `2496 x 960` = 2.40M parameters per matrix, 4.79M for the pair, and the host rows cannot
+  move. The alternative, `modules_to_save=["embed_tokens", "lm_head"]`, trains and saves full copies of
+  both matrices: `(49280 + 2496) x 960` = 49.7M per matrix, 99.4M for the pair, with adapter size and
+  optimizer state to match, and the host rows can drift. The CPU reload test (below) shows identical
+  logits for the delta path, so the 20x smaller route is the one used. The output rows are trained too
+  because the T1 and T3 completions never contain a ctok token: left at their text initialisation the new
+  `lm_head` rows would sit next to the host rows they were built from and compete with them at decode
+  time; training lets the model push them down. A serving layer should still mask the ctok ids when it
+  samples. (`--ctok-rows embed` trains the input rows only.)
+- Blocker for a GPU run: the pinned BLUT image-text trainer builds its `LoraConfig` without
+  `trainable_token_indices`, rejects `spec.extra`, and the recipe pins the stock base weights. A run needs
+  a cookbook change (pass `trainable_token_indices` and accept the extended base snapshot built by
+  `python -m model.train.ctok build-base`), so `model.train.run --tokenizer ctok1` is preflight-only and
+  refuses `--gpu`.
 - Resize on load: the base checkpoint has `vocab_size = 49280`. Before loading the
   adapter, run `resize_token_embeddings(len(tokenizer))` (both matrices grow to
   `base + 2496`); the adapter's saved matrices then replace them. The reload test
@@ -256,11 +264,11 @@ cannot read its own input:
   change; save the extended tokenizer next to the adapter and verify its
   manifest hash on load.
 - What trains: LoRA weights, the new rows of `embed_tokens` and `lm_head`
-  (tokens in the reserved range and unused `halfmove` values never get gradient),
+  (tokens in the reserved range and unused `halfmove` values get no useful gradient),
   nothing else. The vision tower and connector are untouched and unused for T1
   and T3.
-- What does not: the host rows are not meant to move; with `modules_to_save` they
-  can drift unless masked. Say so in any run record.
+- What does not: the host rows. With `trainable_token_indices` they are frozen by construction
+  (the reload test checks them byte for byte after a perturbed "training" step).
 
 ### CPU reload test
 
@@ -350,8 +358,8 @@ better grounded, and the T1 and T3 probes decide that.
 - **Cost of host extension:** decode and serving must carry the extended tokenizer and
   the manifest; older checkpoints cannot read these ids; literal ctok strings in user
   text must be handled by the server.
-- **Embedding cost:** `modules_to_save` makes the adapter an order of magnitude larger than the LoRA weights alone (above);
-  a row-mask or token-only adapter would avoid it and is untested.
+- **Embedding cost:** the new rows add 4.79M trainable parameters (embedding and head) to the LoRA weights; the
+  rejected `modules_to_save` route would add 99.4M.
 
 ## Rust
 
@@ -380,8 +388,10 @@ take positions and legal moves from the compiler instead of reimplementing rules
 | T3 CGT text to and from ids | `model/tokenizer/cgt.py` |
 | play-call frame | `model/tokenizer/play.py` |
 | Hugging Face extension and row init | `model/tokenizer/hf.py` |
+| T1/T3 prompt blocks (token strings) | `model/tokenizer/arms.py` |
+| trainable new rows, extended base | `model/train/ctok.py`, `model/train/test_ctok.py` |
 | token cost report | `model/tokenizer/token_cost.py` |
-| tests | `model/tokenizer/test_tokenizer.py`, `model/tokenizer/test_hf.py` |
+| tests | `model/tokenizer/test_tokenizer.py`, `model/tokenizer/test_hf.py`, `model/tokenizer/test_arms.py` |
 
 Run `python -m unittest model.tokenizer.test_tokenizer model.tokenizer.test_hf` from the
 repository root after `cargo build -p knightlm-cli` (the compiler-backed tests skip
@@ -393,3 +403,22 @@ equal (including single-field changes), prefix truncation, deletion, insertion a
 substitution are refused or yield the canonical encoding of a different document,
 Chess960 letters and unknown repetition are handled as stated, and the manifest hash
 is pinned.
+
+## Arm prompts and train/serve parity
+
+Arms T1 and T3 change the input only. `model/tokenizer/arms.py` writes the position block as ctok token
+strings back to back, and `model/prompt.py` places it in the play prompt (`play-t1`, `play-t3`,
+`play-t3-full`):
+
+    {instruction, call format, play schema}  "Position tokens:\n"  <pos><side:w>...</pos>
+
+After `hf.extend_tokenizer` each of those strings is one added token, so the host tokenizer produces
+exactly `base + local id` for the block (`model/tokenizer/test_arms.py` pins this on a tiny tokenizer and on
+the real SmolVLM one, where `base = 49280`). The completion is the unchanged host-text `submit_move` call,
+so `parse_play_completion` and every eval axis apply. Train and serve both build the prompt with
+`model.prompt.play_prompt` / `qa_prompt` and tokenise it with the same chat template. `model.train.run
+--tokenizer ctok1` checks this on a sample of rows: `prompt_parity` (stored prompt = served prompt),
+`tokenisation`, and `trainer_vs_harness_tokens` (the ctok ids in the trainer's prompt equal the id-level
+encoding at `base + id`, no ctok id appears in a completion, and the serve path's chat-template encode
+equals the trainer's prompt ids). Literal ctok strings typed by a user into a serving prompt would also
+tokenise to ctok ids; a server must strip or escape them.

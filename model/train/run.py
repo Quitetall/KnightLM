@@ -28,7 +28,7 @@ import subprocess
 import sys
 
 from model.corpus.pipeline import MANIFEST, read_corpus, sha256_file
-from model.prompt import play_text, qa_prompt, user_chat
+from model.prompt import CTOK_KINDS, PLAY_KINDS, play_prompt, qa_prompt, user_chat
 from model.train.bases import BASES, DEFAULT_CORPUS, DEFAULT_RUN_ROOT, RECOMMENDED
 
 REPO = Path(__file__).resolve().parents[2]
@@ -82,26 +82,66 @@ def check_base(profile, base_dir):
                  repository=profile["repository"], revision=profile["revision"])
 
 
-def check_prompt_parity(rows):
+def row_kind(row, kind):
+    """The prompt kind a row is trained with: an S0 row carries its own, a reasoning row takes --prompt-kind."""
+    return row["prompt_kind"] if "qa" in row else (kind if "reasoning" in row else "move")
+
+
+def check_tokenizer_kinds(rows, kind, tokenizer):
+    """ctok kinds need --tokenizer ctok1 and the other way round; a move-prompt row has no ctok form."""
+    for row in rows:
+        row_k = row_kind(row, kind)
+        if (row_k in CTOK_KINDS) != (tokenizer == "ctok1"):
+            raise Refused(f"prompt kind {row_k!r} with --tokenizer {tokenizer}: ctok arms (play-t1, play-t3, "
+                          "play-t3-full) need --tokenizer ctok1, and --tokenizer ctok1 needs one of them")
+
+
+def check_prompt_parity(rows, kind="play"):
     """Training prompt text == the served prompt text, byte for byte."""
     sys.path.insert(0, str(PAYLOAD))
     from knightlm_blut import materialize
     prompt = materialize._prompt_module(REPO)
     render = materialize._render_module(REPO)
     for row in rows:
-        trained = materialize.convert_row(row, prompt, render)["prompt"]
+        trained = materialize.convert_row(row, prompt, render, kind)["prompt"]
         # a reasoning row is trained and served with the play-mode prompt, a v2 row with the move prompt
         if "qa" in row:  # S0 rules QA: the arm's play prompt plus the question
             served = qa_prompt(row["prompt_kind"], row["packet"], row["qa"]["question"])
         else:
-            served = (play_text(row["packet"]) if "reasoning" in row
+            served = (play_prompt(kind, row["packet"]) if "reasoning" in row
                       else user_chat(row["packet"])[0]["content"][0]["text"])
         if trained.encode() != served.encode():
             raise Refused(f"training prompt differs from model.prompt for game {row['game_id']}")
     return check("ok", rows=len(rows), source="model/prompt.py user_text == user_chat text")
 
 
-def trainer_encode_matches_harness(rows, data, processor, harness_encode):
+def check_ctok_tokens(rows, kind, examples, processor, base):
+    """T1/T3: the ctok ids in the trainer's prompt are exactly the id-level encoding of the position (offset by
+    `base`), no ctok id appears in a completion, and the serve path (`Predictor._play_prompt_ids`: chat template,
+    then encode) yields the trainer's prompt ids."""
+    from model.prompt import cgt_text, mode_chat
+    from model.tokenizer import arms
+
+    tokenizer = processor.tokenizer
+    for row, (prompt_ids, ids) in zip(rows, examples, strict=True):
+        row_k = row_kind(row, kind)
+        text = cgt_text(row["packet"], arms.CGT_VARIANT[row_k]) if row_k in arms.CGT_VARIANT else None
+        want = [base + i for i in arms.position_ids(row_k, row["packet"], text)]
+        found = [t for t in prompt_ids if t >= base]
+        if found != want:
+            raise Refused(f"ctok ids in the trainer prompt of {row['game_id']} differ from the id-level encoding "
+                          f"({len(found)} vs {len(want)})")
+        if any(t >= base for t in ids[len(prompt_ids):]):
+            raise Refused(f"a ctok id appears in the completion of {row['game_id']} (arms T1/T3 change the input only)")
+        question = row["qa"]["question"] if "qa" in row else None
+        served_text = qa_prompt(row_k, row["packet"], question) if question else play_prompt(row_k, row["packet"])
+        served = tokenizer.encode(processor.apply_chat_template(mode_chat(served_text), tokenize=False,
+                                                                add_generation_prompt=True), add_special_tokens=False)
+        if served != prompt_ids:
+            raise Refused(f"serve tokenisation differs from the trainer's for {row['game_id']}")
+
+
+def trainer_encode_matches_harness(rows, data, processor, harness_encode, kind="play"):
     """Token ids from the BLUT trainer's encode vs the reference harness encode."""
     sys.path.insert(0, str(PAYLOAD))
     from knightlm_blut import materialize
@@ -109,7 +149,7 @@ def trainer_encode_matches_harness(rows, data, processor, harness_encode):
     render = materialize._render_module(REPO)
     examples = []
     for row in rows:
-        record = materialize.convert_row(row, prompt, render)
+        record = materialize.convert_row(row, prompt, render, kind)
         ours = data.encode(record["prompt"], record["completion"], processor)
         examples.append(ours)
         if "reasoning" in row or "qa" in row:
@@ -226,7 +266,15 @@ def preflight(args):
     train, holdout, plan["checks"]["corpus_audit"] = check_corpus(corpus)
     plan["corpus"] = {"dir": str(corpus), "manifest_sha256": plan["checks"]["corpus_audit"]["manifest_sha256"]}
     sample = train[:SAMPLE_ROWS]
-    plan["checks"]["prompt_parity"] = check_prompt_parity(sample)
+    check_tokenizer_kinds(sample, args.prompt_kind, args.tokenizer)
+    if args.tokenizer == "ctok1":
+        if args.base != "smolvlm-500m":
+            raise Refused("--tokenizer ctok1 is built and tested for the SmolVLM base only")
+        from model.tokenizer import vocab
+        plan["tokenizer"] = {"name": "ctok1", "spec_version": vocab.SPEC_VERSION, "vocab_sha256": vocab.vocab_sha256(),
+                             "vocab_size": vocab.SIZE, "trainable_rows": args.ctok_rows,
+                             "embedding_path": "peft trainable_token_indices (model/train/ctok.py)"}
+    plan["checks"]["prompt_parity"] = check_prompt_parity(sample, args.prompt_kind)
 
     lengths, examples = [], []
     if args.skip_model:
@@ -248,12 +296,22 @@ def preflight(args):
             for name in ("tokenisation", "trainer_vs_harness_tokens", "cpu_steps"):
                 plan["checks"][name] = check("skipped", reason=reason)
         else:
-            plan["checks"]["tokenisation"] = check("ok", sample_rows=len(sample), backend_python=str(backend))
+            ctok_base = None
+            if args.tokenizer == "ctok1":
+                from model.train import ctok
+                ctok_base = ctok.extend_processor(processor)
+            plan["checks"]["tokenisation"] = check("ok", sample_rows=len(sample), backend_python=str(backend),
+                                                   **({"ctok_base": ctok_base, "tokenizer_length": len(processor.tokenizer)}
+                                                      if ctok_base is not None else {}))
             if args.base == "smolvlm-500m":
-                examples = trainer_encode_matches_harness(sample, data, processor, harness_encode)
+                examples = trainer_encode_matches_harness(sample, data, processor, harness_encode, args.prompt_kind)
+                if ctok_base is not None:
+                    check_ctok_tokens(sample, args.prompt_kind, examples, processor, ctok_base)
                 reasoning_rows = "reasoning" in sample[0] or "qa" in sample[0]
                 plan["checks"]["trainer_vs_harness_tokens"] = check(
-                    "ok", rows=len(sample), note=("reasoning rows: prompt prefix, completion and end-of-turn checked "
+                    "ok", rows=len(sample), **({"ctok": "position ids == id-level encoding at base+id; no ctok id in completions; "
+                                                "serve chat-template tokenisation == trainer prompt ids"} if ctok_base is not None else {}),
+                    note=("reasoning rows: prompt prefix, completion and end-of-turn checked "
                                                   "(harness.py encodes the move prompt only)" if reasoning_rows
                                                   else "BLUT trainer encode == model/train/harness.py encode"))
             else:
@@ -270,7 +328,8 @@ def preflight(args):
             try:
                 plan["checks"]["cpu_steps"] = check("ok", **stack.cpu_steps(
                     base_dir, args.lora_target_regex, examples, data, train_mod, args.rank, args.alpha,
-                    args.lr, seq_len=args.seq_len)) if not args.skip_cpu_steps else check(
+                    args.lr, seq_len=args.seq_len,
+                    extension=(processor.tokenizer, ctok_base, args.ctok_rows) if ctok_base is not None else None)) if not args.skip_cpu_steps else check(
                     "skipped", reason="--skip-cpu-steps")
             except ValueError as error:
                 raise Refused(f"CPU optimiser steps failed: {error}") from error
@@ -284,6 +343,9 @@ def preflight(args):
     argv = [str(binary or CRATE / "target/release/blut-knightlm"), "recipe", "run", "knightlm_lora",
             "--args", json.dumps(plan["recipe_args"], separators=(",", ":"))]
     plan["command"] = argv
+    if args.tokenizer == "ctok1":
+        plan["command"] = None
+        plan["launch_blocked"] = CTOK_BLOCKER
     plan["binary_found"] = binary is not None
     skipped = [name for name, c in plan["checks"].items() if c["status"] == "skipped"]
     plan["ready"] = True
@@ -304,11 +366,21 @@ def print_plan(plan):
         print(f"  differs: {line}")
     for line in plan["sanity"]["warnings"]:
         print(f"  warning: {line}")
-    print("  command:", " ".join(plan["command"][:4]), "--args '<json>'")
+    if plan["command"]:
+        print("  command:", " ".join(plan["command"][:4]), "--args '<json>'")
+    else:
+        print("  launch blocked:", plan["launch_blocked"])
     print("Launching (--gpu)." if plan.get("launched") else "Nothing launched. Add --gpu to launch.")
 
 
+CTOK_BLOCKER = ("--tokenizer ctok1 is preflight-only: the pinned BLUT image-text trainer builds its LoraConfig without "
+                "trainable_token_indices, rejects spec.extra, and the recipe pins the stock base weights, so it cannot "
+                "train the new rows (docs/model/training-gate.md, owed change in blut-cookbooks)")
+
+
 def launch(args, plan):
+    if args.tokenizer == "ctok1":
+        raise Refused(CTOK_BLOCKER)
     binary = find_binary(args.blut_bin)
     if binary is None:
         raise Refused("blut-knightlm binary not found; build it: "
@@ -344,6 +416,12 @@ def launch(args, plan):
 def build_parser():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS, help="corpus directory or its manifest.json")
+    p.add_argument("--tokenizer", choices=("stock", "ctok1"), default="stock",
+                   help="ctok1: arms T1/T3, the host tokenizer extended by the ctok/1 vocabulary (preflight only)")
+    p.add_argument("--prompt-kind", choices=PLAY_KINDS, default="play",
+                   help="play prompt kind of a reasoning corpus (S0 corpora carry their own)")
+    p.add_argument("--ctok-rows", choices=("embed", "embed+head"), default="embed+head",
+                   help="ctok1: new rows trained through trainable_token_indices (input only, or input and output head)")
     p.add_argument("--base", choices=sorted(BASES), default="smolvlm-500m")
     p.add_argument("--base-dir", type=Path, help="override the pinned snapshot directory")
     p.add_argument("--run", required=True, help="new run name (directory under --run-root)")

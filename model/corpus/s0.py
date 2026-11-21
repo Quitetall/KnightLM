@@ -8,13 +8,19 @@ parse back), the packet's legal-move list and `knightlm corpus-facts`. No engine
 Question types: side_to_move, piece_on_square, attackers_of, defenders_of, legal_moves_of,
 in_check, captures, material. "Attack" and "defend" are the cgt/1 edges (docs/model/graph-text.md):
 geometric, pins ignored. The prompt is the play prompt of the arm (`play` = T0 FEN packet,
-`play-cgt` = T2 cgt-lite, `play-cgt-full`) plus one question line (model/prompt.py `qa_prompt`);
-the completion is the play call whose `reasoning` field is the answer and whose `move` is the
-move the human played in the source row (a legal move, so the play parser accepts the row).
+`play-cgt` = T2 cgt-lite, `play-cgt-full` = T2-full, which prints the atk/def edges; `play-t1`, `play-t3`,
+`play-t3-full` = the same positions as ctok/1 token strings, model/tokenizer/arms.py) plus one question line (model/prompt.py `qa_prompt`);
+the completion is the play call whose `reasoning` field is the answer and whose `move` is a
+deterministic neutral value: the first legal move in canonical order (`neutral_move`: the
+lexicographically smallest UCI string of the packet's legal moves). It is the same function of the
+position in every arm and carries no information about the human game, so the probe does not train
+move imitation next to grounding. The human move stays in the row as `target` (source metadata,
+used only to compute corpus-facts), never in the prompt or the completion. v1 corpora (pilot
+2026-11) put `target` in the move field; the readers still accept them (`LEGACY_FORMAT`).
 Rows of the two arms share ids, questions and answers; only the prompt differs. `matched_sha256`
 in each manifest hashes (id, type, question, answer) over all rows, so equality proves the match.
 
-    python -m model.corpus.s0 build --parent DIR --output DIR --arm t0|t2 [--train N --holdout N]
+    python -m model.corpus.s0 build --parent DIR --output DIR --arm t0|t2|t2-full|t1|t3|t3-full [--train N --holdout N]
     python -m model.corpus.pipeline audit DIR [--knightlm BIN] [--allow-rules-drift]
 """
 
@@ -27,11 +33,15 @@ import subprocess
 from model import prompt as prompt_module
 from model.corpus import pipeline
 
-FORMAT = "knightlm-s0-rules-qa-v1"
-GENERATOR_VERSION = "s0-rules-qa-v1"
+FORMAT = "knightlm-s0-rules-qa-v2"
+LEGACY_FORMAT = "knightlm-s0-rules-qa-v1"  # completion move = the human move; readable, no longer built
+FORMATS = (FORMAT, LEGACY_FORMAT)
+GENERATOR_VERSION = "s0-rules-qa-v2"
+EDGE_TYPES = ("attackers_of", "defenders_of")  # cgt/1 edge questions: only graph arms show the edges
 TYPES = ("side_to_move", "piece_on_square", "attackers_of", "defenders_of", "legal_moves_of",
          "in_check", "captures", "material")
-ARMS = {"t0": "play", "t2": "play-cgt", "t2-full": "play-cgt-full"}
+ARMS = {"t0": "play", "t2": "play-cgt", "t2-full": "play-cgt-full",
+        "t1": "play-t1", "t3": "play-t3", "t3-full": "play-t3-full"}
 NAMES = {"K": "king", "Q": "queen", "R": "rook", "B": "bishop", "N": "knight", "P": "pawn"}
 POINTS = {"P": 1, "N": 3, "B": 3, "R": 5, "Q": 9, "K": 0}
 ORDER = "KQRBNP"
@@ -39,6 +49,17 @@ ATTACK_NOTE = "(pins ignored)"
 MAX_ANSWER_CHARS = 400
 SQUARES = [f + r for r in "12345678" for f in "abcdefgh"]
 RULES_CRATES = ("crates/core", "crates/notation")
+
+
+def neutral_move(packet):
+    """The completion's move field: first legal move in canonical order, a function of the position only."""
+    if not packet["legal_moves"]:
+        raise ValueError(f"no legal move for {packet['fen']}")
+    return min(packet["legal_moves"])
+
+
+def completion_move(row, fmt=FORMAT):
+    return row["target"] if fmt == LEGACY_FORMAT else neutral_move(row["packet"])
 
 
 def generator_sha256():
@@ -242,11 +263,13 @@ def compile_inputs(binary, rows, timeout=3600):
     return out
 
 
-def make_row(index, split, row, qa, arm, binary):
+def make_row(index, split, row, qa, arm, binary, fmt=FORMAT):
     kind = ARMS[arm]
     prompt = prompt_module.qa_prompt(kind, row["packet"], qa["question"], binary=binary)
-    completion = prompt_module.format_play_completion(qa["answer"], row["target"])
-    return {
+    move = completion_move(row, fmt)
+    completion = prompt_module.format_play_completion(qa["answer"], move)
+    extra = {} if fmt == LEGACY_FORMAT else {"move": move}
+    return {**extra, 
         "id": f"s0-{split}-{index:06}", "family": row["family"], "game_id": row["game_id"],
         "packet": row["packet"], "ply": row["ply"], "position_key": row["position_key"],
         "source": row["source"], "target": row["target"], "utc_date": row["utc_date"],
@@ -274,7 +297,7 @@ def matched_sha256(train, holdout):
 
 # --- validation and audit ---------------------------------------------------------------------
 
-def validate_rows(rows, source, arm):
+def validate_rows(rows, source, arm, fmt=FORMAT):
     kind = ARMS[arm]
     seen = set()
     for row in rows:
@@ -289,6 +312,7 @@ def validate_rows(rows, source, arm):
             or packet["history_complete"] is not True
             or row["position_key"] != " ".join(packet["fen"].split()[:4])
             or row["target"] not in packet["legal_moves"]
+            or (fmt == FORMAT and row.get("move") != neutral_move(packet))
             or qa["type"] not in TYPES
             or not qa["answer"]
             or len(qa["answer"]) > MAX_ANSWER_CHARS
@@ -296,14 +320,15 @@ def validate_rows(rows, source, arm):
         ):
             raise ValueError(f"invalid S0 row {row.get('id')}")
         seen.add(row["id"])
-        if row["completion"] != prompt_module.format_play_completion(qa["answer"], row["target"]):
+        move = completion_move(row, fmt)
+        if row["completion"] != prompt_module.format_play_completion(qa["answer"], move):
             raise ValueError(f"completion of {row['id']} is not the play call carrying its answer")
         parsed = prompt_module.parse_play_completion(row["completion"])
-        if parsed["reasoning"] != qa["answer"] or parsed["move"] != row["target"]:
+        if parsed["reasoning"] != qa["answer"] or parsed["move"] != move:
             raise ValueError(f"completion of {row['id']} does not parse back to its answer")
 
 
-def verify_rows(rows, binary, arm):
+def verify_rows(rows, binary, arm, fmt=FORMAT):
     """Re-derive every question, answer, prompt and completion from the compiler; refuse any difference."""
     derived = compile_inputs(binary, rows)
     for row, (cgt, facts) in zip(rows, derived, strict=True):
@@ -311,7 +336,7 @@ def verify_rows(rows, binary, arm):
         if qa != row["qa"]:
             raise ValueError(f"{row['id']}: question or answer differs from the rules derivation")
         split = row["id"].split("-")[1]
-        again = make_row(int(row["id"].rsplit("-", 1)[1]), split, row, qa, arm, binary)
+        again = make_row(int(row["id"].rsplit("-", 1)[1]), split, row, qa, arm, binary, fmt)
         if again != row:
             raise ValueError(f"{row['id']}: prompt or completion differs from model.prompt")
 
@@ -320,7 +345,7 @@ def read_corpus(root, allow_rules_drift=False, current=None):
     """(train, holdout) after every manifest claim, the split audit and the rules-revision check."""
     root = Path(root)
     manifest = json.loads((root / pipeline.MANIFEST).read_text())
-    if manifest["format"] != FORMAT:
+    if manifest["format"] not in FORMATS:
         raise ValueError("not an S0 rules-QA corpus")
     if manifest["arm"] not in ARMS or manifest["prompt_kind"] != ARMS[manifest["arm"]]:
         raise ValueError("manifest arm and prompt kind disagree")
@@ -344,7 +369,7 @@ def read_corpus(root, allow_rules_drift=False, current=None):
             rows.extend(shard_rows)
         if len(rows) != entry["games"]:
             raise ValueError(f"{name} game count mismatch")
-        validate_rows(rows, manifest["source"]["file"], manifest["arm"])
+        validate_rows(rows, manifest["source"]["file"], manifest["arm"], manifest["format"])
         stamps = sorted(map(pipeline.timestamp, rows))
         if (pipeline.utc(stamps[0]), pipeline.utc(stamps[-1]), pipeline.months(rows)) != (
                 entry["first_utc"], entry["last_utc"], entry["months"]):
@@ -391,7 +416,10 @@ def write_corpus(output, train, holdout, arm, binary, current, source, parent_me
                       "oracle": "knightlm cgt --variant full, knightlm corpus-facts, packet legal_moves",
                       "attack_semantics": "cgt/1 atk/def edges: geometric, pins ignored",
                       "prompt": "model.prompt.qa_prompt(prompt_kind, packet, question)",
-                      "completion": "one submit_move call: reasoning is the answer, move is the source row's played move"},
+                      "completion": "one submit_move call: reasoning is the answer, move is neutral_move(packet): the "
+                                    "smallest legal UCI string (the human move is not used)",
+                      "neutral_move": "min(packet.legal_moves)",
+                      "edge_question_types": list(EDGE_TYPES)},
         "shard_games": shard_games,
         "reserved_families": sorted({r["family"] for r in holdout}),
         "matched_sha256": matched_sha256(train, holdout),

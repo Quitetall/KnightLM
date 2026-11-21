@@ -12,7 +12,7 @@ check:
 		model.tests.test_materialize model.tests.test_train_run model.tests.test_pipeline model.tests.test_prompt \
 		model.eval.test_eval model.eval.test_oracles model.eval.test_explain model.eval.test_playmode model.eval.test_s0 \
 		model.serve.test_play model.serve.test_chat model.encoder.test_encoder \
-		model.tokenizer.test_tokenizer model.tokenizer.test_hf model.perceiver.test_perceiver \
+		model.tokenizer.test_tokenizer model.tokenizer.test_hf model.tokenizer.test_arms model.train.test_ctok model.perceiver.test_perceiver \
 		model.policy_head.test_policy_head model.eval.test_move_head model.serve.test_coach \
 		model.serve.test_uci_gate
 	python3 scripts/test_run_py_tests.py

@@ -191,6 +191,27 @@ Arms T2/T3/T5 can be run with either, so size against grounding can be ablated
 on the same S0 rules-QA probes. Lite is also a view of the full text: dropping
 the edge sections is lossless for everything lite carries.
 
+## S0 corpus, format v2 (`knightlm-s0-rules-qa-v2`)
+
+Review of the first pilot (v1) found two design flaws, fixed in v2:
+
+- **The move field carried the human move.** A v1 completion was a `submit_move` call whose `reasoning`
+  was the answer and whose `move` was the move the human played in the source row, so a grounding probe
+  also trained move imitation. In v2 the `move` field is `neutral_move(packet)`: the smallest legal UCI
+  string (`min(packet.legal_moves)`), a function of the position alone and the same in every arm. The human
+  move stays in the row as `target` (source metadata, used only to compute corpus-facts), never in a
+  prompt or completion. Validation refuses a completion that carries any other move. v1 corpora still
+  read and audit (`LEGACY_FORMAT`).
+- **Edge questions had no like-for-like arm.** `attackers_of` and `defenders_of` ask about the cgt/1
+  `atk`/`def` edges, which cgt-lite does not print. The arm `t2-full` (`play-cgt-full`) prints them, so the
+  edge questions are comparable across T0, T2-full and T3-full. The eval axis `s0_rules_qa` reports them as
+  `groups.edge` beside `groups.node` (every other type); compare lite arms on `groups.node` and the edge
+  group only against an arm that shows the edges.
+
+Arms: `t0` (`play`), `t2` (`play-cgt`), `t2-full` (`play-cgt-full`), and the ctok arms `t1` (`play-t1`),
+`t3` (`play-t3`), `t3-full` (`play-t3-full`, docs/model/tokenizer.md). All six share ids, questions and
+answers; `matched_sha256` is equal across them.
+
 ## Token cost (SmolVLM tokenizer)
 
 Measured on the first 2,000 positions of `holdout-00000.jsonl` in

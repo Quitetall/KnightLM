@@ -21,7 +21,9 @@ def render_s0(card):
              f"Prompt kind: **{card['prompt_kind']}**. Rows: {axes['rows']}. **No composite score**: one rate per question type.",
              "Exact match of the answer in the play call's reasoning field; an unparseable reply is a failure, not a dropped row.", "",
              "| type | n | exact | rate | claim failure rate | parse failures |", "|---|---|---|---|---|---|"]
-    for name, b in [*s0["by_type"].items(), ("all", s0["overall"])]:
+    groups = s0.get("groups", {})
+    for name, b in [*s0["by_type"].items(), *((f"group: {g}" + (" (attackers_of, defenders_of)" if g == "edge" else " (other types)"), groups[g])
+                                              for g in ("node", "edge") if g in groups), ("all", s0["overall"])]:
         lines.append("| " + " | ".join(fmt(x) for x in (name, b["n"], b["exact"], b["rate"], b["claim_failure_rate"],
                                                          b["parse_failures"])) + " |")
     lines.append("")

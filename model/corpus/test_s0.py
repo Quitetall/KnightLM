@@ -50,6 +50,59 @@ class MatchedArms(unittest.TestCase):
             self.assertNotIn(a["packet"]["fen"], b["prompt"])
         self.assertEqual(s0.matched_sha256(t0, h0), s0.matched_sha256(t2, h2))
 
+    def test_every_arm_shares_one_matched_hash_and_the_neutral_move(self):
+        corpora = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            for arm in s0.ARMS:
+                _, train, holdout = make_corpus(tmp, arm)
+                corpora[arm] = (train, holdout)
+        hashes = {arm: s0.matched_sha256(*rows) for arm, rows in corpora.items()}
+        self.assertEqual(len(set(hashes.values())), 1, hashes)
+        self.assertEqual({"play", "play-cgt", "play-cgt-full", "play-t1", "play-t3", "play-t3-full"},
+                         {rows[0][0]["prompt_kind"] for rows in corpora.values()})
+        full = corpora["t2-full"][0][0]["prompt"]
+        self.assertIn("atk:", full)
+        self.assertNotIn("atk:", corpora["t2"][0][0]["prompt"])
+
+    def test_completion_move_is_neutral_and_never_the_human_move(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, train, holdout = make_corpus(tmp, "t0")
+        differs = 0
+        for row in train + holdout:
+            self.assertEqual(row["move"], min(row["packet"]["legal_moves"]))
+            self.assertEqual(prompt.parse_play_completion(row["completion"])["move"], row["move"])
+            differs += row["move"] != row["target"]
+        self.assertGreater(differs, 0, "fixture never exercises a human move that differs from the neutral move")
+
+    def test_a_completion_carrying_the_human_move_is_refused(self):
+        def swap(train, holdout):
+            for row in train:
+                if row["move"] != row["target"]:
+                    row["completion"] = prompt.format_play_completion(row["qa"]["answer"], row["target"])
+                    return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out, _, _ = make_corpus(tmp, mutate=swap)
+            with self.assertRaisesRegex(ValueError, "is not the play call"):
+                s0.read_corpus(out, current=CURRENT)
+
+    def test_legacy_v1_corpus_still_reads_and_audits(self):
+        train_src, holdout_src = split_rows()
+        train = [s0.make_row(i, "train", r, s0.build_rows(BINARY, [r], "train", "t0")[0]["qa"], "t0", BINARY, s0.LEGACY_FORMAT)
+                 for i, r in enumerate(train_src)]
+        holdout = [s0.make_row(i, "holdout", r, s0.build_rows(BINARY, [r], "holdout", "t0")[0]["qa"], "t0", BINARY, s0.LEGACY_FORMAT)
+                   for i, r in enumerate(holdout_src)]
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "legacy"
+            s0.write_corpus(out, train, holdout, "t0", BINARY, CURRENT, SOURCE, {"corpus": "fixture"}, "fixture", 10)
+            manifest = json.loads((out / pipeline.MANIFEST).read_text())
+            manifest["format"] = s0.LEGACY_FORMAT
+            (out / pipeline.MANIFEST).write_text(json.dumps(manifest))
+            read_train, read_holdout = s0.read_corpus(out, current=CURRENT)
+            s0.verify_rows(read_train + read_holdout, BINARY, "t0", s0.LEGACY_FORMAT)
+        self.assertTrue(all("move" not in r and prompt.parse_play_completion(r["completion"])["move"] == r["target"]
+                            for r in read_train))
+
     def test_prompts_are_the_shared_renderer(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, train, _ = make_corpus(tmp, "t2")
@@ -136,7 +189,7 @@ class Audit(unittest.TestCase):
         def tamper(train, holdout):
             row = train[0]
             row["qa"]["answer"] = row["qa"]["answer"] + " x"
-            row["completion"] = prompt.format_play_completion(row["qa"]["answer"], row["target"])
+            row["completion"] = prompt.format_play_completion(row["qa"]["answer"], row["move"])
 
         with tempfile.TemporaryDirectory() as tmp:
             out, _, _ = make_corpus(tmp, mutate=tamper)
