@@ -81,6 +81,10 @@
 > -
 - doc:docs/model/corpus-v3.md · document · - · Corpus v3: one pipeline for every source · docs/model/corpus-v3.md:1
 
+## docs/model/graph-text.md
+> -
+- doc:docs/model/graph-text.md · document · - · Chess Graph Text (`cgt/1`) · docs/model/graph-text.md:1
+
 ## docs/model/history/verification.md
 > -
 - doc:docs/model/history/verification.md · document · - · Scaffold verification · docs/model/history/verification.md:1
@@ -88,6 +92,14 @@
 ## docs/model/modes-and-tools.md
 > -
 - doc:docs/model/modes-and-tools.md · document · - · Modes and tools contract · docs/model/modes-and-tools.md:1
+
+## docs/model/move-head.md
+> -
+- doc:docs/model/move-head.md · document · - · Move-policy head (arm: human-only move head) · docs/model/move-head.md:1
+
+## docs/model/perceiver.md
+> -
+- doc:docs/model/perceiver.md · document · - · Perceiver: image to `BoardObservation` · docs/model/perceiver.md:1
 
 ## docs/model/plan.md
 > -
@@ -100,6 +112,10 @@
 ## docs/model/strength-baseline.md
 > -
 - doc:docs/model/strength-baseline.md · document · - · KnightLM strength baseline protocol · docs/model/strength-baseline.md:1
+
+## docs/model/tokenizer.md
+> -
+- doc:docs/model/tokenizer.md · document · - · Chess tokenizer (`ctok/1`) · docs/model/tokenizer.md:1
 
 ## docs/model/trackb-smolvlm-study.md
 > -
