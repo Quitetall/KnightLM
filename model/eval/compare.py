@@ -4,11 +4,14 @@ A and B are scorecard directories (or scorecard.json files). Deltas are B - A.
 Whether higher is better differs per axis, so the direction column says which
 way is improvement; nothing is summed or weighted across axes.
 
-A scorecard has a prompt kind: "move" (the move-only prompt) or "play" (the play-mode prompt
-and tool-call completion, with the reasoning scored). Cards of different kinds measure different
+A scorecard has a prompt kind: "move" (the move-only prompt), "play" (the play-mode prompt
+and tool-call completion with the FEN packet, arm T0) or "play-cgt" / "play-cgt-full" (the same
+with the position as Chess Graph Text, arm T2). Cards of different kinds measure different
 tasks: compare prints NOT COMPARABLE and exits 3 without a table, unless
 --allow-prompt-mismatch is given (the notes still print, marked ALLOWED). A card with no
-prompt_kind is a move card.
+prompt_kind is a move card. One exception, by design: two S0 rules-QA cards whose corpora carry the same
+`matched_sha256` (same ids, questions and answers, different prompt rendering) are the arms of
+one experiment and compare without the flag; the note says so. An unknown kind is refused.
 """
 
 import json
@@ -16,10 +19,14 @@ import sys
 from pathlib import Path
 
 from model.eval.render import fmt
+from model.prompt import PLAY_KINDS
+
+KNOWN_KINDS = ("move", *PLAY_KINDS)
 
 # (axis path suffix) -> "up" or "down" is better. Unlisted numeric leaves get no arrow.
 LOWER_IS_BETTER = ("centipawn_loss", "latency_ms", "token_cost", "failures", "rows_unscored")
-LOWER_IS_BETTER_LEAVES = ("failed", "failed_total", "explanations_missing", "explanations_with_a_failed_claim")
+LOWER_IS_BETTER_LEAVES = ("failed", "failed_total", "explanations_missing", "explanations_with_a_failed_claim",
+                          "claim_failure_rate", "parse_failures")
 SKIP = ("gate", "set", "engine", "protocol", "tokenizer_recount", "rating", "status", "source")
 
 
@@ -60,19 +67,34 @@ def direction(path):
 PROMPT_MISMATCH = "NOT COMPARABLE: prompt kind differs"
 
 
+ARMS_NOTE = "ARMS of one matched S0 corpus"
+
+
 def prompt_kind(card):
-    return card.get("prompt_kind", "move")
+    kind = card.get("prompt_kind", "move")
+    if kind not in KNOWN_KINDS:
+        raise ValueError(f"unknown prompt kind {kind!r}; this compare knows {KNOWN_KINDS}")
+    return kind
+
+
+def matched_key(card):
+    """The S0 matched-corpus key of a card, or None for any other card."""
+    return (card.get("inputs", {}).get("corpus", {}) or {}).get("matched_sha256")
 
 
 def comparability(a, b):
     notes = []
-    if prompt_kind(a) != prompt_kind(b):
-        notes.append(f"{PROMPT_MISMATCH} ({prompt_kind(a)} vs {prompt_kind(b)}): the two scorecards measure different tasks")
     ia, ib = a.get("inputs", {}), b.get("inputs", {})
+    matched = matched_key(a) is not None and matched_key(a) == matched_key(b)
+    if prompt_kind(a) != prompt_kind(b):
+        if matched:
+            notes.append(f"{ARMS_NOTE} ({prompt_kind(a)} vs {prompt_kind(b)}): same ids, questions and answers; only the prompt rendering differs")
+        else:
+            notes.append(f"{PROMPT_MISMATCH} ({prompt_kind(a)} vs {prompt_kind(b)}): the two scorecards measure different tasks")
     checks = {
         "play prompt": lambda i: i.get("settings", {}).get("play_prompt_sha256"),
         "play max new tokens": lambda i: i.get("settings", {}).get("play_max_new_tokens"),
-        "corpus manifest": lambda i: i.get("corpus", {}).get("corpus_manifest_sha256"),
+        "corpus manifest": lambda i: i.get("corpus", {}).get("matched_sha256") or i.get("corpus", {}).get("corpus_manifest_sha256"),
         "rows": lambda i: i.get("corpus", {}).get("rows_used"),
         "stockfish depth": lambda i: (i.get("stockfish") or {}).get("depth"),
         "stockfish binary": lambda i: (i.get("stockfish") or {}).get("stockfish_sha256"),

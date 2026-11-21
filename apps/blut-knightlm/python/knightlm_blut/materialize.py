@@ -30,6 +30,7 @@ from knightlm_blut.common import repo_root, sha256_bytes, sha256_file
 RECEIPT_FORMAT = "knightlm-blut-materialized-v1"
 CORPUS_FORMAT = "knightlm-lichess-v2"
 REASONING_FORMAT = "knightlm-lichess-v2-reasoning-v1"
+S0_FORMAT = "knightlm-s0-rules-qa-v1"
 DATASET = "dataset.jsonl"
 RECEIPT = "receipt.json"
 
@@ -58,6 +59,8 @@ def _render_module(root):
 
 def convert_row(row, prompt_module, render_module=None):
     """One corpus row -> one SFT row. The only place the prompt is built."""
+    if "qa" in row:  # S0 rules QA: the row carries its prompt and completion, audited against model.prompt
+        return {"prompt": row["prompt"], "completion": row["completion"]}
     if "reasoning" in row:
         if render_module is None:
             raise MaterializeError("a reasoning row needs model.corpus.render")
@@ -89,6 +92,8 @@ def pins(corpus, root):
     }
     if json.loads((Path(corpus) / "manifest.json").read_text()).get("format") == REASONING_FORMAT:
         found["render_py_sha256"] = sha256_file(root / "model" / "corpus" / "render.py")
+    if json.loads((Path(corpus) / "manifest.json").read_text()).get("format") == S0_FORMAT:
+        found["s0_py_sha256"] = sha256_file(root / "model" / "corpus" / "s0.py")
     return found
 
 
@@ -112,7 +117,7 @@ def existing_receipt(out, expected):
 
 def build(corpus, out, root, prompt_module):
     manifest = json.loads((corpus / "manifest.json").read_text())
-    if manifest.get("format") not in (CORPUS_FORMAT, REASONING_FORMAT):
+    if manifest.get("format") not in (CORPUS_FORMAT, REASONING_FORMAT, S0_FORMAT):
         raise MaterializeError(f"unsupported corpus format {manifest.get('format')!r}")
     render_module = _render_module(root) if manifest["format"] == REASONING_FORMAT else None
     out.mkdir(parents=True, exist_ok=True)
@@ -159,7 +164,7 @@ def materialize(corpus, out, root=None):
         "corpus_audit": audit_note,
         **expected,
         "instruction": prompt_module.PLAY_INSTRUCTION
-        if "render_py_sha256" in expected
+        if ("render_py_sha256" in expected or "s0_py_sha256" in expected)
         else prompt_module.INSTRUCTION,
         "dataset_sha256": sha256_file(out / DATASET),
         "rows": total,

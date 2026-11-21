@@ -47,6 +47,8 @@ def load_holdout(corpus_dir, rows=None):
     info = {
         "corpus_dir": str(root.resolve()),
         "corpus_format": manifest["format"],
+        **({"prompt_kind": manifest["prompt_kind"], "arm": manifest["arm"], "matched_sha256": manifest["matched_sha256"],
+            "rules": manifest["rules"]} if "matched_sha256" in manifest else {}),
         "corpus_manifest_sha256": sha256_file(manifest_path),
         "holdout_files": files,
         "holdout_total_rows": sum(f["games"] for f in files),
