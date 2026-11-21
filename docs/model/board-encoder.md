@@ -132,6 +132,24 @@ embeddings the language model will see. A different host family (Qwen) needs its
 injection test, since not every model has this slot; the encoder and its pretraining are
 unchanged.
 
+## Serving and scoring the arms (T4, T5)
+
+Prompt kinds (`model/prompt.py`, goldens in `model/tests/test_prompt.py`):
+
+- `play-enc` (T4): the play prefix, `Board tokens:` and 64 host `<image>` placeholders, then `Rules:` and the
+  packet without its FEN and without its repetition ledger (the ledger keys spell the placement): the legal-move
+  list and facts as text. The completion is the unchanged play call.
+- `play-enc-cgt` (T5): the same plus the cgt/1 lite text (`Position graph:`) beside the soft tokens.
+
+`Predictor(..., encoder_dir=, projector_dir=)` (or `KNIGHTLM_ENCODER_DIR` and `KNIGHTLM_PROJECTOR_DIR` with
+`model.eval.playmode:from_env`, or `--encoder-dir/--projector-dir` on the server) loads the frozen encoder
+and the host's projector, checks the projector against the host's hidden size, and for each request computes
+the soft tokens from the packet's planes. Generation decodes from the embeddings `injected_embeds` returns, so
+the soft tokens enter through the documented `image_hidden_states` slot and nothing in the host is patched; a
+peft-wrapped host is unwrapped for the merge. The manifest gains `encoder_sha256`, `projector_sha256` and
+`board_tokens`; a mismatch of kind and encoder (an enc kind without a board, a board with a text kind) is refused.
+`model.eval.run --prompt-kind play-enc` (or `play-enc-cgt`) scores them on the same axes as every play arm.
+
 ## Projector and freeze policy
 
 `Projector`: LayerNorm, Linear(d_enc, h), GELU, Linear(h, host_hidden); about 1.2M
@@ -230,8 +248,7 @@ python3 -m model.eval.run --prompt-kind play ...      # the T4/T5 adapter, as fo
 python3 -m model.eval.compare <T0 scorecard dir> <T4 scorecard dir>
 ```
 
-The serving predictor does not yet load an encoder and projector; arms T4/T5 need that
-before `model.eval.run` can score them (owed, not started).
+Serving and scoring are in the next section; commands per arm are in `training-gate.md`.
 
 ## Known limits
 

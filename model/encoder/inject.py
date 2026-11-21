@@ -39,7 +39,9 @@ def host_forward(host, input_ids, soft, attention_mask=None, labels=None, **kwar
 
 
 def injected_embeds(host, input_ids, soft):
-    """The input embeddings the host's language model will see (for tests and debugging)."""
+    """The input embeddings the host's language model will see (serving decodes from these)."""
+    if hasattr(host, "get_base_model"):  # a peft-wrapped host: unwrap to the model that owns the merger
+        host = host.get_base_model()
     inner = host.model if hasattr(host, "model") and hasattr(host.model, "inputs_merger") else host
     embeds = inner.get_input_embeddings()(input_ids)
     return inner.inputs_merger(input_ids, embeds, soft.to(embeds.dtype))

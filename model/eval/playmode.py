@@ -4,7 +4,11 @@ A play predictor answers `predict(packet, mode)` with a `model.serve.inference.P
 (move, reasoning, completion code, path, tokens, latency). Nothing here reaches an engine.
 
   --predictor model.eval.playmode:from_env     serve Predictor from KNIGHTLM_BASE_DIR
-                                               (+ KNIGHTLM_ADAPTER_DIR, KNIGHTLM_DEVICE)
+                                               (+ KNIGHTLM_ADAPTER_DIR, KNIGHTLM_DEVICE; with
+                                               KNIGHTLM_ENCODER_DIR and KNIGHTLM_PROJECTOR_DIR the board
+                                               arms, prompt kinds play-enc and play-enc-cgt)
+  --predictor model.eval.playmode:head_from_env   the same plus a move head from KNIGHTLM_HEAD_DIR
+                                               (prompt kind play-head; also the --move-head axis)
   --predictor http://host:port                 POST /v1/play (with --prompt-kind play)
 """
 
@@ -29,6 +33,12 @@ class PlayAdapter:
     def manifest(self):
         getter = getattr(self.inner, "manifest", None)
         return getter() if callable(getter) else None
+
+    def __getattr__(self, name):
+        # `logits` (the move_head axis) is the inner head predictor's, exposed only when it has one.
+        if name == "logits" and callable(getattr(self.__dict__.get("inner"), "logits", None)):
+            return self.inner.logits
+        raise AttributeError(name)
 
 
 class HttpPlayPredictor:
@@ -58,7 +68,7 @@ class HttpPlayPredictor:
             legal=bool(data.get("legal", False)), code=data["code"], path=data["path"],
             raw_code=data.get("raw_code", data["code"]), stated_move=data.get("stated_move"),
             input_tokens=data.get("input_tokens"), output_tokens=data.get("output_tokens"),
-            latency_ms=data.get("latency_ms", wall))
+            latency_ms=data.get("latency_ms", wall), head_move=data.get("head_move"))
 
     def manifest(self):
         try:
@@ -69,10 +79,43 @@ class HttpPlayPredictor:
 
 
 def from_env():
-    """A serve Predictor (base, optionally plus an adapter) wrapped for play mode."""
+    """A serve Predictor (base, optionally plus an adapter and a board encoder + projector) wrapped for play mode."""
     from model.serve.inference import Predictor
     adapter = os.environ.get("KNIGHTLM_ADAPTER_DIR") or None
-    return PlayAdapter(Predictor(os.environ["KNIGHTLM_BASE_DIR"], adapter, os.environ.get("KNIGHTLM_DEVICE", "cuda")))
+    return PlayAdapter(Predictor(os.environ["KNIGHTLM_BASE_DIR"], adapter, os.environ.get("KNIGHTLM_DEVICE", "cuda"),
+                                 encoder_dir=os.environ.get("KNIGHTLM_ENCODER_DIR") or None,
+                                 projector_dir=os.environ.get("KNIGHTLM_PROJECTOR_DIR") or None))
+
+
+def head_from_env():
+    """A serve HeadPredictor (base + adapter + move head from KNIGHTLM_HEAD_DIR) wrapped for play mode."""
+    from model.serve.head import HeadPredictor
+    adapter = os.environ.get("KNIGHTLM_ADAPTER_DIR") or None
+    return PlayAdapter(HeadPredictor(os.environ["KNIGHTLM_BASE_DIR"], adapter, os.environ.get("KNIGHTLM_DEVICE", "cuda"),
+                                     head_dir=os.environ["KNIGHTLM_HEAD_DIR"]))
+
+
+def head_agreement_axis(records, modes):
+    """Per mode: how often the completion agrees with the move head's pick (play-head kind).
+
+    `agreed` is a completion that passes every check with the head's move (code ok, move == head move); every
+    row is in the denominator, a row with no head pick counts as not agreed. No repair is counted as agreement."""
+    axis = {"label": "human-only move head"}
+    for mode in modes:
+        n = len(records)
+        entries = [r[mode] for r in records]
+        agreed = sum(e.get("play_code") == "ok" and e.get("move") is not None and e.get("move") == e.get("head_move")
+                     for e in entries)
+        by_code = {}
+        for e in entries:
+            if e.get("head_move") is not None:
+                by_code[e.get("play_code")] = by_code.get(e.get("play_code"), 0) + 1
+        hits = sum(e.get("head_move") == r["target"] for e, r in zip(entries, records, strict=True))
+        axis[mode] = {"n": n, "rows_with_head_move": sum(e.get("head_move") is not None for e in entries),
+                      "agreed": {"count": agreed, "n": n, "rate": round(agreed / n, 4) if n else None},
+                      "head_move_matches_target": {"count": hits, "n": n, "rate": round(hits / n, 4) if n else None},
+                      "by_code": dict(sorted(by_code.items()))}
+    return axis
 
 
 def explanation_axis(rows, records, modes):

@@ -142,6 +142,26 @@ def render_markdown(card):
             table(f"Claims by type ({m})", ["type", "checkable", "failed"],
                   [[k, v["checkable"], v["failed"]] for k, v in expl["claim_types"].items()])
             table(f"Seen but not checkable ({m})", ["reason", "count"], list(expl["unchecked_claims"].items()))
+    mh = axes.get("move_head")
+    if mh:
+        m, raw = mh["masked"], mh["raw"]
+        table(f"Move head ({mh['label']}); masked = the product, raw = diagnostic; no composite",
+              ["rows", "with logits", "masked top1", "masked top3", "masked NLL", "ECE", "raw argmax legal",
+               "raw top1 match", "illegal mass"],
+              [[mh["rows"], mh["rows_with_logits"], m["top1_match"]["rate"], m["top3_match"]["rate"],
+                m["nll_mean_over_scored_rows"], (m["calibration"] or {}).get("ece"), raw["argmax_legal"]["rate"],
+                raw["top1_match"]["rate"], raw["illegal_mass_mean"]]])
+        cpl = mh.get("centipawn_loss")
+        if cpl:
+            table("Move head centipawn loss (post-decision, Stockfish)", ["move", "scored", "unscored", "n", "mean", "median", "p90"],
+                  [[k, cpl[k]["rows_scored"], cpl[k]["rows_unscored"], cpl[k]["n"], cpl[k]["mean"], cpl[k]["median"],
+                    cpl[k]["p90"]] for k in ("masked", "raw")])
+    ha = axes.get("head_agreement")
+    if ha:
+        table("Agreement of the written completion with the head's move (no repair counted)",
+              ["mode", "agreed", "n", "rate", "head move = human move", "rows with head move"],
+              [[k, v["agreed"]["count"], v["n"], v["agreed"]["rate"], v["head_move_matches_target"]["rate"],
+                v["rows_with_head_move"]] for k, v in ha.items() if k != "label"])
     games = axes.get("games")
     if games:
         lines.extend(["## Games vs fixed Stockfish", "",
