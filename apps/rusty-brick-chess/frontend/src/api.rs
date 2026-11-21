@@ -2162,6 +2162,59 @@ pub async fn add_provider(
     provider_decode(resp).await
 }
 
+/// Add the "KnightLM server" preset: a provider row for the local
+/// OpenAI-compatible chat endpoint, then ask it for its model list.
+pub async fn add_provider_preset(preset: &str) -> Result<ProviderInfo, String> {
+    let resp = Request::post("/api/providers")
+        .json(&serde_json::json!({ "preset": preset }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let row: ProviderInfo = provider_decode(resp).await?;
+    let _ = refresh_provider_models(&row.id).await;
+    Ok(row)
+}
+
+/// Remember the chat toggle and the coach seat (`provider`, `model`) so the next
+/// session starts where this one stopped. The other seats are left as they are.
+pub async fn save_chat_seats(chat: bool, coach: Option<(String, String)>) -> Result<(), String> {
+    let resp = Request::get("/api/model-seats")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut seats: serde_json::Value = provider_decode(resp).await?;
+    seats["chat"] = serde_json::json!(chat);
+    seats["coach"] = match coach {
+        Some((provider, model)) => serde_json::json!({ "provider": provider, "model": model }),
+        None => serde_json::Value::Null,
+    };
+    let resp = Request::put("/api/model-seats")
+        .json(&seats)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let _: serde_json::Value = provider_decode(resp).await?;
+    Ok(())
+}
+
+/// The stored chat toggle and coach seat, for a view that starts up.
+pub async fn load_chat_seats() -> Result<(Option<bool>, Option<(String, String)>), String> {
+    let resp = Request::get("/api/model-seats")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let seats: serde_json::Value = provider_decode(resp).await?;
+    let coach = seats.get("coach").and_then(|coach| {
+        Some((
+            coach.get("provider")?.as_str()?.to_string(),
+            coach.get("model")?.as_str()?.to_string(),
+        ))
+    });
+    Ok((seats.get("chat").and_then(|chat| chat.as_bool()), coach))
+}
+
 pub async fn delete_provider(id: &str) -> Result<(), String> {
     let resp = Request::delete(&format!("/api/providers/{id}"))
         .send()

@@ -7,21 +7,27 @@
 
 use axum::Json;
 use axum::extract::{Path, State};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::api::{ApiError, AppState};
 use crate::providers::{
-    LOCAL_CANDIDATES, LocalEndpoint, ModelCard, acceptable_base_url, capabilities_of, models_url,
-    resolve_secret,
+    LOCAL_CANDIDATES, LocalEndpoint, ModelCard, ProbeError, acceptable_base_url, capabilities_of,
+    probe_models, resolve_secret, validate_key_ref,
 };
 
 #[derive(Deserialize)]
 pub struct NewProvider {
+    /// Filled from `preset` when empty.
+    #[serde(default)]
     pub label: String,
+    #[serde(default)]
     pub base_url: String,
     #[serde(default)]
     pub key_ref: Option<String>,
+    /// A preset id from `GET /api/providers/presets`; its values fill any field left empty.
+    #[serde(default)]
+    pub preset: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -77,8 +83,21 @@ pub async fn list_providers(State(state): State<AppState>) -> Result<Json<Value>
 
 pub async fn add_provider(
     State(state): State<AppState>,
-    Json(body): Json<NewProvider>,
+    Json(mut body): Json<NewProvider>,
 ) -> Result<Json<Value>, ApiError> {
+    if let Some(id) = body.preset.as_deref() {
+        let preset = crate::providers::preset(id)
+            .ok_or_else(|| ApiError::BadRequest(format!("unknown preset `{id}`")))?;
+        if body.label.trim().is_empty() {
+            body.label = preset.label;
+        }
+        if body.base_url.trim().is_empty() {
+            body.base_url = preset.base_url;
+        }
+        if body.key_ref.is_none() {
+            body.key_ref = preset.key_ref;
+        }
+    }
     let label = body.label.trim();
     if label.is_empty() {
         return Err(ApiError::BadRequest("a provider needs a label".into()));
@@ -87,6 +106,9 @@ pub async fn add_provider(
         return Err(ApiError::BadRequest(
             "a base URL starts with http:// or https://".into(),
         ));
+    }
+    if let Some(reference) = body.key_ref.as_deref() {
+        validate_key_ref(reference).map_err(ApiError::BadRequest)?;
     }
     let row = state
         .db
@@ -124,6 +146,9 @@ pub async fn edit_provider(
         return Err(ApiError::BadRequest(
             "a base URL starts with http:// or https://".into(),
         ));
+    }
+    if let Some(Some(reference)) = body.key_ref.as_ref() {
+        validate_key_ref(reference).map_err(ApiError::BadRequest)?;
     }
     let key_ref = body
         .key_ref
@@ -187,22 +212,66 @@ pub async fn refresh_models(
     })))
 }
 
-/// Test without saving: reachable, and does the key work.
+#[derive(Deserialize, Default)]
+pub struct ProbeBody {
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub key_ref: Option<String>,
+    /// When set, the test also checks that the endpoint lists this model.
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+/// The typed answer of a connection test: `ok`, a stable `error.code` when it
+/// failed, the model count, and the round trip. `detail` repeats the message for
+/// older clients.
+async fn run_probe(base_url: String, key_ref: Option<String>, model: Option<String>) -> Value {
+    let started = std::time::Instant::now();
+    let outcome = tokio::task::spawn_blocking(move || {
+        probe_models(&base_url, key_ref.as_deref(), model.as_deref())
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(ProbeError {
+            code: crate::providers::probe_code::UNREACHABLE,
+            message: "the connection test was interrupted".into(),
+        })
+    });
+    let latency = started.elapsed().as_millis() as u64;
+    match outcome {
+        Ok(models) => json!({
+            "ok": true, "error": null, "detail": "",
+            "models": models.len(), "model_ids": models, "latency_ms": latency,
+        }),
+        Err(error) => json!({
+            "ok": false, "error": { "code": error.code, "message": error.message },
+            "detail": error.message, "models": 0, "model_ids": [], "latency_ms": latency,
+        }),
+    }
+}
+
+/// Test a saved provider: reachable, does the key work, is the model listed.
 pub async fn test_provider(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    body: Option<Json<ProbeBody>>,
 ) -> Result<Json<Value>, ApiError> {
     let Some(row) = state.db.provider(&id).map_err(ApiError::from)? else {
         return Err(ApiError::NotFound);
     };
-    let started = std::time::Instant::now();
-    let (models, detail) = fetch_models(&row.base_url, row.key_ref.as_deref()).await;
-    Ok(Json(json!({
-        "ok": detail.is_none(),
-        "models": models.len(),
-        "detail": detail.unwrap_or_default(),
-        "latency_ms": started.elapsed().as_millis() as u64,
-    })))
+    let model = body.and_then(|Json(body)| body.model);
+    Ok(Json(run_probe(row.base_url, row.key_ref, model).await))
+}
+
+/// Test an endpoint before saving it. Nothing is stored.
+pub async fn probe_endpoint(Json(body): Json<ProbeBody>) -> Json<Value> {
+    Json(run_probe(body.base_url, body.key_ref, body.model).await)
+}
+
+/// Presets a person can start a provider row from.
+pub async fn list_presets() -> Json<Value> {
+    Json(json!({ "presets": crate::providers::presets() }))
 }
 
 /// What is running on this machine right now.
@@ -258,74 +327,102 @@ pub async fn scan_local(_state: State<AppState>) -> Json<Value> {
     Json(json!({ "endpoints": found }))
 }
 
-/// Fetch the model list from an endpoint. Returns ids and, when it failed, why —
-/// trimmed, because a provider's error body can be long.
+/// Fetch the model list from an endpoint. Returns ids and, when it failed, why.
 async fn fetch_models(base_url: &str, key_ref: Option<&str>) -> (Vec<String>, Option<String>) {
-    if !acceptable_base_url(base_url) {
-        return (Vec::new(), Some("the base URL is not http(s)".into()));
+    let (base_url, key_ref) = (base_url.to_string(), key_ref.map(str::to_string));
+    match tokio::task::spawn_blocking(move || probe_models(&base_url, key_ref.as_deref(), None))
+        .await
+    {
+        Ok(Ok(ids)) => (ids, None),
+        Ok(Err(error)) => (Vec::new(), Some(error.message)),
+        Err(error) => (Vec::new(), Some(error.to_string())),
     }
-    let key = match key_ref {
-        Some(reference) => match resolve_secret(reference) {
-            Ok(Some((value, _))) => Some(value),
-            Ok(None) => None,
-            Err(error) => return (Vec::new(), Some(error)),
-        },
-        None => None,
-    };
-    let url = models_url(base_url);
-    // ureq 3: statuses are not errors, the agent carries the timeout.
-    let agent = ureq::Agent::new_with_config(
-        ureq::config::Config::builder()
-            .http_status_as_error(false)
-            .timeout_global(Some(std::time::Duration::from_secs(4)))
-            .build(),
-    );
-    let mut request = agent.get(&url).header("accept", "application/json");
-    if let Some(key) = key.as_deref() {
-        request = request.header("authorization", format!("Bearer {key}"));
+}
+
+// --- seats -----------------------------------------------------------------
+
+/// The prefix of a seat's `provider` that names a registered provider row:
+/// `provider:<id>`. Other spellings (`local:LAMU`, `local:Ollama`, the served
+/// checkpoint) keep their existing meaning.
+pub const REGISTERED_PREFIX: &str = "provider:";
+
+/// One model seat: which provider, which model name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeatRef {
+    pub provider: String,
+    pub model: String,
+}
+
+/// Which model holds each seat, and whether chat is on. Stored in the settings
+/// table, so it survives a restart; a match carries its own seats and these are
+/// what a new match and a coach turn start from.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelSeats {
+    #[serde(default)]
+    pub white: Option<SeatRef>,
+    #[serde(default)]
+    pub black: Option<SeatRef>,
+    #[serde(default)]
+    pub coach: Option<SeatRef>,
+    /// Chat on: a coach turn. Off: the competition (play) harness. Unset follows
+    /// the match (a casual game chats, a rated one never does).
+    #[serde(default)]
+    pub chat: Option<bool>,
+}
+
+const SEATS_KEY: &str = "model_seats";
+
+pub fn load_seats(db: &rbc_db::Db) -> ModelSeats {
+    db.settings()
+        .ok()
+        .and_then(|settings| settings.get(SEATS_KEY).cloned())
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default()
+}
+
+fn check_seat(db: &rbc_db::Db, name: &str, seat: &SeatRef) -> Result<(), ApiError> {
+    if seat.model.trim().is_empty() {
+        return Err(ApiError::BadRequest(format!(
+            "the {name} seat needs a model"
+        )));
     }
-    match request.call() {
-        Ok(mut response) => {
-            let status = response.status().as_u16();
-            let body = response.body_mut().read_to_string().unwrap_or_default();
-            if status >= 400 {
-                // A 401 is the interesting one: it means the endpoint is there
-                // and the key is not. Say that rather than "failed".
-                let hint = if status == 401 || status == 403 {
-                    "the endpoint refused the credentials"
-                } else {
-                    "the endpoint refused the request"
-                };
-                let trimmed: String = body.chars().take(160).collect();
-                return (Vec::new(), Some(format!("{hint} ({status}): {trimmed}")));
-            }
-            match serde_json::from_str::<Value>(&body) {
-                Ok(json) => {
-                    let ids = json
-                        .get("data")
-                        .and_then(|data| data.as_array())
-                        .or_else(|| json.get("models").and_then(|models| models.as_array()))
-                        .map(|entries| {
-                            entries
-                                .iter()
-                                .filter_map(|entry| {
-                                    entry
-                                        .get("id")
-                                        .and_then(|id| id.as_str())
-                                        .or_else(|| entry.get("name").and_then(|n| n.as_str()))
-                                        .map(str::to_string)
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default();
-                    (ids, None)
-                }
-                Err(error) => (Vec::new(), Some(format!("unreadable answer: {error}"))),
-            }
+    if let Some(id) = seat.provider.strip_prefix(REGISTERED_PREFIX) {
+        if db.provider(id).map_err(ApiError::from)?.is_none() {
+            return Err(ApiError::BadRequest(format!(
+                "the {name} seat names a provider that is not registered"
+            )));
         }
-        Err(error) => (
-            Vec::new(),
-            Some(format!("could not reach the endpoint: {error}")),
-        ),
+    } else if !(seat.provider.starts_with("local:")
+        || seat.provider == rbc_ai::provider::SERVE_PROVIDER)
+    {
+        return Err(ApiError::BadRequest(format!(
+            "the {name} seat's provider is `provider:<id>` or `local:<name>`"
+        )));
     }
+    Ok(())
+}
+
+pub async fn get_seats(State(state): State<AppState>) -> Json<Value> {
+    Json(json!(load_seats(&state.db)))
+}
+
+pub async fn put_seats(
+    State(state): State<AppState>,
+    Json(seats): Json<ModelSeats>,
+) -> Result<Json<Value>, ApiError> {
+    for (name, seat) in [
+        ("white", &seats.white),
+        ("black", &seats.black),
+        ("coach", &seats.coach),
+    ] {
+        if let Some(seat) = seat {
+            check_seat(&state.db, name, seat)?;
+        }
+    }
+    let json = serde_json::to_string(&seats).map_err(|e| ApiError::Internal(e.into()))?;
+    state
+        .db
+        .set_setting(SEATS_KEY, &json)
+        .map_err(ApiError::from)?;
+    Ok(Json(json!(seats)))
 }
