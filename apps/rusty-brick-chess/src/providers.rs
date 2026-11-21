@@ -144,6 +144,237 @@ pub fn models_url(base: &str) -> String {
     format!("{trimmed}/models")
 }
 
+/// The label, model name and base URL of the "KnightLM server" preset.
+///
+/// It is an ordinary OpenAI-compatible provider row: the base URL is the served
+/// checkpoint's loopback `/v1`, so the chat route is `<base>/chat/completions`.
+/// `RBC_KNIGHTLM_SERVE_URL` moves it (the same variable the move seat reads).
+pub const KNIGHTLM_PRESET_LABEL: &str = "KnightLM server";
+pub const KNIGHTLM_PRESET_MODEL: &str = "knightlm";
+
+pub fn knightlm_preset_base_url() -> String {
+    let serve = knightlm_serve_url();
+    serve
+        .strip_suffix("/move")
+        .map_or_else(|| "http://127.0.0.1:8000/v1".to_string(), str::to_string)
+}
+
+/// A named starting point for a provider row. It carries no secret.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderPreset {
+    pub id: &'static str,
+    pub label: String,
+    pub base_url: String,
+    pub model: String,
+    pub key_ref: Option<String>,
+    pub note: &'static str,
+}
+
+pub fn presets() -> Vec<ProviderPreset> {
+    vec![ProviderPreset {
+        id: "knightlm",
+        label: KNIGHTLM_PRESET_LABEL.into(),
+        base_url: knightlm_preset_base_url(),
+        model: KNIGHTLM_PRESET_MODEL.into(),
+        key_ref: None,
+        note: "A KnightLM checkpoint served locally (python -m model.serve.server). It speaks the same OpenAI-compatible API as any other provider.",
+    }]
+}
+
+pub fn preset(id: &str) -> Option<ProviderPreset> {
+    presets().into_iter().find(|preset| preset.id == id)
+}
+
+/// Accept a key reference (a name) and refuse anything that looks like a key.
+///
+/// A reference is an environment variable name (`[A-Za-z_][A-Za-z0-9_]*`) or
+/// `keyring:<service>/<account>`. The refusal never repeats what it was given,
+/// so a pasted key does not reach a response or a log.
+pub fn validate_key_ref(reference: &str) -> Result<(), String> {
+    let reference = reference.trim();
+    if reference.is_empty() {
+        return Ok(());
+    }
+    let refuse = || {
+        Err(
+            "a key reference is an environment variable name or keyring:<service>/<account>, \
+             never the key itself"
+                .to_string(),
+        )
+    };
+    if let Some(rest) = reference.strip_prefix("keyring:") {
+        let good = rest.split_once('/').is_some_and(|(service, account)| {
+            let ok = |part: &str| {
+                !part.is_empty()
+                    && part.len() <= 128
+                    && part
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || "._-@:".contains(c))
+            };
+            ok(service) && ok(account)
+        });
+        return if good { Ok(()) } else { refuse() };
+    }
+    let mut chars = reference.chars();
+    let first_ok = chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+    let rest_ok = chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let lower = reference.to_ascii_lowercase();
+    let key_shaped = ["sk_", "pk_", "rk_", "ghp_", "gho_", "xox", "aiza", "bearer"]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix));
+    if first_ok && rest_ok && reference.len() <= 128 && !key_shaped {
+        Ok(())
+    } else {
+        refuse()
+    }
+}
+
+/// Why a connection test failed. The code is stable; the message is for people.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ProbeError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl ProbeError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+/// The codes a connection test can return, in the order the checks run.
+pub mod probe_code {
+    pub const INVALID_URL: &str = "invalid_url";
+    pub const KEY_UNUSABLE: &str = "key_unusable";
+    pub const KEY_UNRESOLVED: &str = "key_unresolved";
+    pub const TIMEOUT: &str = "timeout";
+    pub const UNREACHABLE: &str = "unreachable";
+    pub const UNAUTHORIZED: &str = "unauthorized";
+    pub const NOT_FOUND: &str = "not_found";
+    pub const SERVER_ERROR: &str = "server_error";
+    pub const BAD_RESPONSE: &str = "bad_response";
+    pub const MODEL_MISSING: &str = "model_missing";
+}
+
+/// Ask an endpoint for its model list, with typed failures.
+///
+/// Blocking: call it from `spawn_blocking`. `key_ref` is resolved here and the
+/// value goes only into the request header.
+pub fn probe_models(
+    base_url: &str,
+    key_ref: Option<&str>,
+    wanted_model: Option<&str>,
+) -> Result<Vec<String>, ProbeError> {
+    if !acceptable_base_url(base_url) {
+        return Err(ProbeError::new(
+            probe_code::INVALID_URL,
+            "the base URL is not http(s)",
+        ));
+    }
+    let key = match key_ref.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(reference) => {
+            validate_key_ref(reference)
+                .map_err(|message| ProbeError::new(probe_code::KEY_UNUSABLE, message))?;
+            match resolve_secret(reference) {
+                Ok(Some((value, _))) => Some(value),
+                Ok(None) => {
+                    return Err(ProbeError::new(
+                        probe_code::KEY_UNRESOLVED,
+                        "the key reference names nothing set on this machine",
+                    ));
+                }
+                Err(message) => return Err(ProbeError::new(probe_code::KEY_UNUSABLE, message)),
+            }
+        }
+        None => None,
+    };
+    let agent = ureq::Agent::new_with_config(
+        ureq::config::Config::builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(4)))
+            .build(),
+    );
+    let mut request = agent
+        .get(&models_url(base_url))
+        .header("accept", "application/json");
+    if let Some(key) = key.as_deref() {
+        request = request.header("authorization", format!("Bearer {key}"));
+    }
+    let mut response = request.call().map_err(|error| {
+        if matches!(error, ureq::Error::Timeout(_)) {
+            ProbeError::new(probe_code::TIMEOUT, "the endpoint did not answer in time")
+        } else {
+            ProbeError::new(
+                probe_code::UNREACHABLE,
+                format!("could not reach the endpoint: {error}"),
+            )
+        }
+    })?;
+    let status = response.status().as_u16();
+    let body = response.body_mut().read_to_string().unwrap_or_default();
+    if status >= 400 {
+        let trimmed: String = body.chars().take(160).collect();
+        let (code, hint) = match status {
+            401 | 403 => (
+                probe_code::UNAUTHORIZED,
+                "the endpoint refused the credentials",
+            ),
+            404 => (
+                probe_code::NOT_FOUND,
+                "the endpoint has no models route here; check the base URL (it usually ends in /v1)",
+            ),
+            500.. => (probe_code::SERVER_ERROR, "the endpoint failed"),
+            _ => (probe_code::SERVER_ERROR, "the endpoint refused the request"),
+        };
+        return Err(ProbeError::new(
+            code,
+            format!("{hint} ({status}): {trimmed}"),
+        ));
+    }
+    let json: serde_json::Value = serde_json::from_str(&body).map_err(|error| {
+        ProbeError::new(
+            probe_code::BAD_RESPONSE,
+            format!("unreadable answer: {error}"),
+        )
+    })?;
+    let entries = json
+        .get("data")
+        .and_then(|data| data.as_array())
+        .or_else(|| json.get("models").and_then(|models| models.as_array()))
+        .ok_or_else(|| {
+            ProbeError::new(
+                probe_code::BAD_RESPONSE,
+                "the answer has no model list (expected data[] or models[])",
+            )
+        })?;
+    let ids: Vec<String> = entries
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .get("id")
+                .and_then(|id| id.as_str())
+                .or_else(|| entry.get("name").and_then(|n| n.as_str()))
+                .map(str::to_string)
+        })
+        .collect();
+    // Some servers list nothing; a model that is not in a non-empty list is an error.
+    if let Some(model) = wanted_model.map(str::trim).filter(|m| !m.is_empty())
+        && !ids.is_empty()
+        && !ids.iter().any(|id| id == model)
+    {
+        return Err(ProbeError::new(
+            probe_code::MODEL_MISSING,
+            format!("the endpoint answered but does not list the model `{model}`"),
+        ));
+    }
+    Ok(ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,6 +448,44 @@ mod tests {
         assert!(!acceptable_base_url("file:///etc/passwd"));
         assert!(!acceptable_base_url("ftp://example.com"));
         assert!(!acceptable_base_url("has a space"));
+    }
+
+    #[test]
+    fn a_key_reference_is_a_name_and_a_key_shaped_value_is_refused() {
+        for good in [
+            "OPENAI_API_KEY",
+            "_x1",
+            "keyring:rbc/openai",
+            "keyring:a.b/me@x",
+            "",
+        ] {
+            assert!(validate_key_ref(good).is_ok(), "{good}");
+        }
+        for bad in [
+            "sk-abcdef0123456789",
+            "sk_live_abcdef",
+            "has space",
+            "keyring:onlyservice",
+            "keyring:/acct",
+            "1LEADING_DIGIT",
+            "ghp_abcdef",
+        ] {
+            let error = validate_key_ref(bad).expect_err(bad);
+            assert!(
+                !error.contains(bad),
+                "the refusal repeats the input: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_knightlm_preset_points_at_the_local_chat_base() {
+        let preset = preset("knightlm").expect("preset");
+        assert_eq!(preset.label, "KnightLM server");
+        assert_eq!(preset.model, "knightlm");
+        assert!(preset.base_url.ends_with("/v1"), "{}", preset.base_url);
+        assert!(preset.key_ref.is_none());
+        assert!(super::preset("nope").is_none());
     }
 
     #[test]

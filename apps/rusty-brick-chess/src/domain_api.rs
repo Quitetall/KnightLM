@@ -1385,6 +1385,14 @@ fn save_match_after(state: &AppState, id: &str, game: &Match) -> Result<(), ApiE
 #[derive(Deserialize)]
 pub struct MatchChatBody {
     pub message: String,
+    /// The coach model for this message; defaults to the stored coach seat, then
+    /// the seat that is playing.
+    #[serde(default)]
+    pub coach: Option<crate::provider_api::SeatRef>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub history: Vec<ChatEntry>,
 }
 
 /// `GET /api/ai/matches`
@@ -1402,6 +1410,96 @@ pub struct ModelMoveOptions {
     thinking: bool,
     knightlm_samples: Option<u8>,
     knightlm_temperature: Option<f32>,
+    /// Chat on: a coach turn. Off: the competition (play) harness. Absent uses
+    /// the stored seats setting, then the match (casual chats, rated never does).
+    #[serde(default)]
+    chat: Option<bool>,
+    /// The model for a coach turn; defaults to the stored coach seat, then the
+    /// seat that is playing.
+    #[serde(default)]
+    coach: Option<crate::provider_api::SeatRef>,
+    /// The chat so far: a rolling summary and the messages since.
+    #[serde(default)]
+    summary: Option<String>,
+    #[serde(default)]
+    history: Vec<ChatEntry>,
+}
+
+/// One chat message as the client keeps it.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct ChatEntry {
+    pub role: String,
+    pub text: String,
+}
+
+fn to_lines(entries: &[ChatEntry]) -> Vec<rbc_ai::model_turn::ChatLine> {
+    entries
+        .iter()
+        .map(|entry| {
+            let text: String = entry
+                .text
+                .chars()
+                .take(rbc_ai::model_turn::MAX_MESSAGE_CHARS)
+                .collect();
+            let role = if entry.role == "assistant" {
+                "assistant"
+            } else {
+                "user"
+            };
+            rbc_ai::model_turn::ChatLine::new(role, &text)
+        })
+        .collect()
+}
+
+/// Fold a chat into the rolling summary plus the recent messages, the shape a
+/// coach turn reads.
+fn rolled(
+    summary: Option<&str>,
+    entries: &[ChatEntry],
+) -> (Option<String>, Vec<rbc_ai::model_turn::ChatLine>) {
+    let summary: Option<String> = summary.map(|text| {
+        text.chars()
+            .take(rbc_ai::model_turn::MAX_SUMMARY_CHARS)
+            .collect()
+    });
+    rbc_ai::model_turn::roll_chat(summary.as_deref(), &to_lines(entries))
+}
+
+fn rolled_json(
+    summary: &Option<String>,
+    recent: &[rbc_ai::model_turn::ChatLine],
+) -> serde_json::Value {
+    serde_json::json!({
+        "summary": summary,
+        "recent": recent.iter().map(|line| serde_json::json!({"role": line.role, "text": line.text})).collect::<Vec<_>>(),
+    })
+}
+
+/// The endpoint and key of a seat that names a registered provider
+/// (`provider:<id>`), or `None` for every other kind of seat. The key is read
+/// from its reference here and goes no further than the provider's header.
+fn registered_seat(
+    state: &AppState,
+    seat: &rbc_ai::protocol::ModelRef,
+) -> Result<Option<(String, Option<String>)>, ApiError> {
+    let Some(id) = seat
+        .provider
+        .strip_prefix(crate::provider_api::REGISTERED_PREFIX)
+    else {
+        return Ok(None);
+    };
+    let row = state
+        .db
+        .provider(id)?
+        .ok_or_else(|| ApiError::BadRequest("the seat's provider is not registered".into()))?;
+    let key = match row.key_ref.as_deref() {
+        Some(reference) => crate::providers::resolve_secret(reference)
+            .map_err(ApiError::BadRequest)?
+            .map(|(value, _)| value),
+        None => None,
+    };
+    let base = row.base_url.trim().trim_end_matches('/');
+    Ok(Some((format!("{base}/chat/completions"), key)))
 }
 
 /// `POST /api/ai/matches/{id}/model-move`
@@ -1435,10 +1533,53 @@ pub async fn model_match_move(
     if seat.provider == "local:LAMU" {
         policy.request_reasoning = native_thinking;
     }
-    let url = move_endpoint(&state, settings.model_url.as_deref(), &seat).await?;
-    let tools_harness = std::env::var("RBC_TOOLS_HARNESS").is_ok_and(|v| v == "1");
+    let stored = crate::provider_api::load_seats(&state.db);
+    // Chat on is a coach turn; chat off is the competition (play) harness. A
+    // game that forbids chat (rated) is always off.
+    let chat_on = options
+        .as_ref()
+        .and_then(|value| value.chat)
+        .or(stored.chat)
+        .unwrap_or_else(|| policy.allows(rbc_ai::play::PlayAction::Chat))
+        && policy.allows(rbc_ai::play::PlayAction::Chat);
+    let chat_requested =
+        options.as_ref().is_some_and(|value| value.chat.is_some()) || stored.chat.is_some();
+    let registered_play = seat
+        .provider
+        .starts_with(crate::provider_api::REGISTERED_PREFIX);
+    let tools_harness = std::env::var("RBC_TOOLS_HARNESS").is_ok_and(|v| v == "1")
+        || chat_requested
+        || registered_play;
+    // The model that answers: the coach seat on a coach turn, else the player.
+    let answering = if chat_on && tools_harness {
+        options
+            .as_ref()
+            .and_then(|value| value.coach.clone())
+            .or(stored.coach.clone())
+            .map(|coach| rbc_ai::protocol::ModelRef::new(coach.provider, coach.model))
+            .unwrap_or_else(|| seat.clone())
+    } else {
+        seat.clone()
+    };
+    let (summary, recent) = rolled(
+        options.as_ref().and_then(|v| v.summary.as_deref()),
+        options.as_ref().map_or(&[][..], |v| &v.history[..]),
+    );
+    let context = rbc_ai::play::CoachContext { summary, recent };
+    let history_in = options
+        .as_ref()
+        .map(|value| value.history.clone())
+        .unwrap_or_default();
+    let summary_in = options.as_ref().and_then(|value| value.summary.clone());
+    let (url, key) = match registered_seat(&state, &answering)? {
+        Some(target) => target,
+        None => (
+            move_endpoint(&state, settings.model_url.as_deref(), &answering).await?,
+            None,
+        ),
+    };
     let playing = tokio::task::spawn_blocking(move || {
-        let provider = provider_for(&url, &seat, true, native_thinking)?;
+        let provider = provider_for(&url, &answering, true, native_thinking, key.as_deref())?;
         let cancel = rbc_ai::provider::Cancellation::new();
         let mut harness_report = None;
         let (played, vote) = if sampled {
@@ -1453,7 +1594,7 @@ pub async fn model_match_move(
             let (played, vote) = rbc_ai::play::request_sampled_knightlm_move(
                 &mut game,
                 &*provider,
-                &seat,
+                &answering,
                 &cancel,
                 samples,
                 temperature,
@@ -1461,12 +1602,18 @@ pub async fn model_match_move(
             .map_err(|error| error.message)?;
             (played, Some(vote))
         } else {
-            // The harness follows the match's mode: play tools in a competitive game,
-            // coach in a casual one, and the existing path for any other model or when
-            // the tools harness is not enabled (RBC_TOOLS_HARNESS=1).
-            let harness = rbc_ai::play::select_harness(&policy, &seat, None, tools_harness);
+            // The harness follows the chat toggle: coach with chat on, play tools
+            // with it off. A seat that never asked for tools (and no env flag)
+            // keeps the existing path.
+            let harness = if !tools_harness {
+                rbc_ai::play::MoveHarness::Default
+            } else if chat_on {
+                rbc_ai::play::MoveHarness::Coach(context)
+            } else {
+                rbc_ai::play::MoveHarness::Play
+            };
             let harnessed = rbc_ai::play::request_move_with_harness(
-                &mut game, &*provider, &seat, &policy, &harness, &cancel,
+                &mut game, &*provider, &answering, &policy, &harness, &cancel,
             )
             .map_err(|error| error.message)?;
             let played = harnessed.played.clone();
@@ -1483,7 +1630,23 @@ pub async fn model_match_move(
 
     let (game, played, vote, harness_report) = playing;
     save_match_after(&state, &id, &game)?;
+    // The chat after this turn: the coach's reply joins the history, then it is
+    // rolled again so the client can send it back next time.
+    let chat = harness_report
+        .as_ref()
+        .and_then(|report| report.reply.clone())
+        .map(|reply| {
+            let mut history = history_in.clone();
+            history.push(ChatEntry {
+                role: "assistant".into(),
+                text: reply,
+            });
+            let (summary, recent) = rolled(summary_in.as_deref(), &history);
+            rolled_json(&summary, &recent)
+        });
     Ok(Json(serde_json::json!({
+        "chat": chat,
+        "chat_on": chat_on,
         "match": match_payload(&id, &game),
         "move": played.mv,
         "reasoning": played.reasoning,
@@ -1545,10 +1708,26 @@ pub async fn chat_match(
             "this match has no model seat".to_string(),
         ));
     };
-    let url = match_endpoint(settings.model_url.as_deref(), &seat)?;
-    let message = body.message;
+    let stored = crate::provider_api::load_seats(&state.db);
+    let seat = body
+        .coach
+        .clone()
+        .or(stored.coach)
+        .map(|coach| rbc_ai::protocol::ModelRef::new(coach.provider, coach.model))
+        .unwrap_or(seat);
+    let (url, key) = match registered_seat(&state, &seat)? {
+        Some(target) => target,
+        None => (match_endpoint(settings.model_url.as_deref(), &seat)?, None),
+    };
+    // The rolling summary and the recent messages go in front of the message, in
+    // the same shape a coach turn reads.
+    let (summary, recent) = rolled(body.summary.as_deref(), &body.history);
+    let context = rbc_ai::model_turn::chat_context(summary.as_deref(), &recent)
+        .map_err(ApiError::BadRequest)?;
+    let message = format!("{context}{}", body.message);
+    let user_text = body.message;
     let reply = tokio::task::spawn_blocking(move || {
-        let provider = provider_for(&url, &seat, false, false)?;
+        let provider = provider_for(&url, &seat, false, false, key.as_deref())?;
         let cancel = rbc_ai::provider::Cancellation::new();
         rbc_ai::play::request_chat(&game, &*provider, &seat, &policy, &message, &cancel)
             .map_err(|error| error.message)
@@ -1557,7 +1736,20 @@ pub async fn chat_match(
     .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?
     .map_err(ApiError::BadRequest)?;
 
-    Ok(Json(serde_json::json!({ "reply": reply })))
+    let mut history = body.history;
+    history.push(ChatEntry {
+        role: "user".into(),
+        text: user_text,
+    });
+    history.push(ChatEntry {
+        role: "assistant".into(),
+        text: reply.clone(),
+    });
+    let (summary, recent) = rolled(body.summary.as_deref(), &history);
+    Ok(Json(serde_json::json!({
+        "reply": reply,
+        "chat": rolled_json(&summary, &recent),
+    })))
 }
 
 // --- watching two models ---------------------------------------------------
@@ -1615,6 +1807,7 @@ fn provider_for(
     seat: &rbc_ai::protocol::ModelRef,
     move_only: bool,
     thinking: bool,
+    key: Option<&str>,
 ) -> Result<Box<dyn rbc_ai::provider::Provider>, String> {
     if seat.provider == rbc_ai::provider::SERVE_PROVIDER {
         // The served checkpoint only plays moves; it has no chat endpoint.
@@ -1631,6 +1824,10 @@ fn provider_for(
         "openai_compatible",
         seat.model.clone(),
     );
+    let config = match key {
+        Some(key) => config.with_api_key(key),
+        None => config,
+    };
     let config = if local_move && thinking {
         use std::time::Duration;
         config.with_timeouts(
@@ -1662,8 +1859,20 @@ pub async fn watch_step(
     let snapshot: MatchSnapshot = serde_json::from_str(&row.state_json)?;
     let mut game = Match::from_snapshot(snapshot)?;
     let seats = watch_seats_or_refuse(&game)?;
-    let white_url = move_endpoint(&state, settings.model_url.as_deref(), &seats.white).await?;
-    let black_url = move_endpoint(&state, settings.model_url.as_deref(), &seats.black).await?;
+    let white_target = match registered_seat(&state, &seats.white)? {
+        Some(target) => target,
+        None => (
+            move_endpoint(&state, settings.model_url.as_deref(), &seats.white).await?,
+            None,
+        ),
+    };
+    let black_target = match registered_seat(&state, &seats.black)? {
+        Some(target) => target,
+        None => (
+            move_endpoint(&state, settings.model_url.as_deref(), &seats.black).await?,
+            None,
+        ),
+    };
     let plies = body
         .and_then(|Json(body)| body.plies)
         .unwrap_or(1)
@@ -1677,12 +1886,12 @@ pub async fn watch_step(
                 break;
             }
             // One provider per seat: the model name travels with the seat.
-            let (seat, url) = if game.turn() == shakmaty::Color::White {
-                (&seats.white, &white_url)
+            let (seat, (url, key)) = if game.turn() == shakmaty::Color::White {
+                (&seats.white, &white_target)
             } else {
-                (&seats.black, &black_url)
+                (&seats.black, &black_target)
             };
-            let provider = provider_for(url, seat, true, false)?;
+            let provider = provider_for(url, seat, true, false, key.as_deref())?;
             match rbc_ai::play::watch_step(&mut game, &*provider, &seats, &cancel) {
                 Ok(step) => steps.push(step),
                 // A model that cannot produce a legal move stops the run; the
