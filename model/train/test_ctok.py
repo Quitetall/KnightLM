@@ -116,5 +116,85 @@ class Extension(unittest.TestCase):
             self.assertTrue(torch.equal(merged.get_output_embeddings().weight[:self.host_n], self.host_head))
 
 
+def trainer_module():
+    """The BLUT image-text trainer's own module (the pinned cookbook checkout, or $BLUT_HF_PYTHON_DIR)."""
+    from model.train import preflight
+
+    path = preflight.locate_backend_python()
+    if path is None or not (path / "hf_image_text_train.py").is_file():
+        return None
+    return preflight.load_backend(path)[1]
+
+
+@unittest.skipIf(peft is None, "torch/transformers/peft not installed")
+class TrainerPassThrough(unittest.TestCase):
+    """The trainer builds the LoraConfig from the job spec: same rows, same adapter behaviour as `ctok.lora_config`."""
+
+    def setUp(self):
+        from model.train import ctok
+
+        self.train = trainer_module()
+        if self.train is None or not hasattr(self.train, "build_lora_config"):
+            self.skipTest("the pinned blut-cookbooks checkout has no trainable_token_indices (needs its PR #5)")
+        self.ctok, self.tok = ctok, host_tokenizer()
+        self.host_n = len(self.tok)
+        self.base = ctok.extend_processor(type("P", (), {"tokenizer": self.tok})())
+        self.model = tiny_model(self.host_n)
+        ctok.extend_model(self.model, self.tok, self.base)
+        self.spec = {"peft": {"method": "lora", "rank": 4, "alpha": 8}, "trainable_token_indices": {
+            "embed_tokens": {"start": self.base, "end": self.base + vocab.SIZE},
+            "lm_head": {"start": self.base, "end": self.base + vocab.SIZE}}}
+
+    def test_the_trainer_config_names_the_same_rows_as_the_preflight_config(self):
+        ours = self.train.build_lora_config(peft, self.spec, REGEX, self.model, self.tok)
+        want = self.ctok.lora_config(peft, self.model, REGEX, 4, 8, self.base)
+        self.assertEqual(ours.trainable_token_indices, want.trainable_token_indices)
+        self.assertEqual((ours.r, ours.lora_alpha, ours.target_modules), (want.r, want.lora_alpha, want.target_modules))
+
+    def test_reload_equivalence_and_host_rows_through_the_trainer_config(self):
+        host_embed = self.model.get_input_embeddings().weight.detach().clone()
+        host_head = self.model.get_output_embeddings().weight.detach().clone()
+        with tempfile.TemporaryDirectory() as tmp:
+            base_dir, adapter = Path(tmp) / "base", Path(tmp) / "adapter"
+            self.model.save_pretrained(base_dir)
+            wrapped = peft.get_peft_model(self.model, self.train.build_lora_config(peft, self.spec, REGEX, self.model, self.tok))
+            params = [p for p in wrapped.parameters() if p.requires_grad]
+            report = self.ctok.parameter_report(wrapped)
+            self.assertEqual(report["trainable"], sum(p.numel() for p in params))
+            optimizer = torch.optim.AdamW(params, lr=1e-2)
+            ids = sample_ids(self.base)
+            wrapped.train()
+            for _ in range(3):
+                optimizer.zero_grad()
+                wrapped(input_ids=ids, labels=ids).loss.backward()
+                optimizer.step()
+            wrapped.eval()
+            with torch.no_grad():
+                want = wrapped(input_ids=ids).logits
+            wrapped.save_pretrained(adapter)
+            from transformers import AutoModelForImageTextToText
+
+            fresh = AutoModelForImageTextToText.from_pretrained(base_dir, dtype=torch.float32)
+            reloaded = peft.PeftModel.from_pretrained(fresh, adapter).eval()
+            with torch.no_grad():
+                self.assertTrue(torch.equal(reloaded(input_ids=ids).logits, want))
+            merged = reloaded.merge_and_unload()
+            self.assertTrue(torch.equal(merged.get_input_embeddings().weight[:self.host_n], host_embed[:self.host_n]))
+            self.assertTrue(torch.equal(merged.get_output_embeddings().weight[:self.host_n], host_head[:self.host_n]))
+
+
+class RealShape(unittest.TestCase):
+    """The trainable count of SmolVLM-500M + ctok/1, computed from the architecture (no weights needed)."""
+
+    HIDDEN, HEADS, KV_HEADS, LAYERS, RANK = 960, 15, 5, 32, 8
+
+    def test_trainable_parameters_are_5_611_520(self):
+        kv = self.HIDDEN // self.HEADS * self.KV_HEADS
+        lora = self.LAYERS * self.RANK * ((self.HIDDEN + self.HIDDEN) + (self.HIDDEN + kv))  # q_proj and v_proj, A and B
+        rows = 2 * vocab.SIZE * self.HIDDEN  # new embed_tokens rows and new untied lm_head rows
+        self.assertEqual((lora, rows, lora + rows), (819_200, 4_792_320, 5_611_520))
+        self.assertEqual((49280 + vocab.SIZE) * self.HIDDEN * 2, 99_409_920)  # modules_to_save full copies, rejected
+
+
 if __name__ == "__main__":
     unittest.main()
