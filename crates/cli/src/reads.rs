@@ -13,14 +13,23 @@ use std::io::{BufRead, Read, Write};
 fn run_call(session: &mut RuleSession, call: &Value) -> Result<ReadReply> {
     let name = call["name"].as_str().context("call needs a name")?;
     let args = &call["arguments"];
-    let text = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+    let text = |key: &str| {
+        args.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned()
+    };
     match name {
         "list_legal_moves" => session.list_legal_moves(),
         "what_if" => {
             let moves: Vec<String> = args
                 .get("moves")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
                 .unwrap_or_default();
             session.what_if(&moves)
         }
@@ -33,7 +42,9 @@ fn run_call(session: &mut RuleSession, call: &Value) -> Result<ReadReply> {
 
 fn one(request: &Value) -> Result<Value> {
     let fen = request["fen"].as_str().context("fen must be a string")?;
-    let calls = request["calls"].as_array().context("calls must be an array")?;
+    let calls = request["calls"]
+        .as_array()
+        .context("calls must be an array")?;
     let record = GameRecord {
         schema_version: SCHEMA_VERSION,
         game_id: "corpus-reads".into(),
@@ -47,7 +58,10 @@ fn one(request: &Value) -> Result<Value> {
     let mut rendered = Vec::new();
     for call in calls {
         let reply = run_call(&mut session, call)?;
-        rendered.push(format!("<tool_result>{}</tool_result>", serde_json::to_string(&reply)?));
+        rendered.push(format!(
+            "<tool_result>{}</tool_result>",
+            serde_json::to_string(&reply)?
+        ));
     }
     Ok(json!({"ok": true, "rendered": rendered}))
 }
@@ -80,7 +94,12 @@ mod tests {
                       {"name": "defenders_of", "arguments": {"square": "f7"}},
                       {"name": "gives_check", "arguments": {"move": "g8f6"}}]});
         let done = one(&request).unwrap();
-        let out: Vec<&str> = done["rendered"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        let out: Vec<&str> = done["rendered"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
         assert!(out[0].contains("\"squares\":[\"c4\",\"h5\"]"), "{}", out[0]);
         assert!(out[1].contains("\"squares\":[\"e8\"]"), "{}", out[1]);
         assert!(out[2].contains("\"gives_check\":false"));
