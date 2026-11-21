@@ -36,6 +36,10 @@ CRATE = REPO / "apps" / "blut-knightlm"
 PAYLOAD = CRATE / "python"
 DEFAULT_VENV = Path("/mnt/4tb/venvs/blut-hf-image-text")
 SAMPLE_ROWS = 64
+# The recipe profile (apps/blut-knightlm/src/profile.rs) for the ctok/1-extended SmolVLM snapshot.
+CTOK_BASE_KEY = "smolvlm-500m-ctok1"
+CTOK_BASE_DIR = Path(BASES["smolvlm-500m"]["dir"]).parent / "smolvlm-500m-ctok1"
+EXTENSION_FORMAT = "knightlm-ctok-extension/1"
 
 
 class Refused(Exception):
@@ -80,6 +84,30 @@ def check_base(profile, base_dir):
                       f"({profile['repository']}@{profile['revision']})")
     return check("ok", dir=str(base_dir), weights_sha256=actual,
                  repository=profile["repository"], revision=profile["revision"])
+
+
+def check_extended_base(profile, ext_dir):
+    """The extended snapshot `ctok build-base` wrote: its record names this checkout's vocabulary and the pinned
+    stock weights, and the extended weights hash to what it recorded (the recipe re-checks all of it)."""
+    from model.train import ctok
+    from model.tokenizer import vocab
+    try:
+        record = ctok.check_extension(ext_dir)
+    except (OSError, ValueError, KeyError) as error:
+        raise Refused(f"extended base {ext_dir}: {error}") from error
+    if record.get("format") != EXTENSION_FORMAT or record.get("spec_version") != vocab.SPEC_VERSION:
+        raise Refused(f"extended base {ext_dir}: not a {EXTENSION_FORMAT} record for {vocab.SPEC_VERSION}")
+    if record.get("stock_weights_sha256") != profile["weights_sha256"]:
+        raise Refused(f"extended base {ext_dir} was built from other weights than the pinned "
+                      f"{profile['repository']}@{profile['revision']}")
+    if not record.get("head_untied"):
+        raise Refused(f"extended base {ext_dir} has a tied lm_head; the ctok1 recipe trains an untied head")
+    weights = ext_dir / profile["weights_file"]
+    actual = sha256_file(weights) if weights.is_file() else None
+    if actual is None or actual != record.get("extended_weights_sha256") or actual == profile["weights_sha256"]:
+        raise Refused(f"extended weights {weights}: sha256 {actual} does not match the extension record")
+    return record, check("ok", dir=str(ext_dir), extended_weights_sha256=actual, stock_weights_sha256=profile["weights_sha256"],
+                         vocab_sha256=record["vocab_sha256"], seed=record["seed"], base=record["base"])
 
 
 def row_kind(row, kind):
@@ -218,6 +246,9 @@ def recipe_args(args, corpus, run):
            "seed": args.seed, "save_steps": args.save_steps, "keep_checkpoints": args.keep_checkpoints,
            "lr_scheduler": args.lr_scheduler, "warmup_ratio": args.warmup_ratio,
            "max_grad_norm": args.max_grad_norm, "eval_rows": args.eval_rows, "evaluate": not args.no_eval}
+    if args.tokenizer == "ctok1":  # the recipe trains the extended profile; its new rows go through trainable_token_indices
+        cfg["base"] = CTOK_BASE_KEY
+        cfg["ctok_rows"] = args.ctok_rows
     for key in ("base_dir", "lora_target_regex", "max_steps", "baseline", "eval_repo", "eval_out_root", "model_name",
                 "alias", "stale_after_secs", "heartbeat_secs"):
         value = getattr(args, key, None)
@@ -251,6 +282,13 @@ def preflight(args):
     corpus = corpus_path(args.corpus)
     profile = BASES[args.base]
     base_dir = Path(args.base_dir) if args.base_dir else Path(profile["dir"])
+    ext_dir = None  # ctok1: the extended snapshot, once `ctok build-base` has written it
+    if args.tokenizer == "ctok1":  # --base-dir is the extended snapshot, or (before it is built) a stock snapshot
+        if args.base_dir and (Path(args.base_dir) / "ctok-extension.json").is_file():
+            ext_dir, base_dir = Path(args.base_dir), Path(profile["dir"])
+        else:
+            ext_dir = CTOK_BASE_DIR
+    extended = ext_dir is not None and (ext_dir / "ctok-extension.json").is_file()
     run = args.run
     cfg = {key: getattr(args, key) for key in
            ("epochs", "batch_size", "grad_accum", "seq_len", "lr", "rank", "alpha", "seed", "max_steps",
@@ -273,7 +311,8 @@ def preflight(args):
         from model.tokenizer import vocab
         plan["tokenizer"] = {"name": "ctok1", "spec_version": vocab.SPEC_VERSION, "vocab_sha256": vocab.vocab_sha256(),
                              "vocab_size": vocab.SIZE, "trainable_rows": args.ctok_rows,
-                             "embedding_path": "peft trainable_token_indices (model/train/ctok.py)"}
+                             "embedding_path": "peft trainable_token_indices (model/train/ctok.py)",
+                             "recipe_base": CTOK_BASE_KEY, "extended_base_dir": str(ext_dir), "extended_base_built": extended}
     plan["checks"]["prompt_parity"] = check_prompt_parity(sample, args.prompt_kind)
 
     lengths, examples = [], []
@@ -281,15 +320,20 @@ def preflight(args):
         plan["checks"]["base_weights"] = check("skipped", reason="--skip-model")
         for name in ("tokenisation", "trainer_vs_harness_tokens", "cpu_steps"):
             plan["checks"][name] = check("skipped", reason="--skip-model")
+        if extended:
+            plan["checks"]["extended_base"] = check("skipped", reason="--skip-model")
     else:
         plan["checks"]["base_weights"] = check_base(profile, base_dir)
+        ext_record = None
+        if extended:
+            ext_record, plan["checks"]["extended_base"] = check_extended_base(profile, ext_dir)
         try:
             from model.train import preflight as stack
             backend = stack.locate_backend_python()
             if backend is None:
                 raise ImportError("hf_image_text_data.py not found (set BLUT_HF_PYTHON_DIR or build the crate)")
             data, train_mod = stack.load_backend(backend)
-            processor = stack.load_processor(base_dir)
+            processor = stack.load_processor(ext_dir if extended else base_dir)
             from model.train.harness import encode as harness_encode
         except ImportError as error:
             reason = f"training stack unavailable here: {error} (run with the image-text venv's python)"
@@ -299,7 +343,14 @@ def preflight(args):
             ctok_base = None
             if args.tokenizer == "ctok1":
                 from model.train import ctok
-                ctok_base = ctok.extend_processor(processor)
+                from model.tokenizer import vocab as ctok_vocab
+                if extended:  # the snapshot's tokenizer is already extended: it must be exactly ours
+                    ctok_base = ext_record["base"]
+                    if len(processor.tokenizer) != ctok_base + ctok_vocab.SIZE:
+                        raise Refused(f"extended base tokenizer has {len(processor.tokenizer)} entries, "
+                                      f"expected {ctok_base + ctok_vocab.SIZE}")
+                else:
+                    ctok_base = ctok.extend_processor(processor)
             plan["checks"]["tokenisation"] = check("ok", sample_rows=len(sample), backend_python=str(backend),
                                                    **({"ctok_base": ctok_base, "tokenizer_length": len(processor.tokenizer)}
                                                       if ctok_base is not None else {}))
@@ -327,25 +378,29 @@ def preflight(args):
             lengths = [len(ids) for _, ids in examples]
             try:
                 plan["checks"]["cpu_steps"] = check("ok", **stack.cpu_steps(
-                    base_dir, args.lora_target_regex, examples, data, train_mod, args.rank, args.alpha,
+                    ext_dir if extended else base_dir, args.lora_target_regex, examples, data, train_mod, args.rank, args.alpha,
                     args.lr, seq_len=args.seq_len,
-                    extension=(processor.tokenizer, ctok_base, args.ctok_rows) if ctok_base is not None else None)) if not args.skip_cpu_steps else check(
+                    extension=(processor.tokenizer, ctok_base, args.ctok_rows) if ctok_base is not None else None,
+                    already_extended=extended)) if not args.skip_cpu_steps else check(
                     "skipped", reason="--skip-cpu-steps")
             except ValueError as error:
                 raise Refused(f"CPU optimiser steps failed: {error}") from error
     plan["estimate"] = estimate(args.base, profile, cfg, len(train), lengths, args.tokens_per_second)
     plan["config"] = {**cfg, "base": args.base, "base_dir": str(base_dir)}
-    plan["sanity"] = sanity(cfg, plan["estimate"], profile["evaluable"])
+    plan["sanity"] = sanity(cfg, plan["estimate"], profile["evaluable"] and args.tokenizer != "ctok1")
     plan["recipe_args"] = recipe_args(args, corpus, run)
+    if args.tokenizer == "ctok1":
+        plan["recipe_args"]["base_dir"] = str(ext_dir)
     venv, source = resolve_venv()
     plan["environment"] = {"hf_venv_image_text": str(venv) if venv else None, "venv_source": source}
     binary = find_binary(args.blut_bin)
     argv = [str(binary or CRATE / "target/release/blut-knightlm"), "recipe", "run", "knightlm_lora",
             "--args", json.dumps(plan["recipe_args"], separators=(",", ":"))]
     plan["command"] = argv
-    if args.tokenizer == "ctok1":
-        plan["command"] = None
-        plan["launch_blocked"] = CTOK_BLOCKER
+    if args.tokenizer == "ctok1" and not extended:
+        plan["launch_blocked"] = (
+            f"no extended base at {ext_dir} (python -m model.train.ctok build-base --base-dir {profile['dir']} --out {ext_dir}); "
+            "the recipe trains the new rows only on that snapshot")
     plan["binary_found"] = binary is not None
     skipped = [name for name, c in plan["checks"].items() if c["status"] == "skipped"]
     plan["ready"] = True
@@ -366,21 +421,15 @@ def print_plan(plan):
         print(f"  differs: {line}")
     for line in plan["sanity"]["warnings"]:
         print(f"  warning: {line}")
-    if plan["command"]:
-        print("  command:", " ".join(plan["command"][:4]), "--args '<json>'")
-    else:
-        print("  launch blocked:", plan["launch_blocked"])
+    print("  command:", " ".join(plan["command"][:4]), "--args '<json>'")
+    if plan.get("launch_blocked"):
+        print("  --gpu would be refused:", plan["launch_blocked"])
     print("Launching (--gpu)." if plan.get("launched") else "Nothing launched. Add --gpu to launch.")
 
 
-CTOK_BLOCKER = ("--tokenizer ctok1 is preflight-only: the pinned BLUT image-text trainer builds its LoraConfig without "
-                "trainable_token_indices, rejects spec.extra, and the recipe pins the stock base weights, so it cannot "
-                "train the new rows (docs/model/training-gate.md, owed change in blut-cookbooks)")
-
-
 def launch(args, plan):
-    if args.tokenizer == "ctok1":
-        raise Refused(CTOK_BLOCKER)
+    if plan.get("launch_blocked"):
+        raise Refused(plan["launch_blocked"])
     binary = find_binary(args.blut_bin)
     if binary is None:
         raise Refused("blut-knightlm binary not found; build it: "
@@ -417,7 +466,8 @@ def build_parser():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS, help="corpus directory or its manifest.json")
     p.add_argument("--tokenizer", choices=("stock", "ctok1"), default="stock",
-                   help="ctok1: arms T1/T3, the host tokenizer extended by the ctok/1 vocabulary (preflight only)")
+                   help="ctok1: arms T1/T3, the host tokenizer extended by the ctok/1 vocabulary (--gpu needs the extended "
+                        "base from `python -m model.train.ctok build-base`; --base-dir points at it)")
     p.add_argument("--prompt-kind", choices=PLAY_KINDS, default="play",
                    help="play prompt kind of a reasoning corpus (S0 corpora carry their own)")
     p.add_argument("--ctok-rows", choices=("embed", "embed+head"), default="embed+head",

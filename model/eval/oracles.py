@@ -64,11 +64,13 @@ def find_maia_weights(rating, explicit=None, directory=None):
         raise OracleUnavailable(f"Maia weights file {explicit} not found")
     root = directory or os.environ.get("MAIA_WEIGHTS_DIR")
     if root:
-        for name in (f"maia-{rating}.pb.gz", f"maia-{rating}.pb"):
-            if (Path(root) / name).is_file():
-                return (Path(root) / name).resolve()
+        # Two layouts: flat (<root>/maia-<r>.pb.gz) and as stored (<root>/<r>/maia-<r>.pb.gz).
+        for folder in (Path(root), Path(root) / str(rating)):
+            for name in (f"maia-{rating}.pb.gz", f"maia-{rating}.pb"):
+                if (folder / name).is_file():
+                    return (folder / name).resolve()
     raise OracleUnavailable(f"Maia {rating} weights not found (set MAIA_WEIGHTS_DIR to a directory holding "
-                            f"maia-{rating}.pb.gz, or --maia-weights)")
+                            f"maia-{rating}.pb.gz (or <rating>/maia-{rating}.pb.gz), or --maia-weights)")
 
 
 class Lc0Oracle(StockfishScorer):

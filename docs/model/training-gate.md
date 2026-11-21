@@ -115,29 +115,31 @@ All three use the recommended recipe unchanged (rank 8, alpha 16, lr 2e-4, cosin
 differ only in the corpus. The adapter lands in `<run root>/<run>/adapter`; the recipe evaluates the 1,000
 holdout rows and writes the scorecard, and compares to `--baseline` when given.
 
-### T1 and T3 (preflight ready, training blocked)
+### T1 and T3 (needs the extended base; GPU launch is a separate go)
 
 ```bash
-python -m model.train.run --corpus .../s0-rules-qa-pilot-2026-11b-t1 --run s0b-t1 --tokenizer ctok1      # preflight
-python -m model.train.run --corpus .../s0-rules-qa-pilot-2026-11b-t3 --run s0b-t3 --tokenizer ctok1
-python -m model.train.run --corpus .../s0-rules-qa-pilot-2026-11b-t3-full --run s0b-t3-full --tokenizer ctok1
+# once, CPU, about 1 GB: the stock weights with the ctok/1 rows appended and initialised (ctok-extension.json records both hashes)
+python -m model.train.ctok build-base --base-dir /mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98 \
+  --out /mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-ctok1
+python -m model.train.run --corpus .../s0-rules-qa-pilot-2026-11b-t1 --run s0b-t1 --tokenizer ctok1        # preflight
+python -m model.train.run --corpus .../s0-rules-qa-pilot-2026-11b-t3 --run s0b-t3 --tokenizer ctok1 --gpu  # launch (owner's go)
 ```
 
-With `--tokenizer ctok1` the preflight extends the SmolVLM tokenizer by the 2,496 ctok/1 tokens (`base =
-49280`, tokenizer length 51,776), checks `prompt_parity`, `tokenisation` and `trainer_vs_harness_tokens`
-(the ctok ids in the trainer's prompt equal the id-level encoding at `base + id`, no ctok id in a completion,
-and the serve path's chat-template tokenisation equals the trainer's prompt ids), and takes two CPU steps
-with the new rows trainable. `--gpu` is refused with the reason. What the GPU run needs, in order:
+With `--tokenizer ctok1` the preflight checks `prompt_parity`, `tokenisation` and `trainer_vs_harness_tokens` (the
+ctok ids in the trainer's prompt equal the id-level encoding at `base + id`, no ctok id in a completion, and the
+serve path's chat-template tokenisation equals the trainer's prompt ids), verifies the extended base
+(`extended_base`: the record names this checkout's vocabulary hash and the pinned stock weights, the extended
+weights hash to what it recorded, untied head) and takes two CPU steps on it with the new rows trainable. Before
+the base is built it extends the stock snapshot in memory and `--gpu` is refused with the `build-base` command.
 
-1. In blut-cookbooks (separate repository, pinned by `apps/blut-knightlm/Cargo.toml`): the image-text trainer
-   builds `peft.LoraConfig` without `trainable_token_indices` and rejects `spec.extra`. Add a spec field that
-   passes `trainable_token_indices={"embed_tokens": ids, "lm_head": ids}` (ids `49280..51775`, from
-   `model.train.ctok.trainable_token_indices`) and accepts an extended base snapshot.
-2. Build the extended base once (CPU, about 1 GB):
-   `python -m model.train.ctok build-base --base-dir /mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98 --out /mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-ctok1-<hash>`
-   (records `ctok-extension.json`: vocabulary hash, seed, both weight hashes).
-3. A BLUT profile for that base (`apps/blut-knightlm/src/profile.rs` pins the stock weights hash) and the
-   tokenizer manifest check on load.
+How the recipe trains it: `--tokenizer ctok1` selects the recipe base `smolvlm-500m-ctok1`
+(`apps/blut-knightlm/src/profile.rs`: the stock weights pinned, the extension verified against
+`ctok-extension.json` when the recipe compiles), and the recipe passes
+`trainable_token_indices={"embed_tokens": 49280..51775, "lm_head": 49280..51775}` (`--ctok-rows embed` for the
+input rows only) and the extended weights' digest as `base_sha256` to the blut-cookbooks image-text trainer
+(blut-cookbooks PR #5), which refuses a base whose tokenizer and matrices differ in length, rows out of range
+and a tied head, and never resizes. Evaluation is skipped for this base (the serving predictor pins the stock
+digest and has not been run on an extended base); evaluate the adapter by hand as below.
 
 Embedding-extension path: `peft` `trainable_token_indices`, tested on CPU (`model/train/test_ctok.py`) for
 identical logits after saving the adapter and reloading it on a freshly loaded extended base, and for host
@@ -190,7 +192,7 @@ new rows are meaningless before training).
 
 1. T0 and T2-lite (matched pair on the node group, 0.7 h GPU), then T2-full (0.43 h): do the S0 questions
    improve when the position is a graph, and do the edge questions need the edges printed.
-2. T1/T3 only after the cookbook change above lands, as the second question: does a board-native token
+2. T1/T3 after the extended base is built, as the second question: does a board-native token
    input ground better than text.
 
 ## Not tested

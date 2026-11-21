@@ -23,6 +23,14 @@ struct Args {
     /// Engine binary path (used by engine players).
     #[arg(long)]
     engine: Option<String>,
+    /// Engine binary for the white engine player only (overrides --engine).
+    #[arg(long)]
+    white_engine: Option<String>,
+    /// Engine binary for the black engine player only (overrides --engine). With
+    /// both set, one match can pit two different UCI engines, e.g. `knightlm-uci`
+    /// against Stockfish.
+    #[arg(long)]
+    black_engine: Option<String>,
     /// Model server URL (used by model players).
     #[arg(long)]
     model: Option<String>,
@@ -69,9 +77,14 @@ fn make_player(kind: &str, side: &str, args: &Args) -> Result<Box<dyn MovePlayer
     match kind {
         "random" => Ok(Box::new(RandomLegal { seed: args.seed })),
         "engine" => {
-            let path = args
-                .engine
+            let side_engine = if side == "white" {
+                &args.white_engine
+            } else {
+                &args.black_engine
+            };
+            let path = side_engine
                 .clone()
+                .or_else(|| args.engine.clone())
                 .or_else(|| std::env::var("STOCKFISH_PATH").ok())
                 .with_context(|| format!("{side} engine player: --engine or STOCKFISH_PATH"))?;
             Ok(Box::new(EnginePlayer::spawn(&path, args.depth, 120)?))
