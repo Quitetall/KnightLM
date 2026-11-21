@@ -11,6 +11,7 @@ check:
 	python3 -m unittest model.eval.test_eval model.eval.test_oracles model.eval.test_explain model.eval.test_playmode model.eval.test_s0
 	python3 -m unittest model.serve.test_play model.serve.test_chat
 	python3 -m unittest model.encoder.test_encoder
+	python3 -m unittest model.tokenizer.test_tokenizer model.tokenizer.test_hf
 	python3 -m unittest model.perceiver.test_perceiver
 	python3 scripts/check_cli.py
 	python3 scripts/check_ports.py
