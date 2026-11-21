@@ -1436,9 +1436,11 @@ pub async fn model_match_move(
         policy.request_reasoning = native_thinking;
     }
     let url = move_endpoint(&state, settings.model_url.as_deref(), &seat).await?;
+    let tools_harness = std::env::var("RBC_TOOLS_HARNESS").is_ok_and(|v| v == "1");
     let playing = tokio::task::spawn_blocking(move || {
         let provider = provider_for(&url, &seat, true, native_thinking)?;
         let cancel = rbc_ai::provider::Cancellation::new();
+        let mut harness_report = None;
         let (played, vote) = if sampled {
             let samples = options
                 .as_ref()
@@ -1459,17 +1461,27 @@ pub async fn model_match_move(
             .map_err(|error| error.message)?;
             (played, Some(vote))
         } else {
-            let played = rbc_ai::play::request_move(&mut game, &*provider, &seat, &policy, &cancel)
-                .map_err(|error| error.message)?;
+            // The harness follows the match's mode: play tools in a competitive game,
+            // coach in a casual one, and the existing path for any other model or when
+            // the tools harness is not enabled (RBC_TOOLS_HARNESS=1).
+            let harness = rbc_ai::play::select_harness(&policy, &seat, None, tools_harness);
+            let harnessed = rbc_ai::play::request_move_with_harness(
+                &mut game, &*provider, &seat, &policy, &harness, &cancel,
+            )
+            .map_err(|error| error.message)?;
+            let played = harnessed.played.clone();
+            if harness != rbc_ai::play::MoveHarness::Default {
+                harness_report = Some(harnessed);
+            }
             (played, None)
         };
-        Ok::<_, String>((game, played, vote))
+        Ok::<_, String>((game, played, vote, harness_report))
     })
     .await
     .map_err(|error| ApiError::Internal(anyhow::anyhow!(error)))?
     .map_err(ApiError::BadRequest)?;
 
-    let (game, played, vote) = playing;
+    let (game, played, vote, harness_report) = playing;
     save_match_after(&state, &id, &game)?;
     Ok(Json(serde_json::json!({
         "match": match_payload(&id, &game),
@@ -1477,6 +1489,13 @@ pub async fn model_match_move(
         "reasoning": played.reasoning,
         "attempts": played.attempts,
         "knightlm_vote": vote,
+        "tools": harness_report.as_ref().map(|h| serde_json::json!({
+            "fallback": h.fallback,
+            "rejected": h.rejected,
+            "reply": h.reply,
+            "marks": h.marks,
+            "ui": h.ui,
+        })),
     })))
 }
 

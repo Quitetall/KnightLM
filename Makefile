@@ -9,7 +9,7 @@ check:
 	python3 -m unittest model.corpus.test_pipeline model.corpus.test_v3 model.corpus.test_reasoning
 	python3 -m unittest model.tests.test_materialize model.tests.test_train_run model.tests.test_pipeline model.tests.test_prompt
 	python3 -m unittest model.eval.test_eval model.eval.test_oracles model.eval.test_explain model.eval.test_playmode
-	python3 -m unittest model.serve.test_play model.serve.test_chat
+	python3 -m unittest model.serve.test_play model.serve.test_chat model.serve.test_coach
 	python3 scripts/check_cli.py
 	python3 scripts/check_ports.py
 	python3 scripts/test_check_pins.py

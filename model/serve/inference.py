@@ -31,6 +31,7 @@ WEIGHTS_SHA256 = "d05b567eeaf534e83d375551f068ed57b5f52d37c657197f644af5ef9db091
 MAX_NEW_TOKENS = 10  # as model/train/harness.py holdout generation
 MODES = ("raw", "constrained")
 PLAY_FORCED_TOKENS = 160  # budget for reasoning written after a supplied call head
+COACH_MAX_NEW_TOKENS = 512  # provisional lines, a short reply and a few tool calls
 PLAY_MAX_NEW_TOKENS = 256  # a 400-character reasoning, the call wrapper and a UCI move fit with room
 
 
@@ -42,6 +43,14 @@ class Prediction:
     input_tokens: int
     output_tokens: int
     latency_ms: float
+
+
+@dataclass
+class CoachGeneration:
+    """One free coach completion: the raw text (`Provisional:` lines, reply, tool calls)."""
+    text: str
+    input_tokens: int
+    output_tokens: int
 
 
 @dataclass
@@ -258,3 +267,11 @@ class Predictor:
             lambda: self._force_reasoning(packet, self._play_prompt_ids(packet)[0], prompt_ids))
         out = dict(fields, raw_reply=text, input_tokens=len(prompt_ids), output_tokens=len(new) + extra)
         return PlayPrediction(latency_ms=(time.perf_counter() - started) * 1000, **out)
+
+    def predict_coach(self, prompt_text):
+        """Free greedy decode of a coach turn (model/serve/coach.py reads the commit rule off it)."""
+        text = self.processor.apply_chat_template(
+            mode_chat(prompt_text), tokenize=False, add_generation_prompt=True)
+        ids = self.tokenizer.encode(text, add_special_tokens=False)
+        new = self._generate(ids, COACH_MAX_NEW_TOKENS)
+        return CoachGeneration(self.tokenizer.decode(new, skip_special_tokens=True), len(ids), len(new))

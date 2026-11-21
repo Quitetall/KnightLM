@@ -15,8 +15,8 @@ share no code beyond it. RBC works with no KnightLM present and with any provide
 
 - `ContextPacket` and `PACKET_FORMAT_VERSION`, re-exported from `crates/core`;
 - `schemas/model_tools.json` (tool schemas by mode), `model_prompts.json`,
-  `play_completion_cases.json`, `chat_summary_cases.json` (goldens both languages must
-  reproduce byte for byte) and `chat_completion_example.json`;
+  `play_completion_cases.json`, `chat_summary_cases.json`, `provisional_cases.json` (goldens both languages must
+  reproduce byte for byte), `chat_completion_example.json` and `chat_completion_coach_example.json`;
 - `openai`: serde types for the chat-completions request, response and error object.
 
 Rust generates and checks the goldens (`UPDATE_MODEL_TOOLS=1 cargo test -p rbc-ai --features
@@ -47,6 +47,20 @@ version (1 today; 2 only for the labelled effects arm). A server refuses a versi
 - `stream: true`: `chat.completion.chunk` SSE events (role, tool call head, argument
   fragments, final chunk with `finish_reason` and `knightlm`, optional usage chunk), then `data: [DONE]`.
 - Errors: `{"error": {"message", "type", "param", "code"}}`.
+
+Coach turn (chat on): `"knightlm": {"turn": "coach", "summary": "<rolling summary, at most 1200 chars>"}`
+(`turn` defaults to `play`; `mode` still means raw or constrained decoding). The request's earlier
+`user` and `assistant` messages, plus any text before the packet in the last message, are the recent
+chat, rolled to the contract bounds (`model.prompt.roll_chat`); overflow is HTTP 422 `chat_too_long`.
+The prompt shows both schemas with `Mode: coach` and the packet last, without `legal_moves` (the server
+keeps them for the commit gate; the packet must carry them). The server reads the `Provisional:` lines
+(last legal wins). The response has the reply as `content` (withheld after a fallback), the valid coach
+tool calls as `tool_calls` for RBC's executors (`crates/ai/src/coach.rs`), and the move in
+`knightlm.coach` (`move`, `provisional`, `rejected`, `fallback`, `refused_calls`): coach has no
+`submit_move`, so a coach tool never submits a move. With no legal provisional line, constrained mode
+labels a constrained move `fallback: true` (no reply, no tool calls) and raw mode returns `move: null`.
+A play turn keeps rejecting coach tools; a coach turn accepts the play and coach names in `tools` and
+still refuses app tools.
 
 `GET /v1/models` lists `knightlm`. `POST /v1/move` and `POST /v1/play` are unchanged
 conveniences for `knightlm-uci`, `knightlm-match` and the evaluator.
