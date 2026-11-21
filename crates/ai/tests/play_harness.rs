@@ -396,3 +396,131 @@ fn oversized_chat_context_fails_before_any_model_call() {
     assert!(err.message.contains("MAX_SUMMARY_CHARS"));
     assert!(provider.requests().is_empty());
 }
+
+// --- coach tools end to end, with a scripted (no-model) provider ---------------
+
+use rbc_ai::coach::{Mark, MarkColor, UiEffect};
+use rbc_ai::play::select_harness;
+
+#[test]
+fn coach_turn_end_to_end_provisional_tools_marks_and_a_committed_move() {
+    let script = format!(
+        "Provisional: e2e4\nLet me look at the knight.\n{}\n{}\n{}\nProvisional: g1f3\nDevelop it.\n{}",
+        call("scratch_step", r#"{"moves":["g1f3","b8c6"]}"#),
+        call("mark_arrow", r#"{"from":"g1","to":"f3","color":"blue"}"#),
+        call("mark_square", r#"{"square":"f3"}"#),
+        call("show_game_move", r#"{"ply":0}"#),
+    );
+    let provider = Scripted::says(&[&script]);
+    let mut g = game();
+    let before = g.fen();
+    let out = run(&mut g, &provider, &coach(), &PlayPolicy::casual());
+    // The committed move is the last legal provisional line, applied to the match.
+    assert_eq!(out.played.mv.uci, "g1f3");
+    assert_eq!(
+        (out.revisions, out.fallback, out.coach_calls),
+        (1, false, 4)
+    );
+    assert_ne!(g.fen(), before);
+    // The reply has neither provisional lines nor tool calls.
+    assert_eq!(
+        out.reply.as_deref(),
+        Some("Let me look at the knight.\n\n\n\nDevelop it.")
+    );
+    // Marks come back as structured data, in call order, with the ply pointer.
+    assert_eq!(
+        out.marks,
+        vec![
+            Mark::Arrow {
+                from: "g1".into(),
+                to: "f3".into(),
+                color: MarkColor::Blue
+            },
+            Mark::Square {
+                square: "f3".into(),
+                color: MarkColor::Green
+            },
+        ]
+    );
+    assert_eq!(out.ui.len(), 3);
+    assert!(matches!(out.ui[2], UiEffect::ShowPly { ply: 0, .. }));
+    assert_eq!(
+        provider.requests().len(),
+        1,
+        "no extra round after a commit"
+    );
+}
+
+#[test]
+fn coach_refused_tools_do_not_spend_move_attempts_and_are_fed_back() {
+    // Round 1: a play tool and a bad square, no provisional line. Round 2 commits.
+    let provider = Scripted::says(&[
+        &format!(
+            "{}{}",
+            submit("sneaky", "e2e4"),
+            call("mark_square", r#"{"square":"zz"}"#)
+        ),
+        "Provisional: d2d4\nok",
+    ]);
+    let out = run(&mut game(), &provider, &coach(), &PlayPolicy::casual());
+    assert_eq!((out.played.mv.uci.as_str(), out.rejected), ("d2d4", 0));
+    assert!(out.marks.is_empty() && out.ui.is_empty());
+    let feedback = last(&provider.requests()[1]);
+    assert!(
+        feedback.contains("not available in coach mode"),
+        "{feedback}"
+    );
+    assert!(feedback.contains("\"code\":\"bad_square\""), "{feedback}");
+    assert!(feedback.contains("Provisional: <legal UCI move>"));
+}
+
+#[test]
+fn coach_marks_are_withheld_after_a_fallback_and_the_real_game_is_untouched() {
+    let provider = Scripted::says(&[
+        &call("mark_square", r#"{"square":"e4"}"#),
+        "nothing",
+        "still nothing",
+        FALLBACK_MOVE,
+    ]);
+    let mut g = game();
+    let out = run(&mut g, &provider, &coach(), &PlayPolicy::casual());
+    assert!(out.fallback && out.marks.is_empty() && out.ui.is_empty() && out.reply.is_none());
+    assert_eq!(out.coach_calls, 1);
+    assert_eq!(g.moves().len(), 1, "only the fallback move was played");
+}
+
+#[test]
+fn the_harness_is_chosen_by_mode_for_knightlm_seats_only() {
+    let knight = ModelRef::new("local:knightlm-serve", "knightlm");
+    let other = ModelRef::new("openai", "gpt");
+    let ctx = || {
+        Some(CoachContext {
+            summary: Some("s".into()),
+            recent: vec![],
+        })
+    };
+    // Competitive: play tools. Casual: coach with the chat context.
+    assert_eq!(
+        select_harness(&PlayPolicy::competitive(), &knight, None, true),
+        MoveHarness::Play
+    );
+    assert_eq!(
+        select_harness(&PlayPolicy::casual(), &knight, ctx(), true),
+        MoveHarness::Coach(ctx().unwrap())
+    );
+    assert_eq!(
+        select_harness(&PlayPolicy::casual(), &knight, None, true),
+        MoveHarness::Coach(CoachContext::default())
+    );
+    // Not enabled, or not a KnightLM seat: the existing path, in either mode.
+    for policy in [PlayPolicy::competitive(), PlayPolicy::casual()] {
+        assert_eq!(
+            select_harness(&policy, &knight, None, false),
+            MoveHarness::Default
+        );
+        assert_eq!(
+            select_harness(&policy, &other, None, true),
+            MoveHarness::Default
+        );
+    }
+}

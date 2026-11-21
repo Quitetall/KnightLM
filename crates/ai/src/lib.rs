@@ -42,6 +42,9 @@ pub mod study_bundle;
 pub mod game;
 
 #[cfg(feature = "core")]
+pub mod coach;
+
+#[cfg(feature = "core")]
 pub mod model_turn;
 
 #[cfg(feature = "provider")]

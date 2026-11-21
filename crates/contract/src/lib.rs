@@ -26,9 +26,15 @@ pub const MODEL_PROMPTS_JSON: &str = include_str!("../schemas/model_prompts.json
 pub const PLAY_COMPLETION_CASES_JSON: &str = include_str!("../schemas/play_completion_cases.json");
 /// Chat summary cases both summarizers answer identically.
 pub const CHAT_SUMMARY_CASES_JSON: &str = include_str!("../schemas/chat_summary_cases.json");
+/// Coach `Provisional:` line cases both trackers answer identically.
+pub const PROVISIONAL_CASES_JSON: &str = include_str!("../schemas/provisional_cases.json");
 /// An example `chat.completion` the serving side produces for a play-mode request.
 pub const CHAT_COMPLETION_EXAMPLE_JSON: &str =
     include_str!("../schemas/chat_completion_example.json");
+
+/// An example coach-turn `chat.completion`: the move in `knightlm.coach`, coach tool calls to run.
+pub const CHAT_COMPLETION_COACH_EXAMPLE_JSON: &str =
+    include_str!("../schemas/chat_completion_coach_example.json");
 
 /// Absolute path of the schemas directory in this checkout, for tests that regenerate goldens.
 pub fn schemas_dir() -> &'static str {

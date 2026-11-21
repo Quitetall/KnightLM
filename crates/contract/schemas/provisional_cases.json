@@ -1,0 +1,296 @@
+[
+  {
+    "accepted": 1,
+    "attempts": 1,
+    "committed": "e2e4",
+    "exhausted": false,
+    "fallback": false,
+    "feedback": [],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 5,
+    "rejected": 0,
+    "reply": "Then the reply.",
+    "text": "Provisional: e2e4\nThen the reply."
+  },
+  {
+    "accepted": 2,
+    "attempts": 2,
+    "committed": "g1f3",
+    "exhausted": false,
+    "fallback": false,
+    "feedback": [],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 5,
+    "rejected": 0,
+    "reply": "hmm, wait\nbecause...",
+    "text": "Provisional: e2e4\nhmm, wait\nProvisional: g1f3\nbecause..."
+  },
+  {
+    "accepted": 1,
+    "attempts": 3,
+    "committed": "e2e4",
+    "exhausted": false,
+    "fallback": false,
+    "feedback": [
+      "`e2e5` is not a legal move in this position. Call list_legal_moves or submit another UCI move.",
+      "`zzzz` is not a legal move in this position. Call list_legal_moves or submit another UCI move."
+    ],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 5,
+    "rejected": 2,
+    "reply": "",
+    "text": "Provisional: e2e4\nProvisional: e2e5\nProvisional: zzzz\n"
+  },
+  {
+    "accepted": 0,
+    "attempts": 2,
+    "committed": null,
+    "exhausted": true,
+    "fallback": true,
+    "feedback": [
+      "`e2e5` is not a legal move in this position. Call list_legal_moves or submit another UCI move."
+    ],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 2,
+    "rejected": 2,
+    "reply": null,
+    "text": "Provisional: e2e5\nProvisional: h7h1\n"
+  },
+  {
+    "accepted": 0,
+    "attempts": 0,
+    "committed": null,
+    "exhausted": false,
+    "fallback": true,
+    "feedback": [],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 2,
+    "rejected": 0,
+    "reply": null,
+    "text": "No provisional line at all."
+  },
+  {
+    "accepted": 1,
+    "attempts": 3,
+    "committed": "d2d4",
+    "exhausted": true,
+    "fallback": false,
+    "feedback": [
+      "`bad1` is not a legal move in this position. Call list_legal_moves or submit another UCI move."
+    ],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 3,
+    "rejected": 2,
+    "reply": "",
+    "text": "Provisional: d2d4\nProvisional: bad1\nProvisional: bad2\nProvisional: e2e4\n"
+  },
+  {
+    "accepted": 1,
+    "attempts": 1,
+    "committed": "e2e4",
+    "exhausted": false,
+    "fallback": false,
+    "feedback": [],
+    "finished": false,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 5,
+    "rejected": 0,
+    "reply": "",
+    "text": "Provisional: e2e4\nProvisional: g1f"
+  },
+  {
+    "accepted": 2,
+    "attempts": 2,
+    "committed": "g1f3",
+    "exhausted": false,
+    "fallback": false,
+    "feedback": [],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 5,
+    "rejected": 0,
+    "reply": "",
+    "text": "Provisional: e2e4\nProvisional: g1f3"
+  },
+  {
+    "accepted": 0,
+    "attempts": 0,
+    "committed": null,
+    "exhausted": false,
+    "fallback": true,
+    "feedback": [],
+    "finished": false,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 5,
+    "rejected": 0,
+    "reply": null,
+    "text": "Provisional: g1f3"
+  },
+  {
+    "accepted": 2,
+    "attempts": 2,
+    "committed": "g1f3",
+    "exhausted": false,
+    "fallback": false,
+    "feedback": [],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 5,
+    "rejected": 0,
+    "reply": "ok",
+    "text": "Provisional:e2e4  \r\nProvisional: g1f3\r\nok"
+  },
+  {
+    "accepted": 0,
+    "attempts": 0,
+    "committed": null,
+    "exhausted": false,
+    "fallback": true,
+    "feedback": [],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 5,
+    "rejected": 0,
+    "reply": null,
+    "text": "Provisional: I think e4\nMy Provisional: e2e4\nProvisional:\n"
+  },
+  {
+    "accepted": 0,
+    "attempts": 1,
+    "committed": null,
+    "exhausted": false,
+    "fallback": true,
+    "feedback": [
+      "`E2E4` is not a legal move in this position. Call list_legal_moves or submit another UCI move."
+    ],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 5,
+    "rejected": 1,
+    "reply": null,
+    "text": "Provisional: E2E4\nProvisional: e2e4 e2e4\n"
+  },
+  {
+    "accepted": 0,
+    "attempts": 1,
+    "committed": null,
+    "exhausted": true,
+    "fallback": true,
+    "feedback": [],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 1,
+    "rejected": 1,
+    "reply": null,
+    "text": "Provisional: e2e5\nProvisional: e2e4\n"
+  },
+  {
+    "accepted": 1,
+    "attempts": 1,
+    "committed": "e7e8q",
+    "exhausted": false,
+    "fallback": false,
+    "feedback": [],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 5,
+    "rejected": 0,
+    "reply": "Promoted.",
+    "text": "Provisional: e7e8q\nPromoted.\n"
+  },
+  {
+    "accepted": 0,
+    "attempts": 0,
+    "committed": null,
+    "exhausted": false,
+    "fallback": true,
+    "feedback": [],
+    "finished": true,
+    "legal": [
+      "e2e4",
+      "g1f3",
+      "d2d4",
+      "e7e8q"
+    ],
+    "max_attempts": 5,
+    "rejected": 0,
+    "reply": null,
+    "text": ""
+  }
+]
