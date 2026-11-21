@@ -32,8 +32,13 @@ def alignment_step(host, encoder, projector, planes, input_ids, labels, attentio
 
 
 def encode_row(tokenizer, image_token_id, n_tokens, row, max_len=256):
-    """`<image>` x n + prompt text + completion; labels mask everything but the completion."""
-    prompt = [image_token_id] * n_tokens + tokenizer(row["prompt"], add_special_tokens=False)["input_ids"]
+    """`<image>` x n + prompt text + completion; labels mask everything but the completion. A prompt that already
+    carries its `<image>` slots (the rows of `model.encoder.rows`, the serve prompt of play-enc) is used as it is."""
+    body = tokenizer(row["prompt"], add_special_tokens=False)["input_ids"]
+    slots = body.count(image_token_id)
+    if slots not in (0, n_tokens):
+        raise ValueError(f"row {row.get('id')}: {slots} <image> slots in the prompt, the encoder emits {n_tokens}")
+    prompt = body if slots else [image_token_id] * n_tokens + body
     completion = tokenizer(row["completion"], add_special_tokens=False)["input_ids"] + [tokenizer.eos_token_id]
     ids = (prompt + completion)[:max_len]
     labels = ([-100] * len(prompt) + completion)[:max_len]

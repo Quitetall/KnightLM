@@ -41,6 +41,10 @@ from model.eval import explain
 GENERATOR_VERSION = "reasoning-v2"
 FORMAT = "knightlm-lichess-v2-reasoning-v2"
 VARIANTS = {"a": "text", "b": "tools"}
+# The prompt kind a variant is built with. Variant b allows read calls before submit_move, so its prompt must not say
+# "exactly one tool call" (`play-reads`). The first b pilot was built with `play` and still validates as such.
+DEFAULT_KIND = {"a": "play", "b": "play-reads"}
+ALLOWED_KINDS = {"a": ("play",), "b": ("play", "play-reads")}
 LIMITS = {"a": {"chars": 330, "words": 55}, "b": {"chars": 400, "words": 75}}  # b is bounded by the schema's 400
 MAX_FACTS = 3
 MAX_READS = 8  # the harness's per-turn read budget (READ_BUDGET)
@@ -420,7 +424,8 @@ def claim_stats(row_fen, legal, text, uci):
             "unchecked": sum(result["unchecked"].values()), "failures": result["failures"]}
 
 
-def make_row(index, split, row, variant, plan, calls, rendered, text):
+def make_row(index, split, row, variant, plan, calls, rendered, text, kind=None):
+    kind = kind or DEFAULT_KIND[variant]
     uci = row["target"]
     if variant == "b":
         completion, segments = transcript(calls, rendered, text, uci)
@@ -431,11 +436,11 @@ def make_row(index, split, row, variant, plan, calls, rendered, text):
         "id": f"r2{variant}-{split}-{index:06}", "family": row["family"], "game_id": row["game_id"],
         "packet": row["packet"], "ply": row["ply"], "position_key": row["position_key"],
         "source": row["source"], "target": uci, "utc_date": row["utc_date"], "utc_time": row["utc_time"],
-        "variant": variant, "prompt_kind": "play", "reasoning": text, "move": uci,
+        "variant": variant, "prompt_kind": kind, "reasoning": text, "move": uci,
         "facts": [{k: f[k] for k in ("kind", "square", "piece")} for f in plan],
         "reads": [{"name": n, "arguments": a} for n, a in calls],
         "claims": {k: claims[k] for k in ("checkable", "failed", "by_type", "unchecked")},
-        "prompt": prompt_module.play_text(row["packet"]), "completion": completion,
+        "prompt": prompt_module.play_prompt(kind, row["packet"]), "completion": completion,
     }
     if segments is not None:
         out["segments"] = segments
@@ -444,14 +449,14 @@ def make_row(index, split, row, variant, plan, calls, rendered, text):
     return out
 
 
-def build_rows(binary, rows, split, variant):
+def build_rows(binary, rows, split, variant, kind=None):
     items = [{"fen": r["packet"]["fen"], "move": r["target"]} for r in rows]
     facts_list = reasoning.compute_facts(binary, items)
     for fact, item in zip(facts_list, items, strict=True):
         if not fact.get("ok"):
             raise ValueError(f"corpus-facts failed for {item['fen']}: {fact.get('error')}")
     derived = derive(binary, facts_list, [i["move"] for i in items], variant)
-    return [make_row(i, split, row, variant, *parts) for i, (row, parts) in enumerate(zip(rows, derived, strict=True))]
+    return [make_row(i, split, row, variant, *parts, kind=kind) for i, (row, parts) in enumerate(zip(rows, derived, strict=True))]
 
 
 # --- validation and audit ---------------------------------------------------------------------------------------
@@ -466,7 +471,8 @@ def validate_rows(rows, source, variant):
             or packet["history_complete"] is not True
             or row["position_key"] != " ".join(packet["fen"].split()[:4])
             or row["target"] not in packet["legal_moves"] or row["move"] != row["target"]
-            or row["prompt"] != prompt_module.play_text(packet)
+            or row.get("prompt_kind") not in ALLOWED_KINDS[variant]
+            or row["prompt"] != prompt_module.play_prompt(row["prompt_kind"], packet)
             or row["claims"]["failed"] or not row["claims"]["checkable"]
             or len(row["reasoning"]) > LIMITS[variant]["chars"] or "\n" in row["reasoning"]
         ):
@@ -491,7 +497,7 @@ def verify_rows(rows, binary, variant):
     derived = derive(binary, facts_list, [i["move"] for i in items], variant)
     for row, parts in zip(rows, derived, strict=True):
         split, index = row["id"].split("-")[1], int(row["id"].rsplit("-", 1)[1])
-        if make_row(index, split, row, variant, *parts) != row:
+        if make_row(index, split, row, variant, *parts, kind=row["prompt_kind"]) != row:
             raise ValueError(f"{row['id']}: differs from the compiler derivation")
 
 
@@ -564,7 +570,7 @@ def write_corpus(output, train, holdout, variant, binary, current, parent, paren
         "format": FORMAT,
         "variant": variant,
         "variant_name": VARIANTS[variant],
-        "prompt_kind": "play",
+        "prompt_kind": DEFAULT_KIND[variant],
         "source": parent["source"],
         "parent": parent_meta,
         "split": parent["split"],
@@ -576,9 +582,8 @@ def write_corpus(output, train, holdout, variant, binary, current, parent, paren
             "oracle": "knightlm corpus-facts, knightlm corpus-reads (RuleSession), model.eval.explain, independent attacker recomputation",
             "claims": "side to move, check, material, attackers/defenders/undefended facts, the chosen move; no counts, no judgement",
             "attack_semantics": "geometric (pins ignored), as the attackers_of / defenders_of read tools",
-            "prompt": "model.prompt.play_text(packet)"
-                      + ("; the play instruction says exactly one call, so a serving prompt that allows the read calls is still owed"
-                         if variant == "b" else ""),
+            "prompt": "model.prompt.play_prompt(prompt_kind, packet): `play` for a, `play-reads` for b (the instruction "
+                      "allows read calls before submit_move)",
             "completion": "one submit_move call" if variant == "a" else
             "read calls each followed by its harness-rendered result, then one submit_move; segments mark loss spans",
             "tools": sorted(READ_TOOLS) if variant == "b" else [],

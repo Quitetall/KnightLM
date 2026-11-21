@@ -170,7 +170,9 @@ class Corpus(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             _, train, holdout = fixture_corpus(tmp, "b")
         for row in train + holdout:
-            self.assertEqual(row["prompt"], prompt.play_text(row["packet"]))
+            self.assertEqual(row["prompt_kind"], "play-reads")  # variant b allows the read calls
+            self.assertEqual(row["prompt"], prompt.play_prompt("play-reads", row["packet"]))
+            self.assertNotIn("exactly one tool call", row["prompt"])
             self.assertEqual(row["move"], row["target"])
             self.assertIn(row["move"], row["packet"]["legal_moves"])
             self.assertEqual(row["claims"]["failed"], 0)

@@ -226,14 +226,19 @@ takes minutes.
 
 ### 3. Align the projector (P1)
 
-Needs the S0 rules-QA rows (`{fen, repetition?, prompt, completion}` JSONL) from the CGT/S0
-corpus builder; that corpus is not part of this change.
+Needs rows `{fen, repetition?, prompt, completion}` JSONL. `model.encoder.rows` writes them from an audited
+S0 rules-QA corpus (or a reasoning corpus): `fen` and `repetition` are what `planes.packet_inputs` reads from the
+packet (the server's own function), `prompt` is the `play-enc` / `play-enc-cgt` prompt of the arm plus the question
+(64 `<image>` slots, no FEN), `completion` the row's play call. The matched S0 corpora give the same positions and
+questions for T4 and T5; only the prompt kind differs.
 
 ```sh
+python3 -m model.encoder.rows --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/s0-rules-qa-pilot-2026-11b-t0 \
+  --kind play-enc --limit 48000 --out /mnt/4tb/artifacts/KnightLM/expire/runs/p1-rows-t4.jsonl
 python3 -m model.encoder.align \
   --host /mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98 \
   --encoder /mnt/4tb/artifacts/KnightLM/expire/runs/encoder-p0-a/encoder \
-  --rows <s0-rules-qa-rows.jsonl> \
+  --rows /mnt/4tb/artifacts/KnightLM/expire/runs/p1-rows-t4.jsonl \
   --out /mnt/4tb/artifacts/KnightLM/expire/runs/projector-smolvlm-a \
   --steps 3000 --batch 16 --lr 1e-3 --device cuda
 ```
@@ -243,13 +248,32 @@ about 15 completion) = 6.7M tokens. Compute: about 4 x 0.36B x 6.7M = 1e16 FLOPs
 host, no weight gradients). Time: about 10 to 30 minutes. Memory: host bf16 about 1 GB plus
 activations, under 10 GB.
 
-### 4. Task training with the projector (P2) through BLUT
+### 4. Task training with the projector (P2): `model.encoder.task`
 
 The draft stages in `apps/blut-knightlm/src/stages/board_encoder.rs`
 (`pretrain_board_encoder`, `align_projector`) wrap steps 2 and 3. They compile but are not
-registered in any recipe and are never run here. P2 would extend `knightlm_lora` with the
-projector (trainable) and the same rows, steps and LoRA as T0; that wiring is not written
-because it needs the T0/T2 matched settings from the S0 corpus work.
+registered in any recipe and are never run here. P2 is not a recipe stage either: the pinned BLUT image-text trainer
+builds one LoRA model and cannot carry a second trainable module (the same blocker as the move head and ctok1), so
+`model/encoder/task.py` is a loop beside the recipe, built like `model/policy_head/joint.py` (row stream, scheduler,
+token-weighted accumulation, clipping, resume). It trains the LoRA adapter (rank 8, alpha 16, the recipe's regex) and the
+projector together with the encoder frozen: planes -> encoder -> projector -> `image_hidden_states` -> host, the language
+loss on the completion (and, for rows with `segments`, on the spans marked `loss: true`).
+
+```sh
+python3 -m model.encoder.task --corpus <s0 or reasoning corpus> --kind play-enc --encoder <P0 encoder dir> \
+  [--projector <P1 projector dir>] --rows 20000 --run t4-a            # CPU preflight; add --gpu to train
+```
+
+`--kind play-enc-cgt` is T5 (needs the `knightlm` binary for the cgt text). `--mode projector-only` keeps the host frozen
+(an alignment stage with the chat-templated serve prompt). Output: `adapter/`, `projector/`, `task.json` (base, adapter,
+encoder, projector hashes and the prompt kind; `Predictor._load_board` refuses an adapter served with another
+projector, encoder, base or prompt kind), the converted `rows/`, `resume/state.pt` (`--resume`). The preflight checks the
+corpus audit, the row conversion, the base weights, prompt parity (trainer prompt ids == the server's chat-templated
+ids, 64 `<image>` slots per row, no FEN, planes == `packet_planes`) and takes two optimiser steps on the real SmolVLM on
+CPU in float32, writes the outputs and reloads them through the serve loader. With a random-init encoder (no P0 yet) the
+preflight measured: 2 steps 31 s, 819,200 adapter + 1,169,792 projector parameters, reload logit error 0.0. `--gpu`
+refuses without a pretrained `--encoder`. The S0 questions cannot be scored through `Predictor.complete` for these arms:
+it does not inject soft tokens (no packet reaches it), so score T4/T5 on the play holdout (training-gate.md).
 
 ### 5. Evaluate and compare
 

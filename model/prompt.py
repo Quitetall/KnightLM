@@ -34,6 +34,9 @@ MAX_RECENT_MESSAGES = 6
 MAX_MESSAGE_CHARS = 800
 
 PLAY_INSTRUCTION = 'You are playing chess in competition mode. Reply with exactly one tool call: call submit_move with a short reasoning field first, then a legal UCI move. Use only the tools listed.\n'
+# `play-reads` (reasoning v2 variant b, docs/model/reasoning-v2.md): the same prompt except that the read tools may be
+# called before submit_move, so the "exactly one tool call" wording is replaced for that kind only.
+PLAY_READS_INSTRUCTION = 'You are playing chess in competition mode. You may first call read tools to check facts, one tool call per turn, each answered by a tool result; then finish with a tool call to submit_move with a short reasoning field first, then a legal UCI move. Use only the tools listed.\n'
 COACH_INSTRUCTION = 'You are a chess coach playing a game. Your first line must be `Provisional: <legal UCI move>`. You may think aloud and later write another `Provisional: <legal UCI move>` line to change it; the last legal one is your move when you stop. Then reply to the user. Use only the tools listed.\n'
 COMBINED_INSTRUCTION = "You are a chess coach that also plays competitively. The line `Mode: play` or `Mode: coach` after the tool lists names this turn's mode; call only that mode's tools. In play mode reply with exactly one submit_move call, reasoning field first, then a legal UCI move. In coach mode your first line must be `Provisional: <legal UCI move>`, which a later `Provisional:` line may revise (the last legal one is your move), then reply to the user.\n"
 _INSTRUCTIONS = {"play": PLAY_INSTRUCTION, "coach": COACH_INSTRUCTION}
@@ -58,16 +61,16 @@ def _check_mode(mode):
         raise ValueError(f"unknown mode {mode!r}; expected one of {MODES}")
 
 
-def prefix(mode, schemas=None):
+def prefix(mode, schemas=None, instruction=None):
     """The fixed part of a prompt: instruction, call format, this mode's schema.
 
     Identical for every turn of a mode, so a serving cache can reuse it. It never
-    mentions the other mode's tools.
+    mentions the other mode's tools. `instruction` replaces the mode's instruction (play-reads only).
     """
     _check_mode(mode)
     tools = (schemas or load_tool_schemas())["modes"][mode]
     return (
-        _INSTRUCTIONS[mode]
+        (instruction or _INSTRUCTIONS[mode])
         + TOOL_CALL_FORMAT
         + "Tools:\n"
         + json.dumps(tools, sort_keys=True, separators=(",", ":"))
@@ -96,9 +99,9 @@ def chat_context(summary=None, recent=()):
     return "".join(parts)
 
 
-def play_text(packet, schemas=None):
+def play_text(packet, schemas=None, instruction=None):
     """Play mode: instruction, play schema, packet. Nothing else; packet last."""
-    return prefix("play", schemas) + "Position packet:\n" + packet_json(packet)
+    return prefix("play", schemas, instruction) + "Position packet:\n" + packet_json(packet)
 
 
 def coach_text(packet, summary=None, recent=(), schemas=None):
@@ -288,7 +291,10 @@ CTOK_KINDS = ("play-t1", "play-t3", "play-t3-full")
 # encoder arms T4 and T5 (docs/model/board-encoder.md). All three are additive: every older kind keeps its bytes.
 HEAD_KINDS = ("play-head",)
 ENC_KINDS = ("play-enc", "play-enc-cgt")
-PLAY_KINDS = ("play", "play-cgt", "play-cgt-full", *CTOK_KINDS, *HEAD_KINDS, *ENC_KINDS)
+# `play-reads` is reasoning v2 variant b: read calls and their results before submit_move. It is a training and
+# scoring kind (the rows carry `segments`); the Python Predictor serves one call and refuses it.
+READS_KINDS = ("play-reads",)
+PLAY_KINDS = ("play", "play-cgt", "play-cgt-full", *CTOK_KINDS, *HEAD_KINDS, *ENC_KINDS, *READS_KINDS)
 CGT_VARIANT = {"play-cgt": "lite", "play-cgt-full": "full", "play-enc-cgt": "lite"}
 CGT_LABEL = "Position graph:\n"
 _REPO = Path(__file__).resolve().parent.parent
@@ -356,6 +362,8 @@ def play_prompt(kind, packet, schemas=None, binary=None, head_move=None, n_board
         raise ValueError(f"head_move only applies to {HEAD_KINDS}, not {kind!r}")
     if kind == "play":
         return play_text(packet, schemas)
+    if kind in READS_KINDS:
+        return play_text(packet, schemas, PLAY_READS_INSTRUCTION)
     if kind in HEAD_KINDS:
         text = play_text(packet, schemas) + HEAD_LABEL
         if head_move is None:

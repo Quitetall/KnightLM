@@ -33,7 +33,7 @@ No count of legal moves, no ranking, no plan, no "good" or "best". "Attack" and 
 | completion | one `submit_move` call | play-schema read calls, each followed by its result, then one `submit_move` |
 | reasoning limit | 330 characters, 55 words | 400 characters (schema bound), 75 words |
 | tools | none | `attackers_of`, `defenders_of`, `gives_check`, `what_if` (checking moves), `list_legal_moves` (at most 5 legal moves) |
-| prompt | `model.prompt.play_text(packet)` | the same text (see "Owed") |
+| prompt | `model.prompt.play_prompt("play", packet)` | `play_prompt("play-reads", packet)`: the same prompt with the "exactly one tool call" sentence replaced |
 
 Variant b transcript, results rendered by the compiler (`knightlm corpus-reads`, which runs the calls through
 `RuleSession`, the harness's executors, and prints `<tool_result>{reply}</tool_result>` exactly as
@@ -78,13 +78,32 @@ the kept count per row. Holdout samples measure pass rate only; the CLI refuses 
 
 Engine-scored rewards are not here. They are a separate labelled arm (plan S4).
 
+## Prompt kind and loss mask for variant b
+
+`play-reads` (`model/prompt.py`, `READS_KINDS`) is the play prompt whose instruction allows the read tools before
+`submit_move`: `PLAY_READS_INSTRUCTION` replaces `PLAY_INSTRUCTION` ("exactly one tool call") for that kind only; the schema,
+the call format and the packet are the same bytes, and the goldens of every older kind are unchanged
+(`model.tests.test_prompt`, `model.train.test_masked`). It is a training and scoring kind: the Python server answers one call
+and refuses it (`Predictor._check_play_kind`, `--play-prompt-kind`); the Rust harness runs the read calls between turns.
+`model.corpus.reasoning2 build --variant b` writes `prompt_kind: play-reads` rows; the first pilot (`...-pilot-2026-11-b`,
+prompt kind `play`) still validates and audits, but a b corpus that trains the intended prompt has to be rebuilt (not done).
+`parse_play_completion` still accepts only the final call; a transcript is parsed by `reasoning2.parse_transcript`.
+
+Loss mask: a row's `segments` mark the calls and the final `submit_move` `loss: true` and the tool results `loss: false`
+(the harness inserts them at inference). `model/train/segments.py` turns that into labels (-100 over the prompt, padding and
+result spans; refuses a span boundary that falls inside a token) and the joint trainers use it: `model.policy_head.joint`,
+`model.encoder.task` and `model.train.masked` (the text-only entry for variant b: `python -m model.train.masked --corpus
+<b corpus> --run r2b-masked`). Measured on the first 64 rows of the b pilot: 8,511 of 21,954 completion tokens (39%) are
+results and carry no loss.
+
+BLUT limitation: the recipe's trainer (`hf_sft_train`, `hf_image_text_data.row_texts` / `collate`) reads `{prompt, completion}`
+only and puts loss on every completion token. `model.train.run` therefore refuses a corpus with result spans (`loss_segments`
+check; `--allow-unmasked-results` trains them with loss, which is a different, labelled arm). The fix upstream is a
+`labels`-or-`segments` field in the image-text row schema; until then variant b trains through `model.train.masked`.
+
 ## Owed (not done, not tested)
 
-- Variant b needs a prompt that allows read calls: `PLAY_INSTRUCTION` says "exactly one tool call". The
-  row's `prompt` is unchanged until the prompt owner adds a kind for it; `parse_play_completion` still
-  accepts only the final call.
-- The BLUT trainer trains on the whole completion; it does not read `segments`, so tool results would carry
-  loss in variant b until it masks them.
+- Rebuild the variant b corpus with the `play-reads` prompt and no GPU run of either variant.
 - A serving loop that runs the read calls between model turns exists in Rust (`execute_read`,
   `MoveHarness::Play`), but no model has produced a v2 transcript, so the sampler is tested with fake
   predictors only.

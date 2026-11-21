@@ -147,10 +147,20 @@ class Predictor:
         self.n_board_tokens = encoder.cfg.n_tokens
         self.encoder_sha256 = sha256_file(self.encoder_dir / "encoder.pt")
         self.projector_sha256 = sha256_file(self.projector_dir / "projector.pt")
-        from model.encoder.manifest import check_pair  # manifests are optional; a present one must match
+        from model.encoder import manifest as manifest_module
+        check_pair = manifest_module.check_pair  # manifests are optional; a present one must match
         problems = check_pair(self.encoder_dir, self.projector_dir, getattr(self, "base_sha256", None))
         if problems:
             raise ValueError("board encoder and projector do not match: " + "; ".join(problems))
+        adapter_dir = getattr(self, "adapter_dir", None)
+        task = adapter_dir is not None and manifest_module.read_task(Path(adapter_dir).parent)
+        if task:  # an adapter written by model.encoder.task names the projector it was trained with
+            problems = manifest_module.check_task(
+                task, base_sha256=getattr(self, "base_sha256", None), adapter_sha256=getattr(self, "adapter_sha256", None),
+                encoder_sha256=self.encoder_sha256, projector_sha256=self.projector_sha256,
+                prompt_kind=getattr(self, "prompt_kind", None))
+            if problems:
+                raise ValueError("adapter and board encoder do not match: " + "; ".join(problems))
 
     def _soft_tokens(self, packet):
         """(1, n_board_tokens, host_hidden) soft tokens for one packet's position."""
@@ -163,6 +173,9 @@ class Predictor:
 
     def _check_play_kind(self):
         kind = self.prompt_kind
+        if kind in prompt_module.READS_KINDS:
+            raise ValueError(f"prompt kind {kind!r} lets the model call read tools between turns; the Python "
+                             "predictor serves one call, so it is a training and scoring kind only")
         if kind in prompt_module.HEAD_KINDS:
             raise ValueError(f"prompt kind {kind!r} needs model.serve.head.HeadPredictor (a move head)")
         if kind in prompt_module.ENC_KINDS and self._board is None:
@@ -181,7 +194,7 @@ class Predictor:
         }
         if self.prompt_kind != "play":  # the FEN-packet manifest (and its hash) is unchanged
             manifest["play_prompt_kind"] = self.prompt_kind
-            if self.prompt_kind not in ("play-head", "play-enc"):  # these two never call the compiler
+            if self.prompt_kind not in ("play-head", "play-enc", "play-reads"):  # these never call the compiler
                 manifest["compiler_sha256"] = sha256_file(prompt_module.knightlm_binary())
         if self._board is not None:
             manifest.update(encoder_sha256=self.encoder_sha256, projector_sha256=self.projector_sha256,

@@ -29,6 +29,7 @@ import sys
 
 from model.corpus.pipeline import MANIFEST, read_corpus, sha256_file
 from model.prompt import CTOK_KINDS, PLAY_KINDS, play_prompt, qa_prompt, user_chat
+from model.train import segments
 from model.train.bases import BASES, DEFAULT_CORPUS, DEFAULT_RUN_ROOT, RECOMMENDED
 
 REPO = Path(__file__).resolve().parents[2]
@@ -122,6 +123,22 @@ def check_tokenizer_kinds(rows, kind, tokenizer):
         if (row_k in CTOK_KINDS) != (tokenizer == "ctok1"):
             raise Refused(f"prompt kind {row_k!r} with --tokenizer {tokenizer}: ctok arms (play-t1, play-t3, "
                           "play-t3-full) need --tokenizer ctok1, and --tokenizer ctok1 needs one of them")
+
+
+def check_loss_segments(rows, allow=False):
+    """The recipe's trainer (`hf_sft_train`, `hf_image_text_data`) reads only `{prompt, completion}` and puts loss on
+    every completion token, so a row whose `segments` mark tool results as no-loss (reasoning v2 variant b) would be
+    trained on those results. Refused unless `--allow-unmasked-results`; the joint trainers honour the mask
+    (model/train/segments.py)."""
+    ids = segments.check_recipe_rows(rows)
+    if not ids:
+        return None
+    if not allow:
+        raise Refused(f"{len(ids)} rows (first {ids[0]}) carry tool-result spans without loss (`segments`), and the BLUT "
+                      "recipe trains on every completion token: the results would carry loss. Train these rows with "
+                      "model.policy_head.train / model.encoder.task (they mask the results), or pass "
+                      "--allow-unmasked-results to accept loss on the results")
+    return check("warning", rows=len(ids), note="tool results carry loss in this run (--allow-unmasked-results)")
 
 
 def check_prompt_parity(rows, kind="play"):
@@ -304,6 +321,9 @@ def preflight(args):
     train, holdout, plan["checks"]["corpus_audit"] = check_corpus(corpus)
     plan["corpus"] = {"dir": str(corpus), "manifest_sha256": plan["checks"]["corpus_audit"]["manifest_sha256"]}
     sample = train[:SAMPLE_ROWS]
+    masked = check_loss_segments(train, getattr(args, "allow_unmasked_results", False))
+    if masked is not None:
+        plan["checks"]["loss_segments"] = masked
     check_tokenizer_kinds(sample, args.prompt_kind, args.tokenizer)
     if args.tokenizer == "ctok1":
         if args.base != "smolvlm-500m":
@@ -468,6 +488,8 @@ def build_parser():
     p.add_argument("--tokenizer", choices=("stock", "ctok1"), default="stock",
                    help="ctok1: arms T1/T3, the host tokenizer extended by the ctok/1 vocabulary (--gpu needs the extended "
                         "base from `python -m model.train.ctok build-base`; --base-dir points at it)")
+    p.add_argument("--allow-unmasked-results", action="store_true",
+                   help="train rows with tool-result spans (`segments`) although the recipe puts loss on them")
     p.add_argument("--prompt-kind", choices=PLAY_KINDS, default="play",
                    help="play prompt kind of a reasoning corpus (S0 corpora carry their own)")
     p.add_argument("--ctok-rows", choices=("embed", "embed+head"), default="embed+head",
