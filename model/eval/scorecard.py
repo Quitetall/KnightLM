@@ -100,6 +100,8 @@ def predict_rows(rows, predictor, modes=MODES, timeout_s=60.0, prompt_kind="move
                     entry.update(reasoning=getattr(value, "reasoning", None), play_code=getattr(value, "code", None),
                                  play_path=getattr(value, "path", None), play_raw_code=getattr(value, "raw_code", None),
                                  stated_move=getattr(value, "stated_move", None))
+                    if getattr(value, "head_move", None) is not None:  # a move head chose; only play-head cards carry it
+                        entry["head_move"] = value.head_move
                     entry["parsed_move_legal"] = isinstance(move, str) and move in packet["legal_moves"]
                     kind = classify_play(move, entry["play_code"], packet["legal_moves"])
                 else:

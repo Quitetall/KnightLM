@@ -15,6 +15,7 @@ check:
 	python3 -m unittest model.perceiver.test_perceiver
 	python3 -m unittest model.policy_head.test_policy_head model.eval.test_move_head
 	python3 -m unittest model.serve.test_coach
+	python3 -m unittest model.serve.test_head model.eval.test_playhead
 	python3 scripts/check_cli.py
 	python3 scripts/check_ports.py
 	python3 scripts/test_check_pins.py

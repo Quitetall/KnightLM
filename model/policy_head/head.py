@@ -56,3 +56,26 @@ class MoveHead(nn.Module):
         kk = min(k, int(mask.sum(dim=-1).min()))
         return {"raw_logits": raw, "raw_argmax": raw.argmax(-1), "masked_argmax": masked.argmax(-1),
                 "masked_topk": masked.topk(kk, dim=-1).indices, "masked_probs": masked.softmax(-1)}
+
+
+def save_head(path, head):
+    """`head.pt` (state dict) beside `head.json` ({hidden_size}); what the serve predictor loads."""
+    import json
+    from pathlib import Path
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "head.json").write_text(json.dumps({"hidden_size": head.norm.normalized_shape[0], "moves": space.SIZE},
+                                               sort_keys=True))
+    torch.save(head.state_dict(), path / "head.pt")
+
+
+def load_head(path):
+    import json
+    from pathlib import Path
+    path = Path(path)
+    meta = json.loads((path / "head.json").read_text())
+    if meta["moves"] != space.SIZE:
+        raise ValueError(f"head was trained over {meta['moves']} moves; the move space is now {space.SIZE}")
+    head = MoveHead(meta["hidden_size"])
+    head.load_state_dict(torch.load(path / "head.pt", map_location="cpu", weights_only=True))
+    return head.eval()

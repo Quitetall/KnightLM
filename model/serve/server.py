@@ -66,6 +66,17 @@ class PlayResponse(BaseModel):
     raw_reply: str
     stated_move: str | None = None
     manifest_hash: str
+    head_move: str | None = None  # only present when a move head chose (model.serve.head)
+
+
+class HeadResponse(BaseModel):
+    move: str
+    legal_logits: dict[str, float]
+    probs: dict[str, float]
+    raw_move: str
+    raw_move_legal: bool
+    raw_illegal_mass: float
+    manifest_hash: str
 
 
 PROMPTS = ("move", "play")
@@ -345,12 +356,27 @@ def create_app(predictor, mode="constrained", prompt="move"):
         if not req.packet.get("legal_moves"):
             raise HTTPException(422, "packet has no legal_moves")
 
-    @app.post("/v1/play", response_model=PlayResponse)
+    @app.post("/v1/play", response_model=PlayResponse, response_model_exclude_unset=True)
     def play_endpoint(req: MoveRequest, mode: str | None = None):
         check_request(req)
         p = play_prediction(req, mode)
+        extra = {"head_move": p.head_move} if getattr(p, "head_move", None) is not None else {}
         return PlayResponse(move=p.move, reasoning=p.reasoning, code=p.code, path=p.path, raw_code=p.raw_code,
                             legal=p.legal, raw_reply=p.raw_reply, stated_move=p.stated_move,
+                            manifest_hash=manifest["manifest_hash"], **extra)
+
+    @app.post("/v1/head", response_model=HeadResponse)
+    def head_endpoint(req: MoveRequest):
+        """The move head alone: masked logits over the legal set and its pick (no language completion)."""
+        check_request(req)
+        if not callable(getattr(predictor, "pick", None)):
+            raise HTTPException(501, "this server has no move head (start it with --head-dir)")
+        try:
+            pick = predictor.pick(req.packet)
+        except Exception as error:  # surfaced, never replaced by a guess
+            raise HTTPException(500, f"inference failed: {error}") from error
+        return HeadResponse(move=pick.move, legal_logits=pick.legal_logits, probs=pick.probs, raw_move=pick.raw_move,
+                            raw_move_legal=pick.raw_move_legal, raw_illegal_mass=pick.raw_illegal_mass,
                             manifest_hash=manifest["manifest_hash"])
 
     @app.post("/v1/move", response_model=MoveResponse)
@@ -396,9 +422,25 @@ def main():
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--play-prompt-kind", choices=PLAY_KINDS, default="play",
                         help="play prompt the model was trained on: play (FEN packet) or play-cgt / play-cgt-full "
-                             "(Chess Graph Text, needs the knightlm binary)")
+                             "(Chess Graph Text, needs the knightlm binary); play-enc / play-enc-cgt need "
+                             "--encoder-dir and --projector-dir")
+    parser.add_argument("--head-dir", type=Path, help="a move head (policy_head.head.save_head); serves prompt kind "
+                        "play-head, adds POST /v1/head and the head's move to /v1/play")
+    parser.add_argument("--encoder-dir", type=Path, help="board encoder (arms T4/T5); needs --projector-dir and "
+                        "--play-prompt-kind play-enc or play-enc-cgt")
+    parser.add_argument("--projector-dir", type=Path, help="the host's projector for --encoder-dir")
     args = parser.parse_args()
-    predictor = Predictor(args.base_dir, args.adapter_dir, args.device, args.play_prompt_kind)
+    from model.prompt import ENC_KINDS, HEAD_KINDS
+    if args.play_prompt_kind in HEAD_KINDS and args.head_dir is None:
+        parser.error(f"--play-prompt-kind {args.play_prompt_kind} needs --head-dir")
+    if (args.play_prompt_kind in ENC_KINDS) != (args.encoder_dir is not None):
+        parser.error("--encoder-dir and --projector-dir go with --play-prompt-kind play-enc / play-enc-cgt, and only with them")
+    if args.head_dir is not None:
+        from model.serve.head import HeadPredictor
+        predictor = HeadPredictor(args.base_dir, args.adapter_dir, args.device, head_dir=args.head_dir)
+    else:
+        predictor = Predictor(args.base_dir, args.adapter_dir, args.device, args.play_prompt_kind,
+                              encoder_dir=args.encoder_dir, projector_dir=args.projector_dir)
     uvicorn.run(create_app(predictor, args.mode, args.prompt), host="127.0.0.1", port=args.port)
 
 

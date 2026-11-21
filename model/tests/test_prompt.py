@@ -292,5 +292,67 @@ class CgtPlayKinds(unittest.TestCase):
             prompt.qa_prompt("play", PACKET, "two\nlines")
 
 
+HEAD_PACKET = {
+    "schema_version": 1, "ruleset": "standard-untimed-v1", "fen": "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1",
+    "legal_moves": ["e1d1", "e2e3"], "repetition_ledger": {"4k3/8/8/8/8/8/4P3/4K3 w - -": 1},
+    "facts": {"in_check": False, "repetition_count": 1},
+}
+
+
+class HeadAndEncoderKinds(unittest.TestCase):
+    """play-head, play-enc and play-enc-cgt are additive: byte goldens here, the older kinds stay pinned above."""
+
+    def sha(self, text):
+        return hashlib.sha256(text.encode()).hexdigest()
+
+    def test_kinds_are_registered_additively(self):
+        self.assertEqual(prompt.PLAY_KINDS[:5], ("play", "play-cgt", "play-cgt-full", "play-t1", "play-t3"))
+        for kind in ("play-head", "play-enc", "play-enc-cgt"):
+            self.assertIn(kind, prompt.PLAY_KINDS)
+
+    def test_play_head_reads_before_the_move_and_names_it_after(self):
+        base = prompt.play_text(HEAD_PACKET)
+        read = prompt.play_prompt("play-head", HEAD_PACKET)
+        self.assertEqual(read, base + "\nMove head:")
+        self.assertTrue(read.endswith(prompt.packet_json(HEAD_PACKET) + "\nMove head:"))
+        said = prompt.play_prompt("play-head", HEAD_PACKET, head_move="e2e3")
+        self.assertEqual(said, read + " e2e3")
+        self.assertTrue(said.startswith(read))  # the head read the same text the language stage continues
+        self.assertEqual(self.sha(read), "32ee2544a9ce704b13b215663dc943809cbb0fffd1508a60c822541d3f2f1d97")
+        self.assertEqual(self.sha(said), "bb306ac522f5ddba5737e4fa7b80a183d404e3245bc1b67db1898191f7cdeffd")
+
+    def test_play_head_refuses_an_illegal_or_misplaced_head_move(self):
+        with self.assertRaises(ValueError):
+            prompt.play_prompt("play-head", HEAD_PACKET, head_move="a1a1")
+        with self.assertRaises(ValueError):
+            prompt.play_prompt("play", HEAD_PACKET, head_move="e2e3")
+        with self.assertRaises(ValueError):
+            prompt.play_prompt("play-enc", HEAD_PACKET, head_move="e2e3")
+
+    def test_play_enc_has_slots_and_rules_but_no_board(self):
+        text = prompt.play_prompt("play-enc", HEAD_PACKET)
+        want = (prompt.prefix("play") + "Board tokens:\n" + "<image>" * 64 + "\nRules:\n"
+                + '{"facts":{"in_check":false,"repetition_count":1},"legal_moves":["e1d1","e2e3"],'
+                  '"ruleset":"standard-untimed-v1","schema_version":1}')
+        self.assertEqual(text, want)
+        self.assertNotIn(HEAD_PACKET["fen"], text)
+        self.assertNotIn("4k3/8", text)  # nor the ledger, whose keys spell the placement
+        self.assertEqual(text.count("<image>"), 64)
+        self.assertEqual(prompt.play_prompt("play-enc", HEAD_PACKET, n_board_tokens=80).count("<image>"), 80)
+        self.assertEqual(self.sha(text), "a4b53c538b7a3cfbca373cc0701da905ee38e2b964237fe70f3b4282cc68b0cf")
+
+    def test_play_enc_cgt_adds_the_compilers_text_beside_the_slots(self):
+        text = prompt.play_prompt("play-enc-cgt", HEAD_PACKET)
+        plain = prompt.play_prompt("play-enc", HEAD_PACKET)
+        cgt = prompt.cgt_text(HEAD_PACKET, "lite")
+        self.assertEqual(text, plain + "\n" + prompt.CGT_LABEL + cgt)
+        self.assertTrue(cgt.startswith("cgt/1 lite\n"))
+        self.assertNotIn(HEAD_PACKET["fen"], text)
+
+    def test_the_completion_is_the_unchanged_play_call(self):
+        reply = prompt.format_play_completion("I choose e2e3.", "e2e3")
+        self.assertEqual(prompt.parse_play_completion(reply), {"reasoning": "I choose e2e3.", "move": "e2e3"})
+
+
 if __name__ == "__main__":
     unittest.main()
