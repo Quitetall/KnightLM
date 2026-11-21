@@ -1,6 +1,9 @@
 """Human-readable scorecard. One section per axis; no composite line."""
 
 
+from model.prompt import PLAY_KINDS
+
+
 def fmt(value):
     if value is None:
         return "n/a"
@@ -11,13 +14,29 @@ def fmt(value):
     return str(value)
 
 
+def render_s0(card):
+    axes, inputs = card["axes"], card.get("inputs", {})
+    s0 = axes["s0_rules_qa"]
+    lines = [f"# S0 rules-QA scorecard: {inputs.get('settings', {}).get('label', '?')}", "",
+             f"Prompt kind: **{card['prompt_kind']}**. Rows: {axes['rows']}. **No composite score**: one rate per question type.",
+             "Exact match of the answer in the play call's reasoning field; an unparseable reply is a failure, not a dropped row.", "",
+             "| type | n | exact | rate | claim failure rate | parse failures |", "|---|---|---|---|---|---|"]
+    for name, b in [*s0["by_type"].items(), ("all", s0["overall"])]:
+        lines.append("| " + " | ".join(fmt(x) for x in (name, b["n"], b["exact"], b["rate"], b["claim_failure_rate"],
+                                                         b["parse_failures"])) + " |")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_markdown(card):
+    if "s0_rules_qa" in card["axes"]:
+        return render_s0(card)
     axes, modes = card["axes"], card["modes"]
     inputs = card.get("inputs", {})
     kind = card.get("prompt_kind", "move")
     lines = [f"# Scorecard: {inputs.get('settings', {}).get('label', '?')}", "",
              f"Prompt kind: **{kind}**" + (" (play prompt and submit_move tool call; not comparable with a move-only card)"
-                                           if kind == "play" else " (move-only prompt)") + ".",
+                                           if kind in PLAY_KINDS else " (move-only prompt)") + ".",
              f"Rows: {axes['rows']}. Modes: {', '.join(modes)}. **No composite score**: each axis stands alone.",
              "Every legality/match rate uses all rows as denominator; failures are counted, not dropped.", ""]
 
@@ -76,7 +95,7 @@ def render_markdown(card):
           [[m, v.get("n"), v.get("p50"), v.get("p90"), v.get("p95"), v.get("p99"), v.get("max")]
            for m, v in axes["latency_ms"].items()])
     kinds = ("illegal", "unparseable", "empty", "exception", "timeout", "missing") + (
-        ("inconsistent",) if kind == "play" else ())
+        ("inconsistent",) if kind in PLAY_KINDS else ())
     table("Failure accounting", ["mode", "failures", "rate", *kinds, "claim disagrees"],
           [[m, v["total"], v["rate"], *(v["by_kind"][k] for k in kinds),
             v["predictor_legal_claim_disagrees"]] for m, v in axes["failures"].items()])

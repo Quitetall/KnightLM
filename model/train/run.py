@@ -28,7 +28,7 @@ import subprocess
 import sys
 
 from model.corpus.pipeline import MANIFEST, read_corpus, sha256_file
-from model.prompt import play_text, user_chat
+from model.prompt import play_text, qa_prompt, user_chat
 from model.train.bases import BASES, DEFAULT_CORPUS, DEFAULT_RUN_ROOT, RECOMMENDED
 
 REPO = Path(__file__).resolve().parents[2]
@@ -91,8 +91,11 @@ def check_prompt_parity(rows):
     for row in rows:
         trained = materialize.convert_row(row, prompt, render)["prompt"]
         # a reasoning row is trained and served with the play-mode prompt, a v2 row with the move prompt
-        served = (play_text(row["packet"]) if "reasoning" in row
-                  else user_chat(row["packet"])[0]["content"][0]["text"])
+        if "qa" in row:  # S0 rules QA: the arm's play prompt plus the question
+            served = qa_prompt(row["prompt_kind"], row["packet"], row["qa"]["question"])
+        else:
+            served = (play_text(row["packet"]) if "reasoning" in row
+                      else user_chat(row["packet"])[0]["content"][0]["text"])
         if trained.encode() != served.encode():
             raise Refused(f"training prompt differs from model.prompt for game {row['game_id']}")
     return check("ok", rows=len(rows), source="model/prompt.py user_text == user_chat text")
@@ -109,7 +112,7 @@ def trainer_encode_matches_harness(rows, data, processor, harness_encode):
         record = materialize.convert_row(row, prompt, render)
         ours = data.encode(record["prompt"], record["completion"], processor)
         examples.append(ours)
-        if "reasoning" in row:
+        if "reasoning" in row or "qa" in row:
             # harness.py encodes the move prompt only; check the structure of a reasoning pair instead:
             # the prompt ids are a prefix, loss covers the whole completion, and it ends on end-of-turn.
             tokenizer = processor.tokenizer
@@ -248,7 +251,7 @@ def preflight(args):
             plan["checks"]["tokenisation"] = check("ok", sample_rows=len(sample), backend_python=str(backend))
             if args.base == "smolvlm-500m":
                 examples = trainer_encode_matches_harness(sample, data, processor, harness_encode)
-                reasoning_rows = "reasoning" in sample[0]
+                reasoning_rows = "reasoning" in sample[0] or "qa" in sample[0]
                 plan["checks"]["trainer_vs_harness_tokens"] = check(
                     "ok", rows=len(sample), note=("reasoning rows: prompt prefix, completion and end-of-turn checked "
                                                   "(harness.py encodes the move prompt only)" if reasoning_rows

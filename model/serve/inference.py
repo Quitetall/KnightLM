@@ -23,7 +23,8 @@ import json
 import time
 
 from model.corpus.pipeline import sha256_file
-from model.prompt import mode_chat, packet_json, play_text, user_chat
+from model import prompt as prompt_module
+from model.prompt import mode_chat, packet_json, play_prompt, user_chat
 from model.serve import play as play_module
 
 PROFILE = Path(__file__).resolve().parents[1] / "configs/models/smolvlm-500m.json"
@@ -90,10 +91,12 @@ def allowed_next(trie, generated):
 
 
 class Predictor:
-    def __init__(self, base_dir, adapter_dir=None, device="cuda"):
+    def __init__(self, base_dir, adapter_dir=None, device="cuda", prompt_kind="play"):
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
 
+        prompt_module.check_play_kind(prompt_kind)
+        self.prompt_kind = prompt_kind  # which play prompt (FEN packet or CGT) predict_play speaks
         self.base_dir = Path(base_dir)
         self.adapter_dir = Path(adapter_dir) if adapter_dir is not None else None
         self.device = device
@@ -116,13 +119,17 @@ class Predictor:
 
     def manifest(self):
         """Hashes identifying exactly what answers: base, adapter, prompt, tokenizer, chat template."""
-        return {
+        manifest = {
             "base_sha256": self.base_sha256,
             "adapter_sha256": self.adapter_sha256 or "none",
             "prompt_sha256": sha256_file(Path(__file__).resolve().parents[1] / "prompt.py"),
             "tokenizer_sha256": sha256_file(self.base_dir / "tokenizer.json"),
             "chat_template_sha256": sha256_file(self.base_dir / "chat_template.json"),
         }
+        if self.prompt_kind != "play":  # the FEN-packet manifest (and its hash) is unchanged
+            manifest["play_prompt_kind"] = self.prompt_kind
+            manifest["compiler_sha256"] = sha256_file(prompt_module.knightlm_binary())
+        return manifest
 
     def _prompt_ids(self, packet):
         text = self.processor.apply_chat_template(
@@ -177,7 +184,7 @@ class Predictor:
 
     def _play_prompt_ids(self, packet):
         text = self.processor.apply_chat_template(
-            mode_chat(play_text(packet)), tokenize=False, add_generation_prompt=True)
+            mode_chat(play_prompt(self.prompt_kind, packet)), tokenize=False, add_generation_prompt=True)
         return text, self.tokenizer.encode(text, add_special_tokens=False)
 
     def _generate(self, prompt_ids, max_new_tokens, **extra):
@@ -192,6 +199,17 @@ class Predictor:
         eos = self.tokenizer.eos_token_id
         return new[:new.index(eos) + 1] if eos in new else new
 
+    def complete(self, prompt_text):
+        """Raw greedy completion of an arbitrary prompt text in the play chat shape (S0 rules QA).
+
+        Returns (reply, input_tokens, output_tokens, latency_ms). Never repaired or constrained."""
+        started = time.perf_counter()
+        text = self.processor.apply_chat_template(mode_chat(prompt_text), tokenize=False, add_generation_prompt=True)
+        prompt_ids = self.tokenizer.encode(text, add_special_tokens=False)
+        new = self._generate(prompt_ids, PLAY_MAX_NEW_TOKENS)
+        reply = self.tokenizer.decode(new, skip_special_tokens=True)
+        return reply, len(prompt_ids), len(new), (time.perf_counter() - started) * 1000
+
     def _free_play(self, packet):
         """Greedy free decode of the play completion, shared by raw and constrained (one-entry cache)."""
         key = packet_json(packet)
@@ -204,7 +222,7 @@ class Predictor:
         return value
 
     def _play_answer_ids(self, prompt_ids, packet, answer):
-        chat = mode_chat(play_text(packet)) + [{"role": "assistant", "content": [{"type": "text", "text": answer}]}]
+        chat = mode_chat(play_prompt(self.prompt_kind, packet)) + [{"role": "assistant", "content": [{"type": "text", "text": answer}]}]
         ids = self.tokenizer.encode(self.processor.apply_chat_template(chat, tokenize=False),
                                     add_special_tokens=False)
         if ids[:len(prompt_ids)] != prompt_ids:

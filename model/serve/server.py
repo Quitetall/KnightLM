@@ -35,7 +35,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from model.corpus.pipeline import sha256_file
-from model.prompt import play_text, tool_names
+from model.prompt import PLAY_KINDS, play_text, tool_names
 from model.serve import coach as coach_mode
 from model.serve.inference import MODES, Predictor
 
@@ -394,8 +394,11 @@ def main():
                         help="what /v1/move asks the model; /v1/play always uses the play prompt")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--play-prompt-kind", choices=PLAY_KINDS, default="play",
+                        help="play prompt the model was trained on: play (FEN packet) or play-cgt / play-cgt-full "
+                             "(Chess Graph Text, needs the knightlm binary)")
     args = parser.parse_args()
-    predictor = Predictor(args.base_dir, args.adapter_dir, args.device)
+    predictor = Predictor(args.base_dir, args.adapter_dir, args.device, args.play_prompt_kind)
     uvicorn.run(create_app(predictor, args.mode, args.prompt), host="127.0.0.1", port=args.port)
 
 

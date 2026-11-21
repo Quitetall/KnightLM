@@ -20,8 +20,10 @@ from model.eval.corpus import load_holdout, sha256_file
 from model.eval.engine import REPO, StockfishScorer
 from model.eval.predictors import MODES, load_predictor, predictor_manifest
 from model.eval.render import render_markdown
-from model.eval.scorecard import PROMPT_KINDS, attach_cpl, build_scorecard, call_with_timeout, predict_rows
+from model.eval.scorecard import PLAY_KINDS, PROMPT_KINDS, attach_cpl, build_scorecard, call_with_timeout, predict_rows
 from model.eval.tactics import load_tactics
+
+from model.corpus.s0 import FORMAT as S0_FORMAT
 
 KEEP_ROOT = Path("/mnt/4tb/artifacts/KnightLM/keep")
 DEFAULT_CORPUS = Path("/mnt/4tb/artifacts/KnightLM/expire/corpus/run1-2026-09-a")
@@ -116,11 +118,37 @@ def play_settings(play):
             "play_max_new_tokens": PLAY_MAX_NEW_TOKENS}
 
 
+def cgt_settings(kind):
+    """The CGT renderer an arm reads: compiler binary hash and variant. Empty for the FEN packet and move kinds."""
+    from model import prompt as prompt_module
+    if kind not in prompt_module.CGT_VARIANT:
+        return {}
+    import hashlib
+    return {"cgt_variant": prompt_module.CGT_VARIANT[kind], "cgt_label": prompt_module.CGT_LABEL,
+            "compiler_sha256": hashlib.sha256(prompt_module.knightlm_binary().read_bytes()).hexdigest()}
+
+
+def evaluate_s0(args, rows, corpus_info, predictor, description):
+    """Score an S0 rules-QA holdout: exact answer per question type, no moves, no engine."""
+    from model.eval import s0 as s0_module
+    kind = corpus_info["prompt_kind"]
+    records = s0_module.predict_rows(rows, getattr(predictor, "inner", predictor), kind, args.timeout_s)
+    scorecard = s0_module.scorecard(records, kind, len(rows))
+    inputs = {"corpus": corpus_info, "predictor": description, "predictor_manifest": predictor_manifest(predictor),
+              "git": git_state(), "stockfish": None, "oracles": None, "tactical_set": None,
+              "settings": {"rows": args.rows, "modes": ["raw"], "timeout_s": args.timeout_s, "label": args.label,
+                           "prompt_kind": kind, "s0": True, **cgt_settings(kind)},
+              "python": platform.python_version()}
+    return records, scorecard, inputs
+
+
 def evaluate(args, predictor, description):
     rows, corpus_info = load_holdout(args.corpus, args.rows)
+    if corpus_info["corpus_format"] == S0_FORMAT:
+        return evaluate_s0(args, rows, corpus_info, predictor, description)
     modes = tuple(args.modes)
     tactics = load_tactics(args.tactics, rows) if args.tactics else None
-    play = args.prompt_kind == "play"
+    play = args.prompt_kind in PLAY_KINDS
     records = predict_rows(rows, predictor, modes, args.timeout_s, args.prompt_kind)
     scorer = None if args.no_stockfish else StockfishScorer(args.depth, args.workers)
     if scorer:
@@ -151,7 +179,7 @@ def evaluate(args, predictor, description):
                      "oracles": list(args.oracles), "maia_rating": args.maia_rating if "maia" in args.oracles else None,
                      "lc0_nodes": args.lc0_nodes if "lc0" in args.oracles else None,
                      "explain": bool(args.explain or args.explanations),
-                     "prompt_kind": args.prompt_kind, **play_settings(play)},
+                     "prompt_kind": args.prompt_kind, **play_settings(play), **cgt_settings(args.prompt_kind)},
         "python": platform.python_version(),
     }
     return records, scorecard, inputs
@@ -220,7 +248,9 @@ def main(argv=None):
                         help="JSONL of {fen, text} explanations to score instead of calling the predictor")
     parser.add_argument("--prompt-kind", default="move", choices=PROMPT_KINDS,
                         help="move: the move-only prompt. play: the play-mode prompt and tool-call completion "
-                             "(the reasoning corpus format); scores the reasoning too")
+                             "(the reasoning corpus format); scores the reasoning too. play-cgt / play-cgt-full: "
+                             "the same with the position as Chess Graph Text (arm T2); needs a predictor "
+                             "trained on that prompt. An S0 rules-QA corpus sets its own kind")
     parser.add_argument("--out-root", type=Path, default=KEEP_ROOT)
     args = parser.parse_args(argv)
     if args.no_tactics:
@@ -229,6 +259,12 @@ def main(argv=None):
     out = args.out_root / f"eval-{args.label}-{stamp}"
     if out.exists():
         parser.error(f"{out} already exists")
+    manifest = json.loads((args.corpus / "manifest.json").read_text())
+    if manifest["format"] == S0_FORMAT:  # the corpus fixes the prompt kind; a conflicting flag is an error
+        if args.prompt_kind not in ("move", manifest["prompt_kind"]):
+            parser.error(f"--prompt-kind {args.prompt_kind} conflicts with the S0 corpus kind {manifest['prompt_kind']}")
+        args.prompt_kind = manifest["prompt_kind"]
+        args.modes = ["raw"]
     predictor, description = load_predictor(args.predictor, args.prompt_kind)
     records, scorecard, inputs = evaluate(args, predictor, description)
     games_summary = play_games(args, predictor, description) if args.games else None
