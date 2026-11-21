@@ -20,7 +20,9 @@ UCI_MOVE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
 RAW_LEGALITY_GATE = 0.90  # KLM-WAR-0008: reported threshold, not a filter
 FAILURE_KINDS = ("illegal", "unparseable", "empty", "exception", "timeout", "missing")
 PLAY_FAILURE_KINDS = FAILURE_KINDS + ("inconsistent",)  # legal move, but not the one the reasoning states
-PROMPT_KINDS = ("move", "play")
+from model.prompt import PLAY_KINDS
+
+PROMPT_KINDS = ("move", *PLAY_KINDS)  # play = FEN packet (T0); play-cgt, play-cgt-full = Chess Graph Text (T2)
 PLAY_EXTRAS = ("reasoning", "play_code", "play_path", "play_raw_code", "stated_move", "parsed_move_legal")
 
 
@@ -72,9 +74,9 @@ def predict_rows(rows, predictor, modes=MODES, timeout_s=60.0, prompt_kind="move
 
     prompt_kind "play" adds the play-mode fields (reasoning, completion code, path) to each
     entry and classifies by the predictor's completion code; "move" records are unchanged."""
-    play = prompt_kind == "play"
     if prompt_kind not in PROMPT_KINDS:
         raise ValueError(f"prompt_kind must be one of {PROMPT_KINDS}")
+    play = prompt_kind in PLAY_KINDS
     records = []
     for index, row in enumerate(rows):
         packet = row["packet"]
@@ -222,7 +224,7 @@ def build_scorecard(records, modes, scorer_info=None, tactics=None, requested_ro
     if n < requested:  # rows never attempted are failures, not omissions
         raise ValueError(f"{requested - n} requested rows have no prediction record")
     scored = scorer_info is not None
-    play = prompt_kind == "play"
+    play = prompt_kind in PLAY_KINDS
     per_mode = {m: mode_block(records, m, scored, PLAY_FAILURE_KINDS if play else FAILURE_KINDS) for m in modes}
     axes = {"rows": n}
     if play:

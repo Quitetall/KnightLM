@@ -223,5 +223,73 @@ class ChatSummaryParity(unittest.TestCase):
         self.assertEqual(prompt.roll_chat("keep", msgs[:3]), ("keep", msgs[:3]))
 
 
+class ExistingKindsPinned(unittest.TestCase):
+    """The CGT kinds are additive: every older prompt keeps its exact bytes."""
+
+    def test_sha256_of_existing_prompts(self):
+        sha = lambda text: hashlib.sha256(text.encode()).hexdigest()  # noqa: E731
+        self.assertEqual(sha(user_text(PACKET)), "01c56b4dbcb7f790da7497a4f941e985f6a0cfc05e880430642f9919ed210d59")
+        self.assertEqual(sha(play_text(PACKET)), "ff82f8acc16df35f7544b1d243d8e72dbaa5942848d873be05e09a562665d3bb")
+        self.assertEqual(sha(coach_text(PACKET)), "ba08c3e4545022dafcd3aa1cbaf37e644c2d221f226be70ff76fb6a237018f79")
+        self.assertEqual(sha(prompt.combined_text(PACKET, "play")),
+                         "cac29031204ae65def028a99c76d975ee2f941e9c4980172d779771363c998e5")
+
+    def test_play_kind_is_play_text(self):
+        self.assertEqual(prompt.play_prompt("play", PACKET), play_text(PACKET))
+
+
+class CgtPlayKinds(unittest.TestCase):
+    def test_cgt_kinds_swap_only_the_position(self):
+        pre = prompt.prefix("play")
+        for kind, variant in (("play-cgt", "lite"), ("play-cgt-full", "full")):
+            text = prompt.play_prompt(kind, PACKET)
+            self.assertTrue(text.startswith(pre))
+            self.assertTrue(text.endswith(prompt.cgt_text(PACKET, variant)))
+            self.assertTrue(text[len(pre):].startswith(prompt.CGT_LABEL + f"cgt/1 {variant}\n"))
+            self.assertNotIn(PACKET["fen"], text)
+            self.assertNotIn("Position packet:", text)
+            for name in tool_names("coach"):
+                self.assertNotIn(name, text)
+
+    def test_cgt_text_is_the_compilers_output(self):
+        import subprocess
+        out = subprocess.run([str(prompt.knightlm_binary()), "cgt", "--fen", PACKET["fen"], "--variant", "full", "--rep", "1"],
+                             check=True, capture_output=True, text=True).stdout.rstrip("\n")
+        self.assertEqual(prompt.cgt_text(PACKET, "full"), out)
+        self.assertTrue(out.startswith("cgt/1 full\nturn w\ncastle KQkq\n"))
+        self.assertIn("rep 1\n", out)
+
+    def test_unknown_kind_and_variant_are_refused(self):
+        with self.assertRaises(ValueError):
+            prompt.play_prompt("play-cgt-medium", PACKET)
+        with self.assertRaises(ValueError):
+            prompt.cgt_text(PACKET, "medium")
+
+    def test_train_serve_and_eval_all_render_through_play_prompt(self):
+        """The serving predictor builds its prompt from play_prompt(kind, packet): same bytes as training/eval."""
+        from model.serve.inference import Predictor
+
+        class Processor:
+            def apply_chat_template(self, chat, tokenize=False, add_generation_prompt=False):
+                return chat[0]["content"][0]["text"]
+
+        class Tokenizer:
+            def encode(self, text, add_special_tokens=False):
+                return list(text.encode())
+
+        for kind in prompt.PLAY_KINDS:
+            predictor = object.__new__(Predictor)
+            predictor.prompt_kind, predictor.processor, predictor.tokenizer = kind, Processor(), Tokenizer()
+            text, ids = predictor._play_prompt_ids(PACKET)
+            self.assertEqual(text, prompt.play_prompt(kind, PACKET))
+            self.assertEqual(bytes(ids).decode(), text)
+
+    def test_qa_prompt_appends_one_question_line(self):
+        text = prompt.qa_prompt("play-cgt", PACKET, "Whose turn is it?")
+        self.assertEqual(text, prompt.play_prompt("play-cgt", PACKET) + "\nQuestion: Whose turn is it?")
+        with self.assertRaises(ValueError):
+            prompt.qa_prompt("play", PACKET, "two\nlines")
+
+
 if __name__ == "__main__":
     unittest.main()

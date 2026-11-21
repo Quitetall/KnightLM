@@ -1,8 +1,9 @@
 # Chess Graph Text (`cgt/1`)
 
 Status: specification and reference implementation (`crates/notation/src/cgt.rs`).
-No prompt, training or evaluation path uses it yet; rendering it into prompts is
-a follow-up (arms T2, T3, T5 in the approved plan).
+`model/prompt.py` renders it into the play prompt as the prompt kinds `play-cgt` (cgt-lite)
+and `play-cgt-full` (arm T2); the FEN packet prompt `play` stays the control (T0). The S0
+rules-QA corpus (`model/corpus/s0.py`) trains and scores both arms on identical questions.
 
 ## Why
 
@@ -166,6 +167,18 @@ about squares, not a judgement of king safety.
   must copy. They can be added as `cgt/2` sections if the S0 probes show a gap.
 - Chess variants other than standard chess and Chess960 (castling letters follow
   the packet's FEN field; Chess960 round-trips).
+
+## Prompt kinds
+
+| kind | position in the play prompt | arm |
+|---|---|---|
+| `play` | `Position packet:` and the packet JSON | T0 control |
+| `play-cgt` | `Position graph:` and cgt-lite | T2 |
+| `play-cgt-full` | `Position graph:` and cgt-full | T2 ablation |
+
+Instruction, play schema, tool-call completion and "position last" are unchanged; the text comes
+from `knightlm cgt` (never from Python). Train, eval and serve all render through
+`model.prompt.play_prompt(kind, packet)`; the repetition count is the packet's own.
 
 ## Variants and ablation
 
