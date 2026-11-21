@@ -280,8 +280,9 @@ class CgtPlayKinds(unittest.TestCase):
         for kind in prompt.PLAY_KINDS:
             predictor = object.__new__(Predictor)
             predictor.prompt_kind, predictor.processor, predictor.tokenizer = kind, Processor(), Tokenizer()
-            text, ids = predictor._play_prompt_ids(PACKET)
-            self.assertEqual(text, prompt.play_prompt(kind, PACKET))
+            packet = {**PACKET, "legal_moves": PACKET.get("legal_moves", ["e2e4"])}  # arm T1 lists the legal moves
+            text, ids = predictor._play_prompt_ids(packet)
+            self.assertEqual(text, prompt.play_prompt(kind, packet))
             self.assertEqual(bytes(ids).decode(), text)
 
     def test_qa_prompt_appends_one_question_line(self):

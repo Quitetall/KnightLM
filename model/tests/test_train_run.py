@@ -101,6 +101,25 @@ class EntryPointTests(unittest.TestCase):
         self.assertTrue(any("outside the usual LoRA range" in w for w in sanity["warnings"]))
         self.assertTrue(any("more than one epoch" in w for w in sanity["warnings"]))
 
+    def test_ctok1_refuses_a_stock_prompt_corpus_and_is_never_launched(self):
+        code, _, err = call([*self.base, "--run", "r1", "--tokenizer", "ctok1"])
+        self.assertEqual(code, 2)
+        self.assertIn("need --tokenizer ctok1", err)
+
+    def test_tokenizer_kind_guard(self):
+        rows = {"reasoning": [{"reasoning": "x", "game_id": "g"}], "s0": [{"qa": {}, "prompt_kind": "play-t3", "game_id": "g"}]}
+        run.check_tokenizer_kinds(rows["reasoning"], "play-t1", "ctok1")
+        run.check_tokenizer_kinds(rows["reasoning"], "play-cgt", "stock")
+        run.check_tokenizer_kinds(rows["s0"], "play", "ctok1")
+        for rows_, kind, tokenizer in ((rows["reasoning"], "play-t1", "stock"), (rows["reasoning"], "play", "ctok1"),
+                                       (rows["s0"], "play", "stock")):
+            with self.assertRaises(run.Refused):
+                run.check_tokenizer_kinds(rows_, kind, tokenizer)
+
+    def test_ctok1_launch_is_blocked_with_the_reason(self):
+        with self.assertRaisesRegex(run.Refused, "trainable_token_indices"):
+            run.launch(type("A", (), {"tokenizer": "ctok1"})(), {})
+
     def test_gpu_without_a_binary_is_refused_before_anything_is_created(self):
         code, _, err = call([*self.base, "--run", "r1", "--gpu", "--blut-bin", str(self.tmp / "missing")])
         self.assertEqual(code, 2)

@@ -4,7 +4,10 @@ Counts the row's prompt text (the play prompt plus question; the fixed prefix wi
 is included) and its completion text, as the trainer sees them before chat-template markers.
 Measurement only.
 
-    python -m model.corpus.s0_token_cost --arm t0=DIR --arm t2=DIR --tokenizer DIR --out DIR
+    python -m model.corpus.s0_token_cost --arm t0=DIR --arm t2=DIR --tokenizer DIR --out DIR [--ctok1]
+
+`--ctok1` appends the ctok/1 vocabulary to the tokenizer first (arms T1 and T3), so a ctok position block
+counts one token per ctok token.
 """
 
 import argparse
@@ -38,12 +41,18 @@ def main(argv=None):
     parser.add_argument("--arm", action="append", required=True, metavar="NAME=DIR")
     parser.add_argument("--tokenizer", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--ctok1", action="store_true", help="extend the tokenizer by the ctok/1 vocabulary")
     args = parser.parse_args(argv)
     from tokenizers import Tokenizer
 
     tok = Tokenizer.from_file(str(args.tokenizer / "tokenizer.json"))
+    if args.ctok1:
+        from tokenizers import AddedToken
+        from model.tokenizer import vocab
+
+        tok.add_tokens([AddedToken(t, special=False, normalized=False, lstrip=False, rstrip=False) for t in vocab.TOKENS])
     count = lambda text: len(tok.encode(text, add_special_tokens=False).ids)  # noqa: E731
-    result = {"format": "knightlm-s0-token-cost-v1", "tokenizer": args.tokenizer.name, "arms": {}}
+    result = {"format": "knightlm-s0-token-cost-v1", "tokenizer": args.tokenizer.name + ("+ctok1" if args.ctok1 else ""), "arms": {}}
     for item in args.arm:
         name, _, path = item.partition("=")
         train, holdout = pipeline.read_corpus(Path(path), allow_rules_drift=True)
@@ -55,9 +64,10 @@ def main(argv=None):
                           "total_by_question_type": {t: summarize(v) for t, v in sorted(counted["by_type"].items())}}
         result["arms"][name] = arm
     names = list(result["arms"])
-    if len(names) == 2:
-        a, b = (result["arms"][n]["train"]["total"]["mean"] for n in names)
-        result["train_total_mean_ratio"] = {f"{names[1]}/{names[0]}": round(b / a, 3)}
+    if len(names) >= 2:
+        ref = result["arms"][names[0]]["train"]["total"]["mean"]
+        result["train_total_mean_ratio"] = {f"{n}/{names[0]}": round(result["arms"][n]["train"]["total"]["mean"] / ref, 3)
+                                            for n in names[1:]}
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "s0-token-cost.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps({n: {s: a[s]["total"] for s in a} for n, a in result["arms"].items()}, indent=1))

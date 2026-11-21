@@ -23,7 +23,7 @@ from model.eval.render import render_markdown
 from model.eval.scorecard import PLAY_KINDS, PROMPT_KINDS, attach_cpl, build_scorecard, call_with_timeout, predict_rows
 from model.eval.tactics import load_tactics
 
-from model.corpus.s0 import FORMAT as S0_FORMAT
+from model.corpus.s0 import FORMATS as S0_FORMATS
 
 KEEP_ROOT = Path("/mnt/4tb/artifacts/KnightLM/keep")
 DEFAULT_CORPUS = Path("/mnt/4tb/artifacts/KnightLM/expire/corpus/run1-2026-09-a")
@@ -121,6 +121,13 @@ def play_settings(play):
 def cgt_settings(kind):
     """The CGT renderer an arm reads: compiler binary hash and variant. Empty for the FEN packet and move kinds."""
     from model import prompt as prompt_module
+    if kind in prompt_module.CTOK_KINDS:
+        from model.tokenizer import vocab
+        out = {"ctok_spec": vocab.SPEC_VERSION, "ctok_vocab_sha256": vocab.vocab_sha256()}
+        if kind != "play-t1":
+            import hashlib
+            out["compiler_sha256"] = hashlib.sha256(prompt_module.knightlm_binary().read_bytes()).hexdigest()
+        return out
     if kind not in prompt_module.CGT_VARIANT:
         return {}
     import hashlib
@@ -144,7 +151,7 @@ def evaluate_s0(args, rows, corpus_info, predictor, description):
 
 def evaluate(args, predictor, description):
     rows, corpus_info = load_holdout(args.corpus, args.rows)
-    if corpus_info["corpus_format"] == S0_FORMAT:
+    if corpus_info["corpus_format"] in S0_FORMATS:
         return evaluate_s0(args, rows, corpus_info, predictor, description)
     modes = tuple(args.modes)
     tactics = load_tactics(args.tactics, rows) if args.tactics else None
@@ -260,7 +267,7 @@ def main(argv=None):
     if out.exists():
         parser.error(f"{out} already exists")
     manifest = json.loads((args.corpus / "manifest.json").read_text())
-    if manifest["format"] == S0_FORMAT:  # the corpus fixes the prompt kind; a conflicting flag is an error
+    if manifest["format"] in S0_FORMATS:  # the corpus fixes the prompt kind; a conflicting flag is an error
         if args.prompt_kind not in ("move", manifest["prompt_kind"]):
             parser.error(f"--prompt-kind {args.prompt_kind} conflicts with the S0 corpus kind {manifest['prompt_kind']}")
         args.prompt_kind = manifest["prompt_kind"]

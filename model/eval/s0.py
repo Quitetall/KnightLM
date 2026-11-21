@@ -7,12 +7,18 @@ failure on that row (it stays in the denominator). The claim-failure rate of a t
 1 - exact rate. `explain.py` also checks the answer text where its claim types apply (piece on
 square, square state, legal moves named); that block is reported beside, never merged.
 There is no composite score and no engine.
+
+The edge questions (`attackers_of`, `defenders_of`) ask about cgt/1 atk/def edges, which only a graph
+arm (T2 cgt-lite shows the edges only through its `atk`/`def`-free node list, T2-full prints them) can
+read off the prompt. They are reported as their own group, `groups.edge`, beside `groups.node` (every
+other type); `overall` still counts all rows. Compare arms on a group with the edge-printing arm
+(`play-cgt-full`) for the edge group, and on `groups.node` across all arms.
 """
 
 from model import prompt as prompt_module
 from model.eval import explain as explain_module
 from model.eval.scorecard import call_with_timeout, rate
-from model.corpus.s0 import TYPES
+from model.corpus.s0 import EDGE_TYPES, TYPES
 
 
 class _Complete:
@@ -71,7 +77,9 @@ def axis(records):
     by_type = {t: block([r for r in records if r["type"] == t]) for t in TYPES
                if any(r["type"] == t for r in records)}
     explained = [r["explain"] for r in records]
-    return {"overall": block(records), "by_type": by_type,
+    groups = {"node": block([r for r in records if r["type"] not in EDGE_TYPES]),
+              "edge": block([r for r in records if r["type"] in EDGE_TYPES])}
+    return {"overall": block(records), "groups": groups, "edge_types": list(EDGE_TYPES), "by_type": by_type,
             "explain_checks": explain_module.aggregate(explained) | {"source": "answer text, where explain.py claim types apply"}}
 
 

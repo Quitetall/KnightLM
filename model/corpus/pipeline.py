@@ -201,7 +201,7 @@ def read_corpus(root, allow_rules_drift=False):
     An S0 rules-QA corpus (model/corpus/s0.py) is dispatched to its own reader, which also refuses
     a recorded rules revision that differs from the one in use unless `allow_rules_drift`."""
     manifest = json.loads((root / MANIFEST).read_text())
-    if manifest["format"] == "knightlm-s0-rules-qa-v1":
+    if manifest["format"] in ("knightlm-s0-rules-qa-v1", "knightlm-s0-rules-qa-v2"):
         from model.corpus import s0
 
         return s0.read_corpus(root, allow_rules_drift)
@@ -319,7 +319,7 @@ def audit(args, parser):
     try:
         manifest_format = json.loads((args.corpus / MANIFEST).read_text())["format"]
         train, holdout = read_corpus(args.corpus, args.allow_rules_drift)
-        if args.knightlm and manifest_format == "knightlm-s0-rules-qa-v1":
+        if args.knightlm and manifest_format in ("knightlm-s0-rules-qa-v1", "knightlm-s0-rules-qa-v2"):
             from model.corpus import s0
 
             manifest = json.loads((args.corpus / MANIFEST).read_text())
@@ -327,7 +327,7 @@ def audit(args, parser):
                 raise ValueError("--knightlm binary differs from the one that built the corpus (rules.binary_sha256); "
                                  "pass --allow-rules-drift to re-derive anyway")
             for split in (train, holdout):
-                s0.verify_rows(split, args.knightlm.resolve(), manifest["arm"])
+                s0.verify_rows(split, args.knightlm.resolve(), manifest["arm"], manifest_format)
         elif args.knightlm:
             if manifest_format != REASONING_FORMAT:
                 raise ValueError("--knightlm re-derives reasoning, and this corpus has none")
