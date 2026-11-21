@@ -14,7 +14,8 @@ check:
 		model.serve.test_play model.serve.test_chat model.encoder.test_encoder model.encoder.test_writers \
 		model.tokenizer.test_tokenizer model.tokenizer.test_hf model.tokenizer.test_arms model.train.test_ctok model.perceiver.test_perceiver \
 		model.policy_head.test_policy_head model.policy_head.test_joint model.eval.test_move_head model.serve.test_coach \
-		model.serve.test_head model.eval.test_playhead model.serve.test_uci_gate
+		model.serve.test_head model.eval.test_playhead model.serve.test_uci_gate \
+		model.encoder.test_task model.train.test_masked
 	python3 scripts/test_run_py_tests.py
 	python3 scripts/check_cli.py
 	python3 scripts/check_ports.py
@@ -28,11 +29,15 @@ check:
 # with a python that has torch, transformers, peft and Pillow (PYTHON=path/to/python).
 PYTHON ?= python3
 # CI also forbids "not built" (it builds the knightlm binary first): FORBID_SKIP='...|not built'.
-FORBID_SKIP ?= torch|transformers|peft|Pillow|numpy
+# The serve modules need fastapi, httpx and openai (model/ci-requirements.txt): a skip for those is a failure too, so no
+# serve test is silently skipped. The two GPU tests (KNIGHTLM_BASE_DIR, CUDA) skip by design and name themselves.
+FORBID_SKIP ?= torch|transformers|peft|Pillow|numpy|fastapi|httpx|openai
 check-torch:
 	$(PYTHON) scripts/run_py_tests.py --forbid-skip '$(FORBID_SKIP)' \
 		model.encoder.test_encoder model.tokenizer.test_hf model.perceiver.test_perceiver \
-		model.policy_head.test_policy_head model.eval.test_move_head model.serve.test_uci_gate
+		model.policy_head.test_policy_head model.eval.test_move_head model.serve.test_uci_gate \
+		model.serve.test_serve model.serve.test_play model.serve.test_chat model.serve.test_coach model.serve.test_head \
+		model.policy_head.test_joint model.encoder.test_task model.encoder.test_writers model.train.test_masked
 
 # The application crates, which the workspace excludes: clippy, fmt and tests for
 # the server and the wasm frontend. `check` alone would stay green while both rot.

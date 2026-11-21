@@ -20,6 +20,8 @@ from model.corpus.pipeline import sha256_file
 
 ENCODER_SCHEMA = "knightlm.board-encoder/v1"
 PROJECTOR_SCHEMA = "knightlm.board-projector/v1"
+TASK_SCHEMA = "knightlm.board-task/v1"
+TASK_FILE = "task.json"
 FILE = "manifest.json"
 _FENS = ("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
          "rnbqkbnr/ppp1pppp/8/8/3pP3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 3")
@@ -91,4 +93,46 @@ def check_pair(encoder_dir, projector_dir, base_sha256=None):
             found.append("the projector was aligned on other input planes than this checkout builds")
         if base_sha256 is not None and proj.get("host_base_sha256") != base_sha256:
             found.append(f"the projector was aligned to host {proj.get('host_base_sha256')}, serving {base_sha256}")
+    return found
+
+
+def write_task_manifest(run_dir, *, base_sha256, adapter_sha256, encoder_sha256, projector_sha256, prompt_kind,
+                        n_board_tokens, rows_sha256=None, corpus_manifest_sha256=None, compiler_sha256=None,
+                        train=None):
+    """`<run>/task.json`: the adapter and the projector that were trained together (T4/T5), and what they read.
+    `adapter_sha256` is null for the projector-only stage. The server checks it when it loads the adapter
+    from `<run>/adapter` (`check_task`)."""
+    return write_at(Path(run_dir) / TASK_FILE, {
+        "schema": TASK_SCHEMA, "base_sha256": base_sha256, "adapter_sha256": adapter_sha256,
+        "encoder_sha256": encoder_sha256, "projector_sha256": projector_sha256, "prompt_kind": prompt_kind,
+        "n_board_tokens": n_board_tokens, "planes": planes_fingerprint(), "rows_sha256": rows_sha256,
+        "corpus_manifest_sha256": corpus_manifest_sha256, "compiler_sha256": compiler_sha256, "train": train or {}})
+
+
+def write_at(path, manifest):
+    path = Path(path)
+    path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    return path
+
+
+def read_task(run_dir):
+    path = Path(run_dir) / TASK_FILE
+    return json.loads(path.read_text()) if path.is_file() else None
+
+
+def check_task(task, *, base_sha256=None, adapter_sha256=None, encoder_sha256=None, projector_sha256=None,
+               prompt_kind=None):
+    """Mismatches between a task manifest and what is being served: an adapter trained with another projector,
+    encoder or base is refused by name. Absent arguments are not checked."""
+    found = []
+    if task.get("schema") != TASK_SCHEMA:
+        found.append(f"task manifest schema {task.get('schema')!r}")
+    for name, got in (("base_sha256", base_sha256), ("adapter_sha256", adapter_sha256),
+                      ("encoder_sha256", encoder_sha256), ("projector_sha256", projector_sha256)):
+        if got is not None and task.get(name) != got:
+            found.append(f"the adapter was trained with {name[:-7]} {task.get(name)}, serving {got}")
+    if prompt_kind is not None and task.get("prompt_kind") != prompt_kind:
+        found.append(f"the adapter was trained on prompt kind {task.get('prompt_kind')!r}, serving {prompt_kind!r}")
+    if task.get("planes") != planes_fingerprint():
+        found.append("the adapter was trained on other input planes than this checkout builds")
     return found

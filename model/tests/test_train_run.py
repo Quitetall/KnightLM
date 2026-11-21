@@ -210,6 +210,21 @@ class EntryPointTests(unittest.TestCase):
         self.assertIn("boom", (self.runs / "bad1" / "blut.log").read_text())
 
 
+class LossSegmentTests(unittest.TestCase):
+    """The recipe puts loss on every completion token, so rows with tool-result spans are refused there."""
+
+    ROW = {"id": "r2b-train-000000", "segments": [{"text": "call", "loss": True}, {"text": "result", "loss": False},
+                                                   {"text": "final", "loss": True}]}
+
+    def test_a_row_with_a_result_span_is_refused_unless_the_flag_accepts_it(self):
+        with self.assertRaisesRegex(run.Refused, "r2b-train-000000.*without loss.*--allow-unmasked-results"):
+            run.check_loss_segments([{"id": "plain"}, self.ROW])
+        self.assertEqual(run.check_loss_segments([{"id": "plain"}, self.ROW], allow=True)["status"], "warning")
+
+    def test_rows_without_segments_or_with_only_loss_spans_pass(self):
+        self.assertIsNone(run.check_loss_segments([{"id": "plain"}, {"id": "a", "segments": [{"text": "x", "loss": True}]}]))
+
+
 class BaseTableTests(unittest.TestCase):
     def test_python_bases_match_the_rust_profiles(self):
         source = (ROOT / "apps/blut-knightlm/src/profile.rs").read_text()

@@ -14,6 +14,8 @@ from model import prompt
 from model.eval.fakes import fixture_rows
 from model.policy_head import joint, manifest, space
 from model.serve import test_head as T
+from model.tests import fake_backend
+from model.train import resume as resume_module, segments as segments_module
 
 try:
     import torch
@@ -22,13 +24,17 @@ except ImportError:
     torch = None
 
 
-def backend():
+def real_backend():
     from model.train import preflight
     path = preflight.locate_backend_python()
     return None if path is None else preflight.load_backend(path)[0]
 
 
-DATA = backend()
+def backend():
+    return real_backend()
+
+
+DATA = backend() or fake_backend  # CI has no blut-cookbooks checkout; the fake restates its contract
 
 
 class Tokenizer(T.FakeTokenizer):
@@ -49,6 +55,26 @@ def rows(n=6):
     return out
 
 
+@unittest.skipIf(real_backend() is None, "the BLUT trainer's python is not on this machine (the fake is used)")
+class FakeBackendParity(unittest.TestCase):
+    """The CI stand-in (model/tests/fake_backend.py) is the real data module on what the joint trainers call."""
+
+    def test_encode_and_the_row_stream_equal_the_real_modules(self):
+        real = real_backend()
+        proc = Processor()
+        for row in rows():
+            v = joint.views(row)
+            self.assertEqual(fake_backend.encode(v["cond_prompt"], v["completion"], proc),
+                             real.encode(v["cond_prompt"], v["completion"], proc))
+        with tempfile.TemporaryDirectory() as tmp:
+            shard = Path(tmp) / "s.jsonl"
+            shard.write_text("".join(f"{i}\n" for i in range(40)))
+            for buffer in (1, 7):
+                a, b = fake_backend.RowStream([shard], 3, buffer, 2), real.RowStream([shard], 3, buffer, 2)
+                self.assertEqual([a.next_line() for _ in range(81)], [b.next_line() for _ in range(81)])
+            self.assertEqual(fake_backend.count_rows([shard]), real.count_rows([shard]))
+
+
 class ViewTests(unittest.TestCase):
     def test_the_two_views_differ_only_by_the_move(self):
         v = joint.views(rows(1)[0])
@@ -66,7 +92,6 @@ class ViewTests(unittest.TestCase):
         joint.views({k: v for k, v in row.items() if k != "reasoning"}, need_completion=False)  # head-only is fine
 
 
-@unittest.skipIf(DATA is None, "the BLUT trainer's python is not on this machine")
 class ParityTests(unittest.TestCase):
     def test_trainer_ids_equal_serve_ids(self):
         report = joint.check_serve_parity(rows(), Processor(), DATA)
@@ -101,7 +126,7 @@ CFG = dict(mode="joint", epochs=4, batch_size=2, grad_accum=1, seq_len=100000, l
            shuffle_buffer=1, max_steps=None, save_steps=0, logging_steps=1)
 
 
-@unittest.skipIf(torch is None or DATA is None, "needs torch, peft and the BLUT trainer's python")
+@unittest.skipIf(torch is None, "torch or peft not installed")
 class JointTests(T.HostCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -210,6 +235,144 @@ class JointTests(T.HostCase):
         with self.assertRaisesRegex(RuntimeError, "no optimizer step"):  # nothing fits in 10 tokens
             joint.train_loop(model, MoveHead(self.HIDDEN), Processor(), DATA, [self.shard],
                              dict(CFG, seq_len=10, epochs=1), lambda _e: None)
+
+    # --- resume (model/train/resume.py) ---------------------------------------------------------
+
+    def go(self, ckpt, mode="joint", interrupt_at=None, resume=False, **over):
+        """A full run with checkpoints every 4 steps; `interrupt_at` kills it from the step log, like a crashed job."""
+        from model.policy_head.head import MoveHead
+        model = self.peft_host() if mode == "joint" else self.host()
+        torch.manual_seed(0)
+        head = MoveHead(self.HIDDEN)
+        events = []
+
+        def emit(event):
+            events.append(event)
+            if interrupt_at and event.get("kind") == "step" and event["step"] == interrupt_at:
+                raise Interrupted
+
+        cfg = dict(CFG, mode=mode, save_steps=4, checkpoint_dir=ckpt, resume=resume, **over)
+        summary = joint.train_loop(model, head, Processor(), DATA, [self.shard], cfg, emit)
+        weights = resume_module.trainable_state(model, head=head)
+        return weights, summary, events
+
+    def assert_same(self, a, b, atol=0.0):
+        self.assertEqual(a.keys(), b.keys())
+        for group in a:
+            self.assertEqual(a[group].keys(), b[group].keys())
+            for name in a[group]:
+                torch.testing.assert_close(a[group][name], b[group][name], rtol=0, atol=atol, msg=f"{group}.{name}")
+
+    def test_an_interrupted_joint_run_resumes_to_the_same_weights_as_an_uninterrupted_one(self):
+        whole, whole_summary, _ = self.go(self.dir / "whole")
+        with self.assertRaises(Interrupted):
+            self.go(self.dir / "cut", interrupt_at=6)  # the checkpoint of step 4 survives; steps 5 and 6 are lost
+        self.assertEqual(resume_module.load(self.dir / "cut")["step"], 4)
+        resumed, summary, events = self.go(self.dir / "cut", resume=True)
+        self.assertEqual(events[0], {"kind": "resumed", "step": 4, "rows_consumed": 8})
+        self.assertEqual((summary["steps"], summary["resumed_at_step"], summary["rows_consumed"]),
+                         (12, 4, whole_summary["rows_consumed"]))
+        self.assertTrue(any(weights.numel() for weights in whole["host"].values()))  # the adapter is in the comparison
+        self.assert_same(whole, resumed)  # bit-identical on CPU: atol 0
+        self.assertEqual(summary["last"]["head_loss"], whole_summary["last"]["head_loss"])
+        drop = lambda record: {k: v for k, v in record.items() if k != "seconds"}  # noqa: E731
+        self.assertEqual(drop(summary["first"]), drop(whole_summary["first"]))
+
+    def test_a_head_only_run_resumes_the_same_way(self):
+        whole, _, _ = self.go(self.dir / "whole", mode="head-only")
+        with self.assertRaises(Interrupted):
+            self.go(self.dir / "cut", mode="head-only", interrupt_at=9)
+        resumed, summary, _ = self.go(self.dir / "cut", mode="head-only", resume=True)
+        self.assertEqual(summary["resumed_at_step"], 8)
+        self.assert_same(whole, resumed)
+
+    def test_resume_refuses_nothing_to_resume_and_other_settings(self):
+        with self.assertRaisesRegex(joint.Refused, "no checkpoint"):
+            self.go(self.dir / "none", resume=True)
+        with self.assertRaises(Interrupted):
+            self.go(self.dir / "cut", interrupt_at=5)
+        with self.assertRaisesRegex(joint.Refused, "other settings.*lr"):
+            self.go(self.dir / "cut", resume=True, lr=1e-3)
+
+    def test_a_checkpoint_is_replaced_atomically_and_only_the_latest_is_kept(self):
+        with self.assertRaises(Interrupted):
+            self.go(self.dir / "cut", interrupt_at=10)
+        self.assertEqual(sorted(p.name for p in (self.dir / "cut").iterdir()), ["state.pt"])
+        self.assertEqual(resume_module.load(self.dir / "cut")["step"], 8)
+
+    # --- loss segments (model/train/segments.py) --------------------------------------------------
+
+    def segment_rows(self):
+        out = []
+        for row in rows(4):
+            move = row["target"]
+            reads = ('<tool_call>{"name":"gives_check","arguments":{"move":"' + move + '"}}</tool_call>\n',
+                     '<tool_result>{"call":1,"ok":true,"result":{"gives_check":false}}</tool_result>\n')
+            final = prompt.format_play_completion(row["reasoning"], move)
+            segments = [{"text": reads[0], "loss": True}, {"text": reads[1], "loss": False},
+                        {"text": final, "loss": True}]
+            out.append(dict(row, segments=segments, completion="".join(s["text"] for s in segments)))
+        return out
+
+    def test_result_spans_carry_no_loss_and_everything_else_does(self):
+        row = self.segment_rows()[0]
+        v = joint.views(row)
+        prompt_ids, ids, labels = segments_module.encode(v["cond_prompt"], row["segments"], Processor(), DATA)
+        plain_prompt, plain_ids = DATA.encode(v["cond_prompt"], row["completion"], Processor())
+        self.assertEqual((prompt_ids, ids), (plain_prompt, plain_ids))  # the same ids as the trainer's encode
+        result = row["segments"][1]["text"]
+        want = ids[len(prompt_ids):]
+        first = len(row["segments"][0]["text"])
+        masked = [i for i, x in enumerate(labels) if x == -100 and i >= len(prompt_ids)]
+        self.assertEqual(len(masked), len(result))  # char-level fake tokenizer: one token per character
+        self.assertEqual([ids[i] for i in masked], [ord(c) for c in result])
+        self.assertEqual(masked[0], len(prompt_ids) + first)
+        self.assertTrue(all(labels[i] == ids[i] for i in range(len(prompt_ids), len(ids)) if i not in masked))
+        self.assertEqual(labels[-1], ids[-1])  # the end of turn is trained
+        self.assertEqual(len(want) - len(result), sum(1 for x in labels if x != -100))
+
+    def test_a_joint_run_on_segment_rows_trains_on_fewer_tokens_than_the_same_rows_whole(self):
+        from model.policy_head.head import MoveHead
+        cut = self.dir / "seg.jsonl"
+        cut.write_text("".join(json.dumps(r) + "\n" for r in self.segment_rows()))
+        whole = self.dir / "whole.jsonl"
+        whole.write_text("".join(json.dumps(dict(r, segments=[{"text": r["completion"], "loss": True}])) + "\n"
+                                 for r in self.segment_rows()))
+        counts = []
+        for shard in (cut, whole):
+            stub = joint.serve_stub(Processor())
+            batch = joint.make_batch([json.loads(l) for l in shard.read_text().splitlines()[:2]], Processor(), DATA,
+                                     stub, "joint", 100000, "cpu", T.PAD)
+            counts.append(batch["lm_tokens"])
+        self.assertLess(counts[0], counts[1])
+        model = self.peft_host()
+        torch.manual_seed(0)
+        summary = joint.train_loop(model, MoveHead(self.HIDDEN), Processor(), DATA, [cut], dict(CFG, epochs=3),
+                                   lambda _e: None)
+        self.assertEqual(summary["steps"], 6)
+        self.assertLess(summary["last"]["lm_loss"], summary["first"]["lm_loss"])
+
+    def test_segments_that_do_not_spell_the_completion_are_refused(self):
+        row = self.segment_rows()[0]
+        bad = dict(row, completion=row["completion"] + "x")
+        with self.assertRaises(joint.Refused):
+            joint.views(bad)
+        with self.assertRaises(segments_module.SegmentError):  # a boundary inside a token cannot carry a mask
+            class Merge(Tokenizer):
+                def encode(self, text, add_special_tokens=False):
+                    ids = super().encode(text)
+                    return ids[:-1] + [999] if text.endswith("</tool_call>\n") else ids  # a token that straddles it
+            proc = Processor()
+            proc.tokenizer = Merge()
+            segments_module.encode(joint.views(row)["cond_prompt"], row["segments"], proc, DATA)
+
+    def test_the_recipe_path_flags_rows_with_result_spans(self):
+        self.assertEqual(segments_module.check_recipe_rows(self.segment_rows()), ["?"] * 4)
+        self.assertEqual(segments_module.check_recipe_rows(rows()), [])
+
+
+class Interrupted(Exception):
+    """Stands in for a killed job."""
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ from model.corpus.pipeline import sha256_file
 from model.corpus.render import render_completion
 from model.policy_head import agree, manifest as manifest_module, space
 from model.serve.inference import Predictor
+from model.train import resume as resume_module, segments as segments_module
 
 KIND = "play-head"
 MODES = ("joint", "head-only")
@@ -54,12 +55,22 @@ def views(row, need_completion=True):
     space.target_index(target, legal)  # MoveSpaceError: empty set, move outside ctok/1, illegal target
     out = {"read_prompt": prompt_module.play_prompt(KIND, packet),
            "cond_prompt": prompt_module.play_prompt(KIND, packet, head_move=target),
-           "packet": packet, "target": target, "legal": legal, "completion": None}
+           "packet": packet, "target": target, "legal": legal, "completion": None, "segments": None}
     if need_completion:
         if "reasoning" not in row:
             raise Refused(f"game {row.get('game_id')}: a joint row needs a reasoning field (use --mode head-only)")
         out["completion"] = render_completion(row["reasoning"], target)
+        if row.get("segments"):  # reasoning v2 variant b: results carry no loss (model/train/segments.py)
+            if segments_module.completion_of(row["segments"]) != row.get("completion", out["completion"]):
+                raise Refused(f"game {row.get('game_id')}: segments do not spell the completion")
+            out["segments"] = row["segments"]
+            out["completion"] = row["completion"]
     return out
+
+
+def loss_segments(view):
+    """The completion's loss spans: the row's `segments`, else the whole completion."""
+    return view["segments"] or [{"text": view["completion"], "loss": True}]
 
 
 def serve_stub(processor, n_board_tokens=prompt_module.BOARD_TOKENS):
@@ -93,10 +104,11 @@ def check_serve_parity(rows, processor, data, need_completion=True):
             raise Refused("head-read and conditioned prompts tokenise identically: the move is missing")
         if not need_completion:
             continue
-        verdict = agree.interpret_with_head(v["completion"], v["legal"], target)
+        final = v["segments"][-1]["text"] if v["segments"] else v["completion"]  # the submit_move call
+        verdict = agree.interpret_with_head(final, v["legal"], target)
         if verdict.code != "ok":
             raise Refused(f"the completion of {row.get('game_id')} does not agree with its own target ({verdict.code})")
-        prompt_ids, ids = data.encode(v["cond_prompt"], v["completion"], processor)
+        prompt_ids, ids, _ = segments_module.encode(v["cond_prompt"], loss_segments(v), processor, data)
         if prompt_ids != serve_cond:
             raise Refused(f"trainer prompt ids differ from the serve conditioned ids for {row.get('game_id')}")
         if len(ids) <= len(prompt_ids):
@@ -165,11 +177,11 @@ def make_batch(rows, processor, data, stub, mode, seq_len, device, pad_id):
              "mask": head_module.legal_mask(legal, device=device),
              "target": head_module.target_tensor([v["target"] for v in vs], legal, device=device), "rows": len(vs)}
     if mode == "joint":
-        examples = [data.encode(v["cond_prompt"], v["completion"], processor) for v in vs]
-        cols = data.collate(examples, pad_id)
+        examples = [segments_module.encode(v["cond_prompt"], loss_segments(v), processor, data) for v in vs]
+        cols = segments_module.collate(examples, pad_id)
         batch["lm"] = {k: torch.tensor(x, device=device) for k, x in cols.items()}
         batch["lm_tokens"] = int(batch["lm"]["labels"].ne(-100).sum())
-        batch["fits"] = max(len(i) for _, i in examples) <= seq_len and max(len(t) for t in read) <= seq_len
+        batch["fits"] = max(len(i) for _, i, _ in examples) <= seq_len and max(len(t) for t in read) <= seq_len
     else:
         batch["lm_tokens"] = 0
         batch["fits"] = max(len(t) for t in read) <= seq_len
@@ -185,8 +197,10 @@ def train_loop(model, head, processor, data, shards, cfg, emit, device="cpu"):
     """The joint (or head-only) optimisation loop. `model` is the (peft-wrapped, for joint) host.
 
     cfg keys: mode, epochs, batch_size, grad_accum, seq_len, lr, head_lr_mult, head_weight, warmup_ratio,
-    lr_scheduler, max_grad_norm, seed, shuffle_buffer, max_steps, save_steps, snapshot (callable(step) or None).
-    Returns a summary dict. The caller saves the final adapter and head."""
+    lr_scheduler, max_grad_norm, seed, shuffle_buffer, max_steps, save_steps, snapshot (callable(step) or None),
+    checkpoint_dir (a resume checkpoint is written there every save_steps steps; model/train/resume.py), resume
+    (bool: continue from checkpoint_dir's checkpoint instead of starting). Returns a summary dict. The caller saves
+    the final adapter and head."""
     import torch
     import torch.nn.functional as F
     from transformers import get_scheduler
@@ -220,9 +234,30 @@ def train_loop(model, head, processor, data, shards, cfg, emit, device="cpu"):
                               num_training_steps=total)
     stream = data.RowStream(shards, cfg["seed"], cfg["shuffle_buffer"], cfg["epochs"])
     params = list(head.parameters()) + adapter
-    first = [p.detach().cpu().clone() for p in params]
     dropped, step, last, start = 0, 0, {}, time.monotonic()
     history = []
+    ckpt_dir, fingerprint = cfg.get("checkpoint_dir"), resume_module.fingerprint(cfg, rows=n_rows, total=total)
+    first_record = resumed_at = None
+    if cfg.get("resume"):
+        if not ckpt_dir:
+            raise Refused("resume needs a checkpoint_dir")
+        saved = resume_module.load(ckpt_dir)
+        if saved is None:
+            raise Refused(f"nothing to resume: no checkpoint in {ckpt_dir}")
+        try:
+            resume_module.check_config(saved, fingerprint)
+            resume_module.restore_state(saved["weights"], model, head=head)
+        except resume_module.ResumeRefused as error:
+            raise Refused(str(error)) from error
+        optimizer.load_state_dict(saved["optimizer"])
+        scheduler.load_state_dict(saved["scheduler"])
+        resume_module.fast_forward(stream, saved["stream_consumed"])
+        step, dropped, first_record = saved["step"], saved["counters"]["dropped"], saved["counters"]["first"]
+        last = saved["counters"]["last"]
+        resume_module.set_rng_state(saved["rng"])
+        resumed_at = step
+        emit({"kind": "resumed", "step": step, "rows_consumed": stream.consumed})
+    first = [p.detach().cpu().clone() for p in params]
 
     def next_micro():
         nonlocal dropped
@@ -274,18 +309,25 @@ def train_loop(model, head, processor, data, shards, cfg, emit, device="cpu"):
                 "lm_loss": (lm_sum / n_tok) if joint else None, "grad_norm": norm,
                 "lr": scheduler.get_last_lr()[0], "seconds": round(time.monotonic() - start, 1)}
         history.append(last)
+        first_record = first_record or last
         if step == 1 or step % cfg.get("logging_steps", 10) == 0 or step == total:
             emit({"kind": "step", **last})
-        if cfg.get("save_steps") and step % cfg["save_steps"] == 0 and step < total and cfg.get("snapshot"):
-            cfg["snapshot"](step)
+        if cfg.get("save_steps") and step % cfg["save_steps"] == 0 and step < total:
+            if cfg.get("snapshot"):
+                cfg["snapshot"](step)
+            if ckpt_dir:
+                resume_module.save(ckpt_dir, step=step, weights=resume_module.trainable_state(model, head=head),
+                                   optimizer=optimizer, scheduler=scheduler, stream_consumed=stream.consumed,
+                                   counters={"dropped": dropped, "first": first_record, "last": last}, cfg=fingerprint)
     if step == 0:
         raise RuntimeError("no optimizer step ran")
-    if not any(not torch.equal(a, p.detach().cpu()) for a, p in zip(first, params)):
+    if step > (resumed_at or 0) and not any(not torch.equal(a, p.detach().cpu()) for a, p in zip(first, params)):
         raise RuntimeError("no trainable parameter changed")
     head.eval()
     model.eval()
     return {"steps": step, "total_steps": total, "rows_consumed": stream.consumed, "dropped_long": dropped,
-            "first": history[0], "last": last, "trainable_adapter_parameters": sum(p.numel() for p in adapter),
+            "resumed_at_step": resumed_at, "first": first_record, "last": last,
+            "trainable_adapter_parameters": sum(p.numel() for p in adapter),
             "head_parameters": sum(p.numel() for p in head.parameters())}
 
 

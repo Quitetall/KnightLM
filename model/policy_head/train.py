@@ -189,6 +189,8 @@ def execute(args, shards, run_dir, device, dtype_name, max_steps=None, reload_at
                             train=dict(meta, step=step))
         emit({"kind": "saved", "step": step})
     cfg["snapshot"] = snapshot
+    cfg["checkpoint_dir"] = run_dir / "resume"  # written every save_steps (model/train/resume.py)
+    cfg["resume"] = bool(getattr(args, "resume", False))
     summary = joint.train_loop(model, head, processor, data, shards, cfg, emit, device=device)
     outputs = joint.write_outputs(run_dir, model, head, mode=args.mode, base_sha256=base["weights_sha256"],
                                   corpus_manifest_sha256=manifest_sha, train=dict(meta, steps=summary["steps"]))
@@ -210,8 +212,11 @@ def plan_for(args):
     run_dir = Path(args.run_root) / (args.run or "<run>")
     plan = {"entry_point": "model.policy_head.train", "arm": "human-only move head", "mode": args.mode,
             "run": args.run, "run_dir": str(run_dir), "checks": {}, "config": config_of(args)}
-    if args.run and run_dir.exists():
-        raise joint.Refused(f"run directory {run_dir} exists; choose a new --run (a finished run is never extended)")
+    if args.run and run_dir.exists() and not args.resume:
+        raise joint.Refused(f"run directory {run_dir} exists; choose a new --run, or pass --resume to continue a "
+                            "crashed run from its last checkpoint (a finished run is never extended)")
+    if args.resume and not (run_dir / "resume" / "state.pt").is_file():
+        raise joint.Refused(f"--resume needs a checkpoint at {run_dir / 'resume' / 'state.pt'}")
     rows = sample_rows(corpus, SAMPLE_ROWS)
     if not rows:
         raise joint.Refused(f"no train rows in {corpus}")
@@ -261,7 +266,8 @@ def plan_for(args):
                     shard = scratch / "train-00000.jsonl"
                     shard.write_text("".join(json.dumps(r) + "\n" for r in rows[:CPU_STEP_ROWS]))
                     cpu_args = argparse.Namespace(**{**vars(args), "batch_size": 2, "grad_accum": 1, "epochs": 1,
-                                                     "shuffle_buffer": 1, "save_steps": 0, "logging_steps": 1})
+                                                     "shuffle_buffer": 1, "save_steps": 0, "logging_steps": 1,
+                                                     "resume": False})
                     started = time.monotonic()
                     summary = execute(cpu_args, [shard], scratch / "run", "cpu", "float32", max_steps=2,
                                       reload_atol=1e-4, emit=lambda _e: None)
@@ -297,8 +303,8 @@ def launch(args, plan):
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
         raise joint.Refused("training needs CUDA with bfloat16 support")
     run_dir = Path(plan["run_dir"])
-    run_dir.mkdir(parents=True)
-    entry = {"schema": "knightlm.head-train-entry/v1", "status": "started",
+    run_dir.mkdir(parents=True, exist_ok=args.resume)
+    entry = {"schema": "knightlm.head-train-entry/v1", "status": "resumed" if args.resume else "started",
              "started_utc": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), "arm": "human-only move head",
              "config": plan["config"], "corpus": str(args.corpus), "base": args.base}
     entry_path = run_dir / "entry.json"
@@ -342,6 +348,8 @@ def build_parser():
     p.add_argument("--run", help="new run name (directory under --run-root); required to launch")
     p.add_argument("--run-root", type=Path, default=DEFAULT_RUN_ROOT)
     p.add_argument("--gpu", action="store_true", help="launch the training run (default: preflight only)")
+    p.add_argument("--resume", action="store_true", help="continue the existing --run from its last checkpoint "
+                   "(<run>/resume/state.pt, written every --save-steps steps); every setting must match the run's")
     p.add_argument("--batch-size", type=int, default=d["batch_size"])
     p.add_argument("--grad-accum", type=int, default=d["grad_accum"])
     p.add_argument("--seq-len", type=int, default=d["seq_len"])

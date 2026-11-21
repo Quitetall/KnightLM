@@ -42,7 +42,7 @@ jobs:
           timeout 900 "$RUNNER_TEMP/venv/bin/pip" install --no-cache-dir
           --extra-index-url https://download.pytorch.org/whl/cpu
           -r model/ci-requirements.txt
-      - run: make check-torch PYTHON="$RUNNER_TEMP/venv/bin/python" FORBID_SKIP='torch|transformers|peft|Pillow|numpy|not built|not installed'
+      - run: make check-torch PYTHON="$RUNNER_TEMP/venv/bin/python" FORBID_SKIP='torch|transformers|peft|Pillow|numpy|fastapi|httpx|openai|not built|not installed'
         env:
           STOCKFISH_PATH: /usr/games/stockfish
   # The Tauri desktop shell: lint it, build it, launch it under a virtual display

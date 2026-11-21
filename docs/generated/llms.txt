@@ -113,6 +113,10 @@
 > -
 - doc:docs/model/plan.md · document · - · KnightLM implementation contract · docs/model/plan.md:1
 
+## docs/model/reasoning-v2.md
+> -
+- doc:docs/model/reasoning-v2.md · document · - · Reasoning v2: short, compiler-grounded reasoning · docs/model/reasoning-v2.md:1
+
 ## docs/model/scorecard.md
 > -
 - doc:docs/model/scorecard.md · document · - · KnightLM scorecard: axes, comparability and limits · docs/model/scorecard.md:1
@@ -135,7 +139,7 @@
 
 ## docs/model/training-gate.md
 > -
-- doc:docs/model/training-gate.md · document · - · Training gate: S0 board-grounding arms (prepared, not run) · docs/model/training-gate.md:1
+- doc:docs/model/training-gate.md · document · - · Training gate: every arm, in run order (prepared, not run) · docs/model/training-gate.md:1
 
 ## docs/model/training-glossary.md
 > -

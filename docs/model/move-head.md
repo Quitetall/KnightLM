@@ -87,6 +87,9 @@ packets and a random head's masked argmax is always legal, the pinned base, that
 equal the serve ids (`Predictor._play_prompt_ids`) and that each completion agrees with its own target, then runs two
 joint steps on the real base on CPU, writes the outputs and reloads them through the serve loader (logits must
 match). Exact commands, resource checks and estimates (unmeasured) are in `training-gate.md`.
+Every `--save-steps` steps the loop also writes a resume checkpoint (`<run>/resume/state.pt`: adapter, head, optimizer,
+scheduler, stream position, RNG; `model/train/resume.py`); `--resume` continues a crashed run, and refuses other settings.
+Tested on a tiny host by interrupting and resuming: bit-identical weights to the uninterrupted run on CPU.
 
 ## Evaluation axis `move_head` (`model/eval/move_head.py`)
 

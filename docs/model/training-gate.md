@@ -1,387 +1,344 @@
-# Training gate: S0 board-grounding arms (prepared, not run)
+# Training gate: every arm, in run order (prepared, not run)
 
-Status: nothing in this document has been launched. Every command below is prepared; each GPU command
-needs an explicit "go" from the owner. This page covers the S0 rules-QA arms T0, T2-lite, T2-full, T1 and
-T3. The scoring commands for the move-policy head and the board-encoder arms (T4/T5) are at the end of this
-page; reasoning v2 is added by its own change.
+Status: only Run 1 short has trained (625 steps, `keep/eval-run1short-playmode-300-20261120T221837Z`). Everything below is
+prepared and its CPU preflight has run; each GPU command needs the owner's explicit "go" for that command. Numbers are
+tagged **M** (measured: tokenisation of real rows, a CPU run, the Run 1 short run) or **U** (unmeasured: planned from M
+figures; re-measure on the first 200 steps of the first run, see "Run order and stop rules").
 
-## What the S0 arms test
+Planning throughput: 14,000 tokens/s on the shared RTX 4090 (measured range 6.5k to 26k); Run 1 short took 24 min for
+625 steps x 32 rows (**M**), peak 14.5 GB GPU (**M**). "Time" below is tokens / 14k unless a block says otherwise.
 
-One question per position about the board (side to move, piece on a square, attackers, defenders, legal
-moves of a piece, check, captures, material), answered in the `reasoning` field of a `submit_move` call.
-Every answer comes from the compiler (`knightlm cgt`, `knightlm corpus-facts`, the packet's legal-move
-list); nothing from an engine. The six corpora share row ids, questions and answers (`matched_sha256`
-`ce5b52dd1efa21bc...`), so the arms differ only in how the position is written in the prompt
-(docs/model/graph-text.md, docs/model/tokenizer.md).
+## All arms
 
-Format v2 fixes the two review findings of the first pilot: the completion's `move` is the first legal
-move in canonical order (`min(legal_moves)`), never the human move, so the probe does not train move
-imitation; and `attackers_of`/`defenders_of` are reported apart from the other types
-(`s0_rules_qa.groups.edge` against `.groups.node`), with a like-for-like edge arm (`t2-full`).
+Rows are in block order (A0 to A11); `step` is the recommended run order (see "Run order and stop rules"). `tok/row` is the
+trainer's own tokenisation of real rows.
 
-| arm | name | prompt kind | position in the prompt | corpus (under `/mnt/4tb/artifacts/KnightLM/expire/corpus/`) |
-|---|---|---|---|---|
-| T0 | control | `play` | FEN packet JSON | `s0-rules-qa-pilot-2026-11b-t0` |
-| T2-lite | cgt-lite text | `play-cgt` | node list and legal moves per piece (no edges) | `s0-rules-qa-pilot-2026-11b-t2` |
-| T2-full | cgt-full text | `play-cgt-full` | lite plus `atk`, `def`, `pin`, `hang`, `check`, `ksafe` | `s0-rules-qa-pilot-2026-11b-t2-full` |
-| T1 | board tokens | `play-t1` | ctok/1: 64 piece tokens plus legal-move tokens | `s0-rules-qa-pilot-2026-11b-t1` |
-| T3 | cgt-lite tokens | `play-t3` | ctok/1 ids of cgt-lite | `s0-rules-qa-pilot-2026-11b-t3` |
-| T3-full | cgt-full tokens | `play-t3-full` | ctok/1 ids of cgt-full | `s0-rules-qa-pilot-2026-11b-t3-full` |
+| step | block | arm | what it answers | tok/row (M) | GPU time (U) | CPU preflight | compare against |
+|---|---|---|---|---|---|---|---|
+| 0 | A0 | baselines | what the untrained base does on each S0 prompt | n/a | 5 min each | n/a | n/a |
+| 1 | A1 | T0 (S0 control) | S0 rules QA with the FEN packet | 1042.8 | 0.41 h | audit, parity, tokens (M) | S0 untrained T0 |
+| 1 | A2 | T2-lite | do node questions improve when the board is a graph | 807.9 | 0.32 h | same | T0 trained |
+| 1 | A3 | T2-full | do edge questions need the edges printed | 1076.1 | 0.43 h | same | T0 trained, T2-lite |
+| 6 | A4 | T1 | board tokens (ctok/1) instead of text | 689.0 | 0.27 h | same + 2 steps on the extended base (M) | T0 trained |
+| 6 | A4 | T3, T3-full | cgt-lite, cgt-full as ctok/1 ids | 731.3, 925.7 | 0.29 h, 0.37 h | same | T2-lite, T2-full trained |
+| 2, 7 | A5 | S1 move head (warm-up, then joint) | does the last hidden state carry the human move | 990 (head-read) | 3-5 min, 25-37 min | six checks + 2 real-host steps (M) | Run 1 short, random floor |
+| 3 | A6 | board-encoder pretrain (P0) | can a 5M encoder learn the rules from labels | n/a | 20-40 min | `--tiny` CPU run (M) | its own `axis.json` gate |
+| 4 (opt.) | A7 | projector align (P1) | warm start of the projector | about 140 | 10-30 min | writer round trip (M) | its own loss |
+| 4 | A8 | T4, T5 (adapter + projector) | does a board-grounded model stop false piece claims | 940.6, 1177.6 | 0.37 h, 0.47 h | all checks + 2 real-host steps (M) | Run 1 short |
+| 5 | A9 | reasoning v2a | short compiler-grounded reasoning | 1071.7 | 0.42 h | audit, parity, tokens | Run 1 short |
+| 5 | A10 | reasoning v2b | quoting read-tool results, loss on calls only | 1331.3 | 0.53 h | all checks + 2 real-host steps (M) | Run 1 short, v2a |
+| 8 | A11 | perceiver | image to placement (a separate model) | n/a | 10-20 min GPU | unit smoke only | its own scorecard |
 
-Evidence (audits, token costs, preflight plans, CPU tests):
-`/mnt/4tb/artifacts/KnightLM/keep/s0-pilot-2026-11b/`. Each corpus has 20,000 train and 1,000 holdout rows;
-`python -m model.corpus.pipeline audit DIR --knightlm BIN` accepted all six (every answer, prompt and
-completion re-derived from the compiler). The first pilot (`s0-rules-qa-pilot-2026-11-t0`, `-t2`, format v1)
-is kept unchanged and is superseded.
+Every LLM arm trains 20,000 rows, 625 steps of 32 (batch 8 x accumulation 4), seq_len 2048, LoRA rank 8, alpha 16, lr 2e-4,
+cosine, seed 42: the recipe of Run 1 short, so arms differ in the data and the model path only.
 
-## Tokens and time
+## Before any launch
 
-Trainer tokenisation of a 64-row sample (`model.train.run` preflight, which runs the BLUT trainer's own
-`encode`), 625 optimizer steps of 32 rows (batch 8 x accumulation 4, one epoch over 20,000 rows, seq_len
-2048, no row dropped). Time is tokens divided by the planning throughput of the pinned profile
-(14,000 tokens/s on the shared RTX 4090, a conservative figure; the measured range is 6.5k to 26k).
-
-| arm | tokens/row mean (p95, max) | total train tokens | train time at 14k tok/s |
-|---|---|---|---|
-| T0 | 1042.8 (1194, 1291) | 20.86M | 0.41 h |
-| T2-lite | 807.9 (842, 857) | 16.16M | 0.32 h |
-| T2-full | 1076.1 (1154, 1170) | 21.52M | 0.43 h |
-| T1 | 689.0 (707, 723) | 13.78M | 0.27 h |
-| T3 | 731.3 (754, 765) | 14.63M | 0.29 h |
-| T3-full | 925.7 (983, 988) | 18.51M | 0.37 h |
-
-About 700 tokens of every prompt are the fixed play-schema prefix, so the position is the smaller part.
-Reference: the Run 1 short reasoning run (625 steps, 20,000 rows, same recipe) took 24 minutes from start to
-adapter registered, including materialisation and the evaluation, with a peak of 14.5 GB GPU memory.
-Expect 20 to 35 minutes per arm end to end plus about 5 minutes for the 1,000-row S0 evaluation.
-
-Planning budget for T0, T2-lite and T2-full together: about 1.2 hours of GPU time for training.
-
-## Resource check (2026-11-20, before any launch)
-
-Run these immediately before a launch; do not trust the numbers below.
+Run these immediately before each launch; do not trust numbers from an earlier check. Last look (2026-11-20): GPU 4090, 24 GB with
+3 GB in use; RAM 62 GB with 24 GB available; `/` 83 GB free (93%), `/mnt/4tb` 197 GB free (95%).
 
 ```bash
-nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv   # 24 GB card; 2.5 GB in use at the check
-free -g | head -2                                                   # 62 GB RAM, about 26 GB available
-df -h / /mnt/4tb | tail -2                                          # / 119 GB free (88%); /mnt/4tb 239 GB free (94%)
+nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv   # the card is shared
+free -g | head -2                                                   # CPU preflights load the 500M host twice in float32: about 8 GB
+df -h / /mnt/4tb | tail -2                                          # keep 80 GB free on /; stop above 90% if a run is over 10 GB
 ```
 
-A run writes a few hundred MB under `/mnt/4tb/artifacts/KnightLM/expire/runs/<run>` (adapter, three kept
-checkpoints with optimizer state, logs). Stop if either disk is above 90% and the run is larger than 10 GB;
-none of these is. The GPU is shared; a 14.5 GB peak needs the card otherwise quiet.
+| arm | GPU free needed (`--gpu` refuses below) | run writes | note |
+|---|---|---|---|
+| S0 arms, v2a (`model.train.run`) | 16 GB (peak 14.5 GB, M) | a few hundred MB | the recipe path |
+| S1 (`model.policy_head.train`) | 12 GB (plan about 10, U) | adapter, head, snapshots | refuses under 5 GB disk |
+| T4/T5 (`model.encoder.task`) | 10 GB (plan about 8, U) | adapter, projector, rows, resume state | needs a pretrained `--encoder` |
+| v2b (`model.train.masked`) | 16 GB (plan about 15, U) | adapter, rows, resume state | |
+| P0 / P1 | 4 GB / 10 GB (U) | encoder, projector (MB) | |
 
-## Prerequisites (once)
+Once, from the repository, and the shorthand the blocks below use:
 
 ```bash
-cd /mnt/4tb/KnightLM                       # main after the PR that adds this page is merged
-oneoff cargo build --release -p knightlm-cli
+cd /mnt/4tb/KnightLM                                   # main, after this page is merged
+oneoff cargo build --release -p knightlm-cli           # labels, cgt text and corpus audits need the compiler
 (cd apps/blut-knightlm && oneoff cargo build --release)
 export KNIGHTLM_BIN=$PWD/target/release/knightlm
 export BLUT_HF_VENV_IMAGE_TEXT=/mnt/4tb/venvs/blut-hf-image-text
+PY=$BLUT_HF_VENV_IMAGE_TEXT/bin/python
+C=/mnt/4tb/artifacts/KnightLM/expire/corpus; R=/mnt/4tb/artifacts/KnightLM/expire/runs; K=/mnt/4tb/artifacts/KnightLM/keep
+BASE=/mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98
+S0=s0-rules-qa-pilot-2026-11b                           # corpora $C/$S0-t0, -t2, -t2-full, -t1, -t3, -t3-full
 ```
 
-The corpus manifests record the rules revision (core tree `16290625df7c`, notation tree `826802c6c8d8`) and
-the compiler binary hash; a different compiler is refused by the audit unless `--allow-rules-drift`.
+The corpus manifests record the rules revision (core tree `16290625df7c`, notation tree `826802c6c8d8`) and the compiler hash; a
+different compiler is refused by the audit unless `--allow-rules-drift`.
 
-## Training commands
+Resume. The loops of `model.policy_head.train`, `model.encoder.task` and `model.train.masked` write `<run>/resume/state.pt` every
+`--save-steps` (500) steps; `--resume` (same `--run`, same settings, else refused) continues from it: weights, optimizer, scheduler,
+row-stream position and RNG are restored. The recipe (`model.train.run --resume`) keeps its own checkpoints. Tested on a tiny host:
+an interrupted and resumed run equals the uninterrupted run bit for bit on CPU (`model.policy_head.test_joint`,
+`model.encoder.test_task`, `model.train.test_masked`).
 
-Each command first prints a CPU preflight plan and launches only with `--gpu`. Run without `--gpu` first
-(it checks the corpus audit, prompt parity, the pinned base weights, tokenisation, the trainer's encode
-against the harness's, and two CPU optimiser steps) and read it.
+## Run order and stop rules
 
-### T0 (control)
+Each step ends with its scorecard and `model.eval.compare`; the next step starts only after reading it.
+
+0. **Baselines (A0)**, 5 min each: the S0 untrained cards (the play baselines already exist).
+1. **T0, T2-lite, T2-full** (A1 to A3), 1.2 h total. Do S0 questions improve when the position is a graph?
+2. **S1 warm-up** (A5 step 2), minutes. The cheapest signal on the human-move head.
+3. **P0** (A6), under an hour. The gate before anything board-encoder.
+4. **T4, then T5** (A8; A7 optional), 1 to 1.5 h. The arm the work exists for: Run 1 had 295 of 300 reasonings with a false claim.
+5. **v2a, then v2b** (A9, A10), about 1 h. Short grounded reasoning, then tool quoting with the loss mask.
+6. **T1, T3, T3-full** (A4), about 1 h, on the extended base. Second question: board-native tokens against text.
+7. **S1 joint** (A5 step 3), 25-37 min matched, or 4-6 h on all 200k rows.
+8. **Perceiver** (A11) at any time; it shares nothing with the arms above.
+
+Stop rules (any one stops the sequence until explained; none is a result about an arm):
+
+- Disk or card: `/` under 80 GB free, either disk above 90% with a run over 10 GB, or less GPU free than the table above: do not launch.
+- First 200 steps of any run (`train.log`, `seconds` per step): loss not finite or not below its step-1 value, or under 7,000 tokens/s
+  (half the planning figure): stop, re-plan the time, fix before continuing.
+- Format not learned: a trained arm whose raw parse rate on the holdout is under 90% (the scorecard gate) is a pipeline fault, not a
+  verdict on the arm; Run 1 short reached 99%.
+- Step 1: if trained T0 does not beat its untrained baseline on S0 exact match, stop; the T2 results mean nothing. With 1,000 holdout
+  rows a difference under about 3 points is a tie (binomial 95% at 50%); read `groups.node` and `groups.edge` apart.
+- Step 2: if the head-only masked top-1 is not above the random-legal floor card (`keep/eval-random-legal-floor-20261113T034305Z`), the
+  frozen host's last hidden state does not carry the move: skip S1 joint.
+- Step 3: `axis.json` must report every head with piece-on-square board-exact and legal-move set-exact near 1 on held-out positions
+  (proposed reading: 0.99 or more). Below that no projector is aligned and no T4 is trained.
+- Step 4: if T4's `play_explanation` claim failure rate is not clearly under Run 1 short's, the soft tokens are not grounding: do not run
+  T5 on that encoder.
+- Step 5: run v2b only if v2a lowered the claim failure rate against Run 1 short; v2b also needs its corpus rebuilt with the `play-reads`
+  prompt (A10).
+- Step 6: T1/T3 compare against the trained T0 and T2 arms, never against an untrained base (their new rows mean nothing before training).
+
+## Baselines and how arms are scored
+
+Play arms (S1, T4, T5, v2a, v2b) score on the move holdout with the Run 1 control's settings and compare against
+`keep/eval-run1short-playmode-300-20261120T221837Z` (raw legality 0.99, human match 0.0433, CPL 409.7 against a random floor of 417,
+295 of 300 reasonings with a false claim). Other cards: `keep/eval-base-untrained-playmode-20261120T121911Z` (untrained base) and
+`keep/eval-random-legal-floor-20261113T034305Z` (random legal moves). S0 arms score on their own corpus's 1,000 holdout rows against
+the untrained base on the same prompt (A0) and against each other. Cards of different prompt kinds need `--allow-prompt-mismatch`
+(rows, Stockfish depth and the tactical set are still checked). Never sum axes.
 
 ```bash
-python -m model.train.run --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/s0-rules-qa-pilot-2026-11b-t0 \
-  --run s0b-t0 --baseline <t0 untrained scorecard dir> --eval-arg=--no-stockfish --eval-arg=--no-tactics --gpu
+export KNIGHTLM_BASE_DIR=$BASE KNIGHTLM_DEVICE=cuda
+RUN1=$K/eval-run1short-playmode-300-20261120T221837Z
+EVAL="--rows 300 --oracles lc0 maia"       # as the Run 1 play-mode evaluation; add --games N for matches
 ```
 
-### T2-lite
+Eval dirs land in `$K/eval-<label>-<stamp>` (`--out-root` puts exploratory runs elsewhere); `<stamp>` below is that suffix.
+
+## Per-arm blocks
+
+### A0 Baselines (untrained base on each S0 arm's prompt)
 
 ```bash
-python -m model.train.run --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/s0-rules-qa-pilot-2026-11b-t2 \
-  --run s0b-t2 --baseline <t2 untrained scorecard dir> --eval-arg=--no-stockfish --eval-arg=--no-tactics --gpu
+for arm in t0 t2 t2-full; do
+  KNIGHTLM_ADAPTER_DIR= python -m model.eval.run --predictor model.eval.playmode:from_env \
+    --corpus $C/$S0-$arm --label s0b-$arm-base --rows 1000 --no-stockfish --no-tactics
+done
 ```
 
-### T2-full
+GPU inference, about 5 min each (U). Preflight: the predictor path is tested with fakes.
+
+### A1 to A3 T0, T2-lite, T2-full (S0 rules QA, the recipe)
+
+One question per position about the board (side to move, piece on a square, attackers, defenders, legal moves of a piece, check,
+captures, material); every answer comes from the compiler. The six S0 corpora share row ids, questions and answers (`matched_sha256`
+`ce5b52dd1efa21bc...`), so arms differ only in how the position is written. Format v2: the completion's `move` is `min(legal_moves)`,
+never the human move; `attackers_of`/`defenders_of` are reported apart (`groups.edge` against `groups.node`).
+
+| arm | prompt kind | position in the prompt | corpus |
+|---|---|---|---|
+| T0 | `play` | FEN packet JSON | `$S0-t0` |
+| T2-lite | `play-cgt` | node list and legal moves per piece | `$S0-t2` |
+| T2-full | `play-cgt-full` | lite plus `atk`, `def`, `pin`, `hang`, `check`, `ksafe` | `$S0-t2-full` |
 
 ```bash
-python -m model.train.run --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/s0-rules-qa-pilot-2026-11b-t2-full \
-  --run s0b-t2-full --baseline <t2-full untrained scorecard dir> --eval-arg=--no-stockfish --eval-arg=--no-tactics --gpu
+for arm in t0 t2 t2-full; do   # each prints its CPU preflight first; read it, then it launches with --gpu
+  python -m model.train.run --corpus $C/$S0-$arm --run s0b-$arm --baseline $K/eval-s0b-$arm-base-<stamp> \
+    --eval-arg=--no-stockfish --eval-arg=--no-tactics --gpu
+done
+python -m model.eval.compare $K/eval-s0b-t0-base-<stamp> $K/eval-s0b-t0-<stamp>      # did training help
+python -m model.eval.compare $K/eval-s0b-t0-<stamp> $K/eval-s0b-t2-<stamp>           # T0 vs T2-lite
+python -m model.eval.compare $K/eval-s0b-t0-<stamp> $K/eval-s0b-t2-full-<stamp>      # T0 vs T2-full
 ```
 
-All three use the recommended recipe unchanged (rank 8, alpha 16, lr 2e-4, cosine, seed 42), so the arms
-differ only in the corpus. The adapter lands in `<run root>/<run>/adapter`; the recipe evaluates the 1,000
-holdout rows and writes the scorecard, and compares to `--baseline` when given.
+Tokens (M, 64-row sample; 625 steps x 32 rows, no row dropped): T0 20.86M (p95 1194, max 1291), T2-lite 16.16M (842, 857), T2-full 21.52M
+(1154, 1170). About 700 tokens of every prompt are the fixed play schema. End to end 20 to 35 min per arm plus about 5 min of evaluation
+(U, from Run 1 short). The adapter lands in `$R/<run>/adapter`; the recipe evaluates the 1,000 holdout rows and compares to `--baseline`.
+Preflight evidence: `$K/s0-pilot-2026-11b/` (audits, token costs, `preflight-<arm>.json`; CPU optimiser steps were recorded for t1 only, the
+recipe is Run 1 short's). Read `groups.node` across all arms and `groups.edge` only between arms that print edges (T2-full, T3-full); a
+lower `claim_failure_rate` is better.
 
-### T1 and T3 (needs the extended base; GPU launch is a separate go)
+### A4 T1, T3, T3-full (ctok/1 board tokens; the extended base)
 
 ```bash
-# once, CPU, about 1 GB: the stock weights with the ctok/1 rows appended and initialised (ctok-extension.json records both hashes)
-python -m model.train.ctok build-base --base-dir /mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98 \
-  --out /mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-ctok1
-python -m model.train.run --corpus .../s0-rules-qa-pilot-2026-11b-t1 --run s0b-t1 --tokenizer ctok1        # preflight
-python -m model.train.run --corpus .../s0-rules-qa-pilot-2026-11b-t3 --run s0b-t3 --tokenizer ctok1 --gpu  # launch (owner's go)
+# once, CPU, about 1 GB (already built at $(dirname $BASE)/smolvlm-500m-ctok1)
+python -m model.train.ctok build-base --base-dir $BASE --out $(dirname $BASE)/smolvlm-500m-ctok1
+python -m model.train.run --corpus $C/$S0-t1 --run s0b-t1 --tokenizer ctok1                        # preflight
+python -m model.train.run --corpus $C/$S0-t3 --run s0b-t3 --tokenizer ctok1 --gpu
+python -m model.train.run --corpus $C/$S0-t3-full --run s0b-t3-full --tokenizer ctok1 --gpu
 ```
 
-With `--tokenizer ctok1` the preflight checks `prompt_parity`, `tokenisation` and `trainer_vs_harness_tokens` (the
-ctok ids in the trainer's prompt equal the id-level encoding at `base + id`, no ctok id in a completion, and the
-serve path's chat-template tokenisation equals the trainer's prompt ids), verifies the extended base
-(`extended_base`: the record names this checkout's vocabulary hash and the pinned stock weights, the extended
-weights hash to what it recorded, untied head) and takes two CPU steps on it with the new rows trainable. Before
-the base is built it extends the stock snapshot in memory and `--gpu` is refused with the `build-base` command.
+With `--tokenizer ctok1` the preflight also checks `extended_base` (the record names this checkout's vocabulary hash and the pinned stock
+weights; untied head), the ctok ids against the id-level encoding, and takes two CPU steps on the extended base with the new rows trainable.
+The recipe trains `trainable_token_indices` for `embed_tokens` and `lm_head` rows 49280..51775 (blut-cookbooks PR #5): 5,611,520 trainable
+parameters (LoRA 819,200 + 2 x 2,396,160) against 99,409,920 extra for the rejected `modules_to_save`. Tokens (M): T1 13.78M, T3 14.63M,
+T3-full 18.51M. The recipe skips evaluation for this base (the serving predictor pins the stock digest and has not run on an extended base):
+score by hand as in A1 to A3 with `KNIGHTLM_BASE_DIR=$(dirname $BASE)/smolvlm-500m-ctok1` and the adapter. Not tested: the serve-side
+predictor on an extended base.
 
-How the recipe trains it: `--tokenizer ctok1` selects the recipe base `smolvlm-500m-ctok1`
-(`apps/blut-knightlm/src/profile.rs`: the stock weights pinned, the extension verified against
-`ctok-extension.json` when the recipe compiles), and the recipe passes
-`trainable_token_indices={"embed_tokens": 49280..51775, "lm_head": 49280..51775}` (`--ctok-rows embed` for the
-input rows only) and the extended weights' digest as `base_sha256` to the blut-cookbooks image-text trainer
-(blut-cookbooks PR #5), which refuses a base whose tokenizer and matrices differ in length, rows out of range
-and a tied head, and never resizes. Evaluation is skipped for this base (the serving predictor pins the stock
-digest and has not been run on an extended base); evaluate the adapter by hand as below.
+### A5 S1 human-only move head (frozen warm-up, then joint adapter + head)
 
-Embedding-extension path: `peft` `trainable_token_indices`, tested on CPU (`model/train/test_ctok.py`) for
-identical logits after saving the adapter and reloading it on a freshly loaded extended base, and for host
-rows that never move. Trainable parameters on SmolVLM-500M, from the preflight CPU steps
-(`preflight-t1.json`): LoRA 819,200 + new embedding rows 2,396,160 + new `lm_head` rows 2,396,160 =
-**5,611,520**. The rejected alternative, `modules_to_save=["embed_tokens", "lm_head"]`, adds 99,409,920
-instead of 4,792,320 (20.7x). Do not use it. A serving layer should mask the ctok ids when sampling.
-
-## Evaluation and comparison commands
-
-Evaluation scores the 1,000 holdout rows of the arm's own corpus: exact answer match per question type, the
-node and edge groups, no engine, no composite score. A reply that does not parse is a failure on that row.
+Code: `model/policy_head/train.py` (entry) and `joint.py` (loop). It reuses the BLUT image-text data code, the recipe's LoRA regex and
+scheduler; it is not a recipe stage because `hf_sft_train` builds one LoRA model and rejects `spec.extra`. Per row two views of `play-head`:
+the head-read prompt (no move) feeds the head at the last token (`hidden_states[-1]`, the serve contract), the conditioned prompt plus the
+unchanged play call feeds the language loss; both are tokenised by `Predictor._play_prompt_ids`.
 
 ```bash
-export KNIGHTLM_BASE_DIR=/mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98
-export KNIGHTLM_DEVICE=cuda
-# baseline: the untrained base on the arm's own prompt (prepared; GPU inference)
-KNIGHTLM_ADAPTER_DIR= python -m model.eval.run --predictor model.eval.playmode:from_env \
-  --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/s0-rules-qa-pilot-2026-11b-t0 --label s0b-t0-base \
-  --rows 1000 --no-stockfish --no-tactics
-# a trained arm (what the recipe already does after training; use this to re-run on an adapter)
-KNIGHTLM_ADAPTER_DIR=/mnt/4tb/artifacts/KnightLM/expire/runs/s0b-t0/adapter python -m model.eval.run \
-  --predictor model.eval.playmode:from_env \
-  --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/s0-rules-qa-pilot-2026-11b-t0 --label s0b-t0 \
-  --rows 1000 --no-stockfish --no-tactics
+CORPUS=$C/run1-reasoning-2026-09-a
+# 1. CPU preflight (changes nothing): audit, mask legality, parity with serve, two joint steps on the real base, reload through the serve loader
+$PY -m model.policy_head.train --corpus $CORPUS --rows 20000 --run s1-head-a
+# 2. the cheap probe: frozen host, head only
+$PY -m model.policy_head.train --corpus $CORPUS --rows 20000 --max-steps 625 --run s1-warmup-a --mode head-only --gpu
+# 3. the arm: adapter + head, matched to T0 (625 steps, 20,000 rows); drop --max-steps for the 200k-row pass
+$PY -m model.policy_head.train --corpus $CORPUS --rows 20000 --max-steps 625 --run s1-head-a --gpu
+# a crashed run continues from its last checkpoint
+$PY -m model.policy_head.train --corpus $CORPUS --rows 20000 --max-steps 625 --run s1-head-a --resume --gpu
 ```
 
-Repeat for `t2` and `t2-full` (baselines use the same corpus names). Compare trained arm against baseline
-and arms against each other; cards of one matched S0 corpus compare without a flag:
+`--gpu` refuses on a skipped check, a missing `--run`, an existing run directory (without `--resume`), under 5 GB disk or under 12 GB GPU free.
+Output `$R/s1-head-a/{adapter,head}` (head: `head.pt`, `head.json`, `manifest.json` binding base, adapter, head, ctok/1, ruleset, prompt kind,
+corpus hash), `train_summary.json`, snapshots and `resume/` every 500 steps. Estimate (U): 75-110 ms/row joint (head-read prompts average 990
+tokens, max 1,238 in 64 rows): 20k rows 25-37 min, 200k rows 4-6 h; head-only 8-15 ms/row: 3-5 min for 20k rows, 27-50 min for 200k.
+Preflight on the real base (M, 2026-11-20): all six checks ok, two steps 235 s under CPU contention (92 s earlier), 819,200 adapter and
+1,893,168 head parameters, reload logit error 0.0 (`$K/gaps-preflight-2026-11/preflight-s1-head.json`).
 
 ```bash
-python -m model.eval.compare <s0b-t0-base dir> <s0b-t0 dir>          # did training help on T0
-python -m model.eval.compare <s0b-t0 dir> <s0b-t2 dir>               # T0 vs T2-lite
-python -m model.eval.compare <s0b-t0 dir> <s0b-t2-full dir>          # T0 vs T2-full
+# joint: the head's move beside what the completion wrote
+KNIGHTLM_ADAPTER_DIR=$R/s1-head-a/adapter KNIGHTLM_HEAD_DIR=$R/s1-head-a/head python -m model.eval.run \
+  --predictor model.eval.playmode:head_from_env --prompt-kind play-head --move-head --label s1-head $EVAL
+# warm-up (frozen host: empty adapter, head only; the head axis is the measurement, completions are noise)
+KNIGHTLM_ADAPTER_DIR= KNIGHTLM_HEAD_DIR=$R/s1-warmup-a/head python -m model.eval.run \
+  --predictor model.eval.playmode:head_from_env --prompt-kind play-head --move-head --label s1-warmup --rows 300 --modes raw --no-tactics
+python -m model.eval.compare --allow-prompt-mismatch $RUN1 $K/eval-s1-head-<stamp>
 ```
 
-Read the result on two groups: `s0_rules_qa.groups.node` across all arms, and `s0_rules_qa.groups.edge` only
-between arms that print the edges (T2-full and T3-full do; T0 and T2-lite do not, so their edge numbers
-show what the model computes without them). Per-type rates are in `by_type`. A lower
-`claim_failure_rate` is better.
+Read `axes.move_head` (masked top-1/top-3, NLL, ECE, CPL; raw legality and illegal mass as diagnostics) beside `axes.head_agreement` and
+`axes.play_explanation`. Human match is not strength: read it with CPL against Run 1 short (409.7; random floor 417). Serve:
+`python -m model.serve.server --base-dir $BASE --adapter-dir $R/s1-head-a/adapter --head-dir $R/s1-head-a/head`.
 
-Eval dirs go to the keep root by default (`/mnt/4tb/artifacts/KnightLM/keep/eval-<label>-<stamp>`); pass
-`--out-root` to put exploratory runs elsewhere. T1 and T3 are evaluated the same way with
-`KNIGHTLM_BASE_DIR` set to the extended base and `KNIGHTLM_ADAPTER_DIR` to the trained adapter; the
-predictor needs the extended tokenizer (it loads it from the base directory) and has not been run against a
-ctok adapter. T1 and T3 compare against the trained T0 and T2 arms, not against an untrained base (their
-new rows are meaningless before training).
+### A6 Board-encoder pretrain (P0)
 
-## Recommended order
+```bash
+# CPU sanity of the same command (minutes, tiny encoder)
+python3 -m model.encoder.pretrain --corpus $C/run1-reasoning-2026-09-a --out /mnt/4tb/tmp/encoder-smoke --tiny --train-rows 2000 \
+  --epochs 3 --device cpu --knightlm $KNIGHTLM_BIN
+$PY -m model.encoder.pretrain --corpus $C/run1-reasoning-2026-09-a --out $R/encoder-p0-a --knightlm $KNIGHTLM_BIN \
+  --train-rows 200000 --walk-share 1.0 --holdout-rows 10000 --epochs 20 --batch 256 --lr 1e-3 --device cuda
+cat $R/encoder-p0-a/axis.json      # the gate (stop rule, step 3)
+```
 
-1. T0 and T2-lite (matched pair on the node group, 0.7 h GPU), then T2-full (0.43 h): do the S0 questions
-   improve when the position is a graph, and do the edge questions need the edges printed.
-2. T1/T3 after the extended base is built, as the second question: does a board-native token
-   input ground better than text.
+400,000 positions x 20 epochs, about 20-40 min (U; about 20 of them single-process plane building), under 4 GB GPU, a few hundred MB of
+disk. Writes `<out>/encoder/` (`encoder.pt`, `config.json`, `heads.pt`, `manifest.json`: plane fingerprint, corpus and compiler hashes) and
+`axis.json`. Scored by `axis.json` (per head, no composite), not by `model.eval`. Spec: `docs/model/board-encoder.md`.
+
+### A7 Projector alignment (P1, optional before T4/T5)
+
+`model.encoder.task` trains the projector itself, so P1 is a warm start, not a prerequisite.
+
+```bash
+python3 -m model.encoder.rows --corpus $C/$S0-t0 --kind play-enc --limit 48000 --out $R/p1-rows-t4.jsonl   # S0 -> {fen, repetition, prompt, completion}
+$PY -m model.encoder.align --host $BASE --encoder $R/encoder-p0-a/encoder --rows $R/p1-rows-t4.jsonl \
+  --out $R/projector-smolvlm-a --steps 3000 --batch 16 --lr 1e-3 --device cuda
+```
+
+The converter writes what the S0 builder did not: `fen` and `repetition` from `planes.packet_inputs` (the server's own function), the arm's
+`play-enc` prompt plus the question, and the completion; tested in `model.encoder.test_task`. The S0 corpora are matched, so T4 and T5 rows
+differ in the prompt kind only. 48,000 rows x about 140 tokens, 10-30 min (U), under 10 GB GPU. `align.py` does not apply the chat template;
+the task trainer does.
+
+### A8 T4 and T5 (task training: adapter + projector, encoder frozen)
+
+```bash
+# CPU preflight: audit, conversion, base weights, prompt parity with the server (64 slots, no FEN, planes), 2 real-host steps, reload through the serve loader
+$PY -m model.encoder.task --corpus $C/$S0-t0 --kind play-enc --encoder $R/encoder-p0-a/encoder --rows 20000 --run t4-a
+$PY -m model.encoder.task --corpus $C/$S0-t0 --kind play-enc --encoder $R/encoder-p0-a/encoder [--projector $R/projector-smolvlm-a] \
+  --rows 20000 --run t4-a --gpu
+$PY -m model.encoder.task --corpus $C/$S0-t0 --kind play-enc-cgt --encoder $R/encoder-p0-a/encoder --knightlm $KNIGHTLM_BIN \
+  --rows 20000 --run t5-a --gpu                                  # a crashed run: the same command plus --resume
+```
+
+Rows: the first 20,000 S0 train rows converted by `model.encoder.rows` (the same questions as the S0 arms; a reasoning corpus converts the
+same way). Output `$R/t4-a/{adapter,projector,task.json,rows,resume}`; `task.json` binds base, adapter, encoder, projector and prompt kind, and
+`Predictor._load_board` refuses an adapter served with another projector, encoder, base or kind. Tokens (M, first 64 S0 rows): T4 940.6 per
+row (p95 1001, max 1017) = 18.8M, T5 1177.6 (1269, 1293) = 23.6M; time 0.37 h and 0.47 h at 14k tokens/s (U; 36-145 and 45-181 ms/row over
+the 26k-6.5k range). Trainable: LoRA 819,200 + projector 1,169,792. Preflight (M, random-init encoder because P0 has not run, 2026-11-20):
+all checks ok, 2 steps 31 s, reload logit error 0.0 (`$K/gaps-preflight-2026-11/preflight-t4-random-encoder.json`). `--gpu` additionally
+refuses without a pretrained `--encoder`.
+
+```bash
+env KNIGHTLM_ENCODER_DIR=$R/encoder-p0-a/encoder KNIGHTLM_PROJECTOR_DIR=$R/t4-a/projector KNIGHTLM_ADAPTER_DIR=$R/t4-a/adapter \
+  python -m model.eval.run --predictor model.eval.playmode:from_env --prompt-kind play-enc --label t4-encoder $EVAL
+env KNIGHTLM_ENCODER_DIR=$R/encoder-p0-a/encoder KNIGHTLM_PROJECTOR_DIR=$R/t5-a/projector KNIGHTLM_ADAPTER_DIR=$R/t5-a/adapter \
+  python -m model.eval.run --predictor model.eval.playmode:from_env --prompt-kind play-enc-cgt --label t5-encoder-cgt $EVAL
+python -m model.eval.compare --allow-prompt-mismatch $RUN1 $K/eval-t4-encoder-<stamp>
+python -m model.eval.compare --allow-prompt-mismatch $K/eval-t4-encoder-<stamp> $K/eval-t5-encoder-cgt-<stamp>   # does cgt text add to soft tokens
+```
+
+Read the play axes as for T0 plus `play_explanation`: the encoder's reason to exist is that a board-grounded model stops asserting false
+piece placements (Run 1: 65% of piece-on-square claims). The S0 questions cannot score these arms: `Predictor.complete` does not inject soft
+tokens. Serve: `python -m model.serve.server --base-dir $BASE --adapter-dir $R/t4-a/adapter --encoder-dir $R/encoder-p0-a/encoder
+--projector-dir $R/t4-a/projector --play-prompt-kind play-enc`. Not tested: encoder accuracy on held-out positions, GPU memory and latency
+of soft-token decoding, `stop_strings` with embedding-input decoding on the real tokenizer.
+
+### A9 Reasoning v2a (text, one submit_move call)
+
+```bash
+python -m model.train.run --corpus $C/reasoning-v2-pilot-2026-11-a --run r2a --baseline $RUN1 \
+  --eval-arg=--no-stockfish --eval-arg=--no-tactics --gpu
+KNIGHTLM_ADAPTER_DIR=$R/r2a/adapter python -m model.eval.run --predictor model.eval.playmode:from_env --prompt-kind play $EVAL --label r2a
+python -m model.eval.compare $RUN1 $K/eval-r2a-<stamp>
+```
+
+20,000 train and 1,000 holdout rows, zero failed claims. Tokens (M, first 5,000 rows) 1071.7 (p95 1249, max 1686) against Run 1's 1089.0;
+0.42 h plus about 5 min of evaluation (U). Preflight (corpus audit, prompt parity, tokenisation) passes without `--gpu`. Read the claim failure
+rate and claims per explanation. Spec: `docs/model/reasoning-v2.md`.
+
+### A10 Reasoning v2b (read-tool quoting, loss on the calls only)
+
+The b pilot (`reasoning-v2-pilot-2026-11-b`) was built with the `play` prompt, which says "exactly one tool call". The builder now writes
+`play-reads` rows; **rebuild the corpus before training** (the owed step; the old pilot still audits but trains the wrong prompt):
+
+```bash
+python -m model.corpus.reasoning2 build --variant b --parent $C/run1-reasoning-2026-09-a --train 20000 --holdout 1000 \
+  --knightlm $KNIGHTLM_BIN --output $C/reasoning-v2-2026-11-b-reads
+$PY -m model.train.masked --corpus $C/reasoning-v2-2026-11-b-reads --run r2b                  # CPU preflight
+$PY -m model.train.masked --corpus $C/reasoning-v2-2026-11-b-reads --run r2b --gpu            # add --resume to continue a crashed run
+KNIGHTLM_ADAPTER_DIR=$R/r2b/adapter python -m model.eval.run --predictor model.eval.playmode:from_env --prompt-kind play-reads $EVAL --label r2b
+python -m model.eval.compare --allow-prompt-mismatch $RUN1 $K/eval-r2b-<stamp>
+```
+
+The recipe (`model.train.run`) refuses this corpus: the BLUT trainer (`hf_sft_train`) reads `{prompt, completion}` only and would put loss on
+the tool results (`--allow-unmasked-results` overrides, as a different, labelled arm). `model.train.masked` is the same LoRA recipe with the
+loss mask from `segments`. Tokens (M, first 5,000 rows) 1331.3 (p95 1530, max 2003); 39% of completion tokens are results and carry no loss
+(M, 64 rows: 8,511 of 21,954). Time 0.53 h at 14k tokens/s (U). Preflight (M, on the old pilot, 2026-11-20): all checks ok, 2 steps 32 s,
+reload logit error 0.0 (`$K/gaps-preflight-2026-11/preflight-r2b-masked.json`). Scoring with `--prompt-kind play-reads` needs a predictor
+that runs read calls between turns; the Python server refuses the kind, so a v2b scorecard needs the Rust harness path. Not tested: that
+path with a model, and any v2 transcript produced by a model.
+
+### A11 Perceiver (image to placement)
+
+```bash
+python3 -m model.perceiver.train --out $R/../perceiver/run-a --positions 4000 --boards-per-style 2000 --epochs 12 --device cuda
+python3 -m model.perceiver.evaluate --checkpoint $R/../perceiver/run-a/perceiver.pt --boards-per-style 300 \
+  --out $R/../perceiver/run-a/scorecard.json
+```
+
+Rendering 12k boards takes about 4 min on one core (M); 768k crops x 12 epochs = 9.2M samples, 2.4 GB uint8 in RAM; CPU about 900 samples/s
+so about 2.8 h (M rate under a build); GPU roughly 10-20 min (U, input-bound). Read held-out whole-board exact match per style, not the
+train group. To improve transfer first add styles and augmentation. Spec: `docs/model/perceiver.md`.
 
 ## Not tested
 
-No GPU run of any arm. The BLUT recipe's S0 evaluation path and `--baseline` compare on S0 corpora are
-exercised by unit tests with fakes, not against a trained adapter. T1/T3: no GPU training, no evaluation of
-an adapter with new rows, and the serve-side predictor on an extended base is untested.
-
-## Training the move head and the board encoder (S1, T4, T5: prepared, GPU runs not executed)
-
-Nothing in this section has trained on a GPU. The CPU preflights and the round-trip tests have run (below); every
-time is an estimate and is marked unmeasured. Each GPU command needs the owner's go.
-
-Resource check, immediately before any of them (the card is shared; numbers from an earlier check do not carry over):
-
-```bash
-nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv   # S1 plans on 12 GB free; T4/T5 steps need under 10 GB
-free -g | head -2                                                   # the CPU preflight loads the 500M host twice in float32 (about 8 GB)
-df -h / /mnt/4tb | tail -2                                          # keep 80 GB free on /; stop above 90% with a run over 10 GB
-```
-
-`python -m model.policy_head.train` runs the same checks itself (disk, GPU memory, RAM) and `--gpu` refuses when the
-card has under 12 GB free or the run directory has under 5 GB.
-
-### S1 human-only move head (joint adapter + head, or the frozen-host warm-up)
-
-Training code: `model/policy_head/train.py` (entry) and `joint.py` (loop). It reuses the BLUT image-text trainer's
-data code (`hf_image_text_data`: row stream, encode, collate), the recipe's LoRA regex and config (r 8, alpha 16),
-scheduler and clipping. It is not a recipe stage: the pinned `hf_sft_train` builds a single LoRA model and rejects
-`spec.extra`, so it cannot carry a second trainable module (the same blocker as ctok1 above). The loop trains
-adapter + head on the two `play-head` views of each Run 1 reasoning row: the head-read prompt (no move) feeds the head
-at the last token (`hidden_states[-1]`, the serve contract), and the conditioned prompt plus the unchanged play call
-feeds the language loss. Both prompts are tokenised by `Predictor._play_prompt_ids`, the serve function.
-
-```bash
-cd /mnt/4tb/KnightLM
-export BLUT_HF_VENV_IMAGE_TEXT=/mnt/4tb/venvs/blut-hf-image-text
-PY=$BLUT_HF_VENV_IMAGE_TEXT/bin/python
-CORPUS=/mnt/4tb/artifacts/KnightLM/expire/corpus/run1-reasoning-2026-09-a
-
-# 1. CPU preflight (changes nothing): corpus audit, row/mask legality, prompt parity with serve, two joint steps on
-#    the real base in float32, outputs written and reloaded through the serve loader (needs the logits to match)
-$PY -m model.policy_head.train --corpus $CORPUS --rows 20000 --run s1-head-a
-
-# 2. the cheap first probe: frozen host, head only (no adapter); about 8-15 ms/row, UNMEASURED
-$PY -m model.policy_head.train --corpus $CORPUS --rows 200000 --run s1-warmup-a --mode head-only --gpu
-
-# 3. the arm run: adapter + head, one epoch over the Run 1 reasoning rows (same rows and steps as T0)
-$PY -m model.policy_head.train --corpus $CORPUS --rows 200000 --run s1-head-a --gpu
-```
-
-`--gpu` refuses with a skipped check, a missing `--run`, a run directory that exists, or too little disk or GPU
-memory. Output: `$RUNS/s1-head-a/adapter/` (`--adapter-dir`), `$RUNS/s1-head-a/head/` (`head.pt`, `head.json`,
-`manifest.json`: base, adapter, head hashes, ctok/1 revision and vocabulary hash, ruleset, prompt kind, corpus
-manifest hash), `train_summary.json`, `entry.json`, `train.log`, adapter and head snapshots under `snapshots/`
-every 500 steps (there is no resume: a crashed run restarts under a new name). The server refuses a head whose
-manifest names another adapter or base. The scoring commands are in the next section.
-
-Estimate (UNMEASURED): the Run 1 row cost about 75 ms (625 steps x 32 rows in 25 minutes, with about 100
-generated tokens). A joint row adds a second prompt-only pass (head-read prompts average about 990 tokens, max
-1,238 in the first 64 rows), so plan 75-110 ms/row: 200k rows about 4-6 hours, 20k rows 25-37 minutes. Head-only
-at 8-15 ms/row: 200k rows about 27-50 minutes. VRAM about 10 GB (unmeasured). Re-measure on the first 200 steps
-(`train.log` has `seconds` per step) before committing to the full pass. Preflight on the real base on CPU
-(float32, 2 steps, batch 2): 92 s, reload logit error 0.0, adapter 819,200 and head 1,893,168 parameters; this
-checks the code path, not speed on the GPU.
-
-### T4 and T5 encoder and projector (P0 pretrain, P1 align)
-
-Writers: `model/encoder/pretrain.py` writes `<out>/encoder/` (`encoder.pt`, `config.json`, `heads.pt`,
-`manifest.json`) and `axis.json`; `model/encoder/align.py` writes `<out>/` (`projector.pt`, `projector.json`,
-`manifest.json`). The manifests record the plane fingerprint, corpus and compiler hashes, and for the projector the
-encoder hash and host base hash; `Predictor._load_board` refuses a projector aligned to another encoder or host. The
-layout is the one the server loaded before, so older directories without manifests still load. The round trip
-(written, then loaded by the server's own loader, same soft tokens and host logits) is `model.encoder.test_writers`.
-
-```bash
-cd /mnt/4tb/KnightLM
-oneoff cargo build --release -p knightlm-cli            # labels come from the compiler's board-labels
-export KNIGHTLM_BIN=$PWD/target/release/knightlm
-RUNS=/mnt/4tb/artifacts/KnightLM/expire/runs
-
-# CPU sanity of the same command (minutes, tiny encoder)
-python3 -m model.encoder.pretrain --corpus $CORPUS --out /mnt/4tb/tmp/encoder-smoke --tiny --train-rows 2000 \
-  --epochs 3 --device cpu --knightlm $KNIGHTLM_BIN
-
-# P0: pretrain the encoder (GPU)
-$PY -m model.encoder.pretrain --corpus $CORPUS --out $RUNS/encoder-p0-a --knightlm $KNIGHTLM_BIN \
-  --train-rows 200000 --walk-share 1.0 --holdout-rows 10000 --epochs 20 --batch 256 --lr 1e-3 --device cuda
-cat $RUNS/encoder-p0-a/axis.json      # gate: every head reported; board-exact and legal-move set-exact near 1
-
-# P1: align the projector (GPU); rows are {fen, repetition?, prompt, completion} JSONL (S0 rules-QA rows, see below)
-$PY -m model.encoder.align --host /mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98 \
-  --encoder $RUNS/encoder-p0-a/encoder --rows <s0-rules-qa-rows.jsonl> --out $RUNS/projector-smolvlm-a \
-  --steps 3000 --batch 16 --lr 1e-3 --device cuda
-```
-
-Estimates (UNMEASURED; from `docs/model/board-encoder.md`): P0 400,000 positions x 20 epochs, about 20-40
-minutes on the 4090 (about 20 of them single-process plane building), under 4 GB; P1 3,000 steps x 16 rows,
-about 10-30 minutes, under 10 GB. Disk: a few hundred MB. Not tested: any GPU run, encoder accuracy on held-out
-positions, and the P1 rows (the S0 builder does not yet write `fen`/`repetition` rows for the encoder prompts;
-that converter is owed). Owed before the T4/T5 arms exist: P2 task training (adapter trainable beside the
-projector, the encoder frozen, the `image_hidden_states` path) with the same rows, steps and LoRA as T0, and the
-`apps/blut-knightlm/src/stages/board_encoder.rs` stages are still unregistered drafts (they call the same two
-commands). T5 differs from T4 only in its prompt kind (`play-enc-cgt`), so it reuses the same encoder and projector.
-
-## Scoring the move-head and board-encoder arms (prepared, not run)
-
-Nothing here has run on a GPU. The prompts, predictors and eval wiring are tested on a tiny random CPU host and with
-fake predictors; the commands below need trained artifacts that do not exist yet (the joint adapter and head
-run, the pretrained encoder and the aligned projector, the T4/T5 adapters; the commands to make them are above) and a GPU for the 500M host. Each
-needs the owner's go. They score on the move holdout (`--corpus` default `run1-2026-09-a`), the same rows and
-scorecard as the Run 1 control, so arms compare on one table.
-
-| arm | prompt kind | what the model sees | artifacts it needs |
-|---|---|---|---|
-| T0 control | `play` | FEN packet | the Run 1 reasoning adapter |
-| S1 human-only move head | `play-head` | FEN packet, head-read line, head's move | adapter + head (`save_head`) |
-| S1 warm-up probe | `play-head` | the same, frozen host | head only (no adapter) |
-| T4 encoder | `play-enc` | 64 soft tokens + rule facts | adapter + encoder + projector |
-| T5 encoder + cgt | `play-enc-cgt` | soft tokens + rule facts + cgt-lite text | adapter + encoder + projector; `knightlm` binary |
-
-```bash
-export KNIGHTLM_BASE_DIR=/mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98
-export KNIGHTLM_DEVICE=cuda
-RUNS=/mnt/4tb/artifacts/KnightLM/expire/runs      # <...> below are the not-yet-existing run directories
-EVAL="--rows 300 --oracles lc0 maia"              # as the Run 1 play-mode evaluation; add --games N for matches
-
-# T0 control (exists once the Run 1 adapter is at hand)
-KNIGHTLM_ADAPTER_DIR=$RUNS/<run1-reasoning>/adapter python -m model.eval.run \
-  --predictor model.eval.playmode:from_env --prompt-kind play --label t0-control $EVAL
-
-# S1 human-only move head: the head's move scored beside what the completion wrote (agreement)
-KNIGHTLM_ADAPTER_DIR=$RUNS/<s1>/adapter KNIGHTLM_HEAD_DIR=$RUNS/<s1>/head python -m model.eval.run \
-  --predictor model.eval.playmode:head_from_env --prompt-kind play-head --move-head --label s1-head $EVAL
-
-# S1 warm-up probe (frozen host: empty adapter, head only): the head axis is the measurement; completions are noise
-KNIGHTLM_ADAPTER_DIR= KNIGHTLM_HEAD_DIR=$RUNS/<s1-warmup>/head python -m model.eval.run \
-  --predictor model.eval.playmode:head_from_env --prompt-kind play-head --move-head --label s1-warmup \
-  --rows 300 --modes raw --no-tactics
-
-# T4 board encoder (play-enc) and T5 board encoder + cgt text (play-enc-cgt)
-ENC="KNIGHTLM_ENCODER_DIR=$RUNS/encoder-p0-a/encoder KNIGHTLM_PROJECTOR_DIR=$RUNS/projector-smolvlm-a"
-env $ENC KNIGHTLM_ADAPTER_DIR=$RUNS/<t4>/adapter python -m model.eval.run \
-  --predictor model.eval.playmode:from_env --prompt-kind play-enc --label t4-encoder $EVAL
-env $ENC KNIGHTLM_ADAPTER_DIR=$RUNS/<t5>/adapter python -m model.eval.run \
-  --predictor model.eval.playmode:from_env --prompt-kind play-enc-cgt --label t5-encoder-cgt $EVAL
-```
-
-Compare on the one table. Cards of different prompt kinds measure different tasks, so every pair below needs
-`--allow-prompt-mismatch`; the rows, Stockfish depth and tactical set are still checked and a difference there
-still refuses. Read the arms side by side, never summed:
-
-```bash
-python -m model.eval.compare --allow-prompt-mismatch <t0-control dir> <s1-head dir>    # head vs the language move
-python -m model.eval.compare --allow-prompt-mismatch <t0-control dir> <t4-encoder dir>
-python -m model.eval.compare --allow-prompt-mismatch <t4-encoder dir> <t5-encoder dir> # does cgt text add to soft tokens
-```
-
-What to read: for S1, `axes.move_head` (masked top-1/top-3, NLL, ECE, CPL; raw legality and illegal mass as the
-diagnostic) beside `axes.head_agreement` (does the written reasoning agree with the head's move) and
-`axes.play_explanation` (are its claims true); human match is not strength, so read it with the CPL against the
-control (CPL 409, random floor 417). For T4/T5 the same play axes as T0, plus `play_explanation` claim failures:
-the encoder's reason to exist is that a board-grounded model stops asserting false piece placements (Run 1: 65%).
-All numbers carry the arm label ("human-only move head" for S1).
-
-Serving the same artifacts (not part of scoring): `python -m model.serve.server --base-dir DIR --adapter-dir DIR
---head-dir DIR` or `--encoder-dir DIR --projector-dir DIR --play-prompt-kind play-enc`.
-
-What the training runs must satisfy for these commands to be valid: the S1 adapter and head are trained on the two
-`play-head` views (written above: `model.policy_head.train`, checked against the serve tokenisation) with the same
-rows, steps and LoRA as T0; the T4/T5 adapters (owed: P2, not written) are trained on `play-enc`/`play-enc-cgt` rows
-with the projector trainable and the encoder frozen, through the `image_hidden_states` path. Not tested: any of this on the real SmolVLM, GPU memory and latency of
-soft-token decoding, and `stop_strings` with embedding-input decoding on the real tokenizer.
-
-## Reasoning v2 (prepared, not run)
-
-Pilot corpora (20,000 train, 1,000 holdout, from the Run 1 reasoning corpus positions; spec in
-docs/model/reasoning-v2.md; evidence in `keep/reasoning-v2-pilot-2026-11/`): `reasoning-v2-pilot-2026-11-a`
-(text) and `-b` (tool quoting). Zero failed claims. Tokens per row (SmolVLM tokenizer, first 5,000 train
-rows): a 1071.7 (p95 1249, max 1686), b 1331.3 (p95 1530, max 2003, under seq_len 2048); Run 1 reasoning 1089.0.
-Time at 14k tokens/s over 625 steps: a 0.42 h, b 0.53 h, plus about 5 minutes of evaluation.
-
-```bash
-python -m model.train.run --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/reasoning-v2-pilot-2026-11-a \
-  --run r2a --baseline <run1short play-mode scorecard dir> --eval-arg=--no-stockfish --eval-arg=--no-tactics --gpu
-python -m model.train.run --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/reasoning-v2-pilot-2026-11-b \
-  --run r2b --baseline <run1short play-mode scorecard dir> --eval-arg=--no-stockfish --eval-arg=--no-tactics --gpu
-```
-
-Preflight (corpus audit, prompt parity, tokenisation) passes for both without `--gpu`. Run `a` first; `b` needs
-the prompt and loss-mask follow-ups listed in the spec. Score on `model.eval.run --prompt-kind play` against
-`keep/eval-run1short-playmode-300-20261120T221837Z` (claim failure rate, claims per explanation).
+No GPU run of any arm. CPU preflights ran on the real base for S1, T4/T5 (random-init encoder) and v2b; the recipe's S0 evaluation path and
+`--baseline` compare are exercised by unit tests with fakes. Not tested anywhere: encoder accuracy on held-out positions, a trained adapter on
+the T1/T3 extended base, soft-token decoding on a GPU, the Rust harness path for v2b transcripts, resume on a GPU (CPU is bit-identical;
+CUDA kernels that are not deterministic can differ in the last bits), and the serving predictors on any trained artifact.

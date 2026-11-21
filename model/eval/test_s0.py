@@ -142,7 +142,7 @@ class KindGuard(unittest.TestCase):
     def test_run_accepts_the_new_kinds(self):
         from model.eval.scorecard import PROMPT_KINDS
         self.assertEqual(PROMPT_KINDS, ("move", "play", "play-cgt", "play-cgt-full", "play-t1", "play-t3", "play-t3-full",
-                                        "play-head", "play-enc", "play-enc-cgt"))
+                                        "play-head", "play-enc", "play-enc-cgt", "play-reads"))
 
 
 if __name__ == "__main__":
