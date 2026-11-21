@@ -65,7 +65,7 @@ PASS milestones.valid                   KLM-WAR-0009: 3 milestone(s), 4 stage(s)
 PASS obligations.valid                  KLM-WAR-0009: 5 obligation(s), each with a bounded scope and evidence
 PASS generated.drift                    KLM-WAR-0009: 2 generated view(s) match a fresh compilation
 PASS manifest.valid                     KLM-WAR-0010: manifest and composition are well-formed
-PASS deliverable.digests                KLM-WAR-0010: 3 content-addressed deliverable(s) match their bytes
+PASS deliverable.digests                KLM-WAR-0010: 1 content-addressed deliverable(s) match their bytes
 PASS journal.append-only                KLM-WAR-0010: 4 event(s), 0 backfilled, extends the committed journal
 PASS milestones.valid                   KLM-WAR-0010: 4 milestone(s), 4 stage(s), acyclic with no dangling refs
 PASS obligations.valid                  KLM-WAR-0010: 5 obligation(s), each with a bounded scope and evidence
@@ -116,10 +116,10 @@ PASS obligations.valid                  KLM-WAR-0017: 2 obligation(s), each with
 PASS generated.drift                    KLM-WAR-0017: 2 generated view(s) match a fresh compilation
 PASS manifest.valid                     KLM-WAR-0018: manifest and composition are well-formed
 PASS deliverable.digests                KLM-WAR-0018: 5 content-addressed deliverable(s) match their bytes
-WARN evidence.not-a-pass                KLM-WAR-0018: software.repo.war-check@1.0.0 · the run is not a §44.5 required pass (askability askable, execution completed, verdict fail)
+WARN evidence.reuse-unknown             KLM-WAR-0018: software.repo.war-check@1.0.0 · reuse UNKNOWN: the run started from tree:f8e9acd179a2c486d019144243a72f324cfce162 with uncommitted changes, and a dirty tree has no name. Not admissible and not a failure; `war evidence record` mints a receipt that names its source
                                              → docs/warrants/KLM-WAR-0018/gate-runs/software_repo_war-check_1_0_0.run.toml
-                                             → auto: war evidence record KLM-WAR-0018
-PASS journal.append-only                KLM-WAR-0018: 5 event(s), 0 backfilled, extends the committed journal
+                                             → info: war evidence record
+PASS journal.append-only                KLM-WAR-0018: 6 event(s), 0 backfilled, extends the committed journal
 PASS gate.resolved                      KLM-WAR-0018: 1 cited gate(s) resolve to a bindable definition
 PASS milestones.valid                   KLM-WAR-0018: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
 PASS obligations.valid                  KLM-WAR-0018: 7 obligation(s), each with a bounded scope and evidence
@@ -146,7 +146,9 @@ PASS milestones.valid                   KLM-WAR-0021: 2 milestone(s), 2 stage(s)
 PASS obligations.valid                  KLM-WAR-0021: 2 obligation(s), each with a bounded scope and evidence
 PASS generated.drift                    KLM-WAR-0021: 2 generated view(s) match a fresh compilation
 PASS composition.acyclic                parent graph is acyclic across 21 Warrant(s)
+PASS adr.parsed                         2 ADR(s) parsed
 PASS identity.duplicate-uuid            21 Warrant UUID(s), each naming one Warrant
+PASS identity.duplicate-uuid            2 ADR UUID(s), each naming one ADR
 PASS identity.atom-mismatch             KLM-WAR-0001: 4 atom(s) name this Warrant's UUID
 PASS identity.atom-mismatch             KLM-WAR-0002: 4 atom(s) name this Warrant's UUID
 PASS identity.atom-mismatch             KLM-WAR-0003: 4 atom(s) name this Warrant's UUID
@@ -170,11 +172,12 @@ PASS identity.atom-mismatch             KLM-WAR-0020: 4 atom(s) name this Warran
 PASS identity.atom-mismatch             KLM-WAR-0021: 4 atom(s) name this Warrant's UUID
 PASS identity.changed                   21 committed manifest UUID(s) unchanged since HEAD, 0 new
 PASS identity.alias-ref                 0 parent and supersedes reference(s), each by UUID
+PASS identity.adr-not-v7                all 2 ADR UUID(s) are UUIDv7
 PASS sas-normative.section-labels       no unsupported numbered SAS heading hides or mislabels a normative body statement
 WARN sas.proposed-unaccepted            the document is revision 0.2.1 (proposed), sha256:f634dbd65e4a; the accepted revision 0.1.0 remains normative until `war sign 0.2.1` accepts it
                                              → docs/sas/KnightLM_SAS.md
                                              → info: war sign sas status
-PASS format.well-formed                 59 Format 1.0 document(s), 107 unit(s): nothing refused, nothing UNKNOWN
+PASS format.well-formed                 79 Format 1.0 document(s), 150 unit(s): nothing refused, nothing UNKNOWN
 PASS authority.signed                   SAS-0.1.0: signed by quitetall over docs/authority/responses/SAS-0.1.0.response.toml
 PASS warrant-overview.drift             WARRANT_OVERVIEW.md matches a fresh compilation
 PASS adr-overview.drift                 ADR_OVERVIEW.md matches a fresh compilation
@@ -191,10 +194,10 @@ PASS context-index.drift                llms.txt matches a fresh compilation
 PASS generated.drift                    CURRENT.md matches a fresh compilation
 
 REMEDIES:
-  auto  war evidence record KLM-WAR-0018   (×1)
+  info  war evidence record   (×1)
   info  war sign sas status   (×1)
 
-181 pass · 4 warn · 0 unknown · 0 error   (worst: WARN)
+184 pass · 4 warn · 0 unknown · 0 error   (worst: WARN)
 
 NOT CHECKED:
   · 21 of 21 Warrant(s) have no disposed              obligations — §38.6 yields no resolution verdict for them, which is the              expected state of work that has not been assessed

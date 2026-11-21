@@ -24,6 +24,8 @@ except ImportError:  # pragma: no cover
 
 CORPUS = ["e4 knight white king queen rook bishop pawn black empty position board moves 0123456789 - unknown",
           "white to move black to move castles kingside queenside en passant check checkmate promotes to"] * 20
+# Scratch on the 4 TB drive when it exists (the owner's machine); the system default elsewhere (CI).
+SCRATCH = "/mnt/4tb/tmp" if Path("/mnt/4tb/tmp").is_dir() else None
 REAL_TOKENIZER = Path("/mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98")
 
 
@@ -118,7 +120,7 @@ class Extension(unittest.TestCase):
         ids = sample_ids(base)
         with torch.no_grad():
             before = self.model(input_ids=ids).logits
-        with tempfile.TemporaryDirectory(prefix="ctok-hf-", dir="/mnt/4tb/tmp") as tmp:
+        with tempfile.TemporaryDirectory(prefix="ctok-hf-", dir=SCRATCH) as tmp:
             self.model.save_pretrained(tmp)
             self.tok.save_pretrained(tmp)
             model2 = Idefics3ForConditionalGeneration.from_pretrained(tmp).eval()
@@ -154,7 +156,7 @@ class Extension(unittest.TestCase):
         wrapped.eval()
         with torch.no_grad():
             trained = wrapped(input_ids=ids).logits
-        with tempfile.TemporaryDirectory(prefix="ctok-peft-", dir="/mnt/4tb/tmp") as tmp:
+        with tempfile.TemporaryDirectory(prefix="ctok-peft-", dir=SCRATCH) as tmp:
             wrapped.save_pretrained(tmp)
             fresh = tiny_model(self.host_n)  # the same seeded, un-extended base the trained model started from
             fresh.resize_token_embeddings(base + vocab.SIZE)  # resize on load, as the spec says

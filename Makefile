@@ -1,4 +1,4 @@
-.PHONY: check check-apps check-desktop check-mojo check-secrets gate rbc-desktop rbc-desktop-bundle rbc-desktop-smoke
+.PHONY: check check-torch check-apps check-desktop check-mojo check-secrets gate rbc-desktop rbc-desktop-bundle rbc-desktop-smoke
 check:
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets --locked -j 2 -- -D warnings
@@ -6,22 +6,33 @@ check:
 	cargo test --workspace --all-features --locked -j 2
 	cargo build --locked -j 2
 	python3 -m unittest discover -s model/parity/python
-	python3 -m unittest model.corpus.test_pipeline model.corpus.test_v3 model.corpus.test_reasoning model.corpus.test_reasoning2 model.corpus.test_s0
-	python3 -m unittest model.tests.test_materialize model.tests.test_train_run model.tests.test_pipeline model.tests.test_prompt
-	python3 -m unittest model.eval.test_eval model.eval.test_oracles model.eval.test_explain model.eval.test_playmode model.eval.test_s0
-	python3 -m unittest model.serve.test_play model.serve.test_chat
-	python3 -m unittest model.encoder.test_encoder
-	python3 -m unittest model.tokenizer.test_tokenizer model.tokenizer.test_hf model.tokenizer.test_arms model.train.test_ctok
-	python3 -m unittest model.perceiver.test_perceiver
-	python3 -m unittest model.policy_head.test_policy_head model.eval.test_move_head
-	python3 -m unittest model.serve.test_coach
-	python3 -m unittest model.serve.test_head model.eval.test_playhead
+	# One runner so every skip (module and reason) is printed at the end, not hidden in "skipped=N".
+	python3 scripts/run_py_tests.py \
+		model.corpus.test_pipeline model.corpus.test_v3 model.corpus.test_reasoning model.corpus.test_reasoning2 model.corpus.test_s0 \
+		model.tests.test_materialize model.tests.test_train_run model.tests.test_pipeline model.tests.test_prompt \
+		model.eval.test_eval model.eval.test_oracles model.eval.test_explain model.eval.test_playmode model.eval.test_s0 \
+		model.serve.test_play model.serve.test_chat model.encoder.test_encoder \
+		model.tokenizer.test_tokenizer model.tokenizer.test_hf model.tokenizer.test_arms model.train.test_ctok model.perceiver.test_perceiver \
+		model.policy_head.test_policy_head model.eval.test_move_head model.serve.test_coach \
+		model.serve.test_head model.eval.test_playhead model.serve.test_uci_gate
+	python3 scripts/test_run_py_tests.py
 	python3 scripts/check_cli.py
 	python3 scripts/check_ports.py
 	python3 scripts/test_check_pins.py
 	python3 scripts/check_pins.py
 	python3 scripts/test_check_layers.py
 	python3 scripts/check_layers.py
+
+# The torch-dependent model tests, with the dependencies installed: a skip here is a failure.
+# CI (job `model-torch`) installs model/ci-requirements.txt in a venv first; locally, run this
+# with a python that has torch, transformers, peft and Pillow (PYTHON=path/to/python).
+PYTHON ?= python3
+# CI also forbids "not built" (it builds the knightlm binary first): FORBID_SKIP='...|not built'.
+FORBID_SKIP ?= torch|transformers|peft|Pillow|numpy
+check-torch:
+	$(PYTHON) scripts/run_py_tests.py --forbid-skip '$(FORBID_SKIP)' \
+		model.encoder.test_encoder model.tokenizer.test_hf model.perceiver.test_perceiver \
+		model.policy_head.test_policy_head model.eval.test_move_head model.serve.test_uci_gate
 
 # The application crates, which the workspace excludes: clippy, fmt and tests for
 # the server and the wasm frontend. `check` alone would stay green while both rot.
