@@ -147,6 +147,10 @@ class Predictor:
         self.n_board_tokens = encoder.cfg.n_tokens
         self.encoder_sha256 = sha256_file(self.encoder_dir / "encoder.pt")
         self.projector_sha256 = sha256_file(self.projector_dir / "projector.pt")
+        from model.encoder.manifest import check_pair  # manifests are optional; a present one must match
+        problems = check_pair(self.encoder_dir, self.projector_dir, getattr(self, "base_sha256", None))
+        if problems:
+            raise ValueError("board encoder and projector do not match: " + "; ".join(problems))
 
     def _soft_tokens(self, packet):
         """(1, n_board_tokens, host_hidden) soft tokens for one packet's position."""

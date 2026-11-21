@@ -199,11 +199,108 @@ No GPU run of any arm. The BLUT recipe's S0 evaluation path and `--baseline` com
 exercised by unit tests with fakes, not against a trained adapter. T1/T3: no GPU training, no evaluation of
 an adapter with new rows, and the serve-side predictor on an extended base is untested.
 
+## Training the move head and the board encoder (S1, T4, T5: prepared, GPU runs not executed)
+
+Nothing in this section has trained on a GPU. The CPU preflights and the round-trip tests have run (below); every
+time is an estimate and is marked unmeasured. Each GPU command needs the owner's go.
+
+Resource check, immediately before any of them (the card is shared; numbers from an earlier check do not carry over):
+
+```bash
+nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv   # S1 plans on 12 GB free; T4/T5 steps need under 10 GB
+free -g | head -2                                                   # the CPU preflight loads the 500M host twice in float32 (about 8 GB)
+df -h / /mnt/4tb | tail -2                                          # keep 80 GB free on /; stop above 90% with a run over 10 GB
+```
+
+`python -m model.policy_head.train` runs the same checks itself (disk, GPU memory, RAM) and `--gpu` refuses when the
+card has under 12 GB free or the run directory has under 5 GB.
+
+### S1 human-only move head (joint adapter + head, or the frozen-host warm-up)
+
+Training code: `model/policy_head/train.py` (entry) and `joint.py` (loop). It reuses the BLUT image-text trainer's
+data code (`hf_image_text_data`: row stream, encode, collate), the recipe's LoRA regex and config (r 8, alpha 16),
+scheduler and clipping. It is not a recipe stage: the pinned `hf_sft_train` builds a single LoRA model and rejects
+`spec.extra`, so it cannot carry a second trainable module (the same blocker as ctok1 above). The loop trains
+adapter + head on the two `play-head` views of each Run 1 reasoning row: the head-read prompt (no move) feeds the head
+at the last token (`hidden_states[-1]`, the serve contract), and the conditioned prompt plus the unchanged play call
+feeds the language loss. Both prompts are tokenised by `Predictor._play_prompt_ids`, the serve function.
+
+```bash
+cd /mnt/4tb/KnightLM
+export BLUT_HF_VENV_IMAGE_TEXT=/mnt/4tb/venvs/blut-hf-image-text
+PY=$BLUT_HF_VENV_IMAGE_TEXT/bin/python
+CORPUS=/mnt/4tb/artifacts/KnightLM/expire/corpus/run1-reasoning-2026-09-a
+
+# 1. CPU preflight (changes nothing): corpus audit, row/mask legality, prompt parity with serve, two joint steps on
+#    the real base in float32, outputs written and reloaded through the serve loader (needs the logits to match)
+$PY -m model.policy_head.train --corpus $CORPUS --rows 20000 --run s1-head-a
+
+# 2. the cheap first probe: frozen host, head only (no adapter); about 8-15 ms/row, UNMEASURED
+$PY -m model.policy_head.train --corpus $CORPUS --rows 200000 --run s1-warmup-a --mode head-only --gpu
+
+# 3. the arm run: adapter + head, one epoch over the Run 1 reasoning rows (same rows and steps as T0)
+$PY -m model.policy_head.train --corpus $CORPUS --rows 200000 --run s1-head-a --gpu
+```
+
+`--gpu` refuses with a skipped check, a missing `--run`, a run directory that exists, or too little disk or GPU
+memory. Output: `$RUNS/s1-head-a/adapter/` (`--adapter-dir`), `$RUNS/s1-head-a/head/` (`head.pt`, `head.json`,
+`manifest.json`: base, adapter, head hashes, ctok/1 revision and vocabulary hash, ruleset, prompt kind, corpus
+manifest hash), `train_summary.json`, `entry.json`, `train.log`, adapter and head snapshots under `snapshots/`
+every 500 steps (there is no resume: a crashed run restarts under a new name). The server refuses a head whose
+manifest names another adapter or base. The scoring commands are in the next section.
+
+Estimate (UNMEASURED): the Run 1 row cost about 75 ms (625 steps x 32 rows in 25 minutes, with about 100
+generated tokens). A joint row adds a second prompt-only pass (head-read prompts average about 990 tokens, max
+1,238 in the first 64 rows), so plan 75-110 ms/row: 200k rows about 4-6 hours, 20k rows 25-37 minutes. Head-only
+at 8-15 ms/row: 200k rows about 27-50 minutes. VRAM about 10 GB (unmeasured). Re-measure on the first 200 steps
+(`train.log` has `seconds` per step) before committing to the full pass. Preflight on the real base on CPU
+(float32, 2 steps, batch 2): 92 s, reload logit error 0.0, adapter 819,200 and head 1,893,168 parameters; this
+checks the code path, not speed on the GPU.
+
+### T4 and T5 encoder and projector (P0 pretrain, P1 align)
+
+Writers: `model/encoder/pretrain.py` writes `<out>/encoder/` (`encoder.pt`, `config.json`, `heads.pt`,
+`manifest.json`) and `axis.json`; `model/encoder/align.py` writes `<out>/` (`projector.pt`, `projector.json`,
+`manifest.json`). The manifests record the plane fingerprint, corpus and compiler hashes, and for the projector the
+encoder hash and host base hash; `Predictor._load_board` refuses a projector aligned to another encoder or host. The
+layout is the one the server loaded before, so older directories without manifests still load. The round trip
+(written, then loaded by the server's own loader, same soft tokens and host logits) is `model.encoder.test_writers`.
+
+```bash
+cd /mnt/4tb/KnightLM
+oneoff cargo build --release -p knightlm-cli            # labels come from the compiler's board-labels
+export KNIGHTLM_BIN=$PWD/target/release/knightlm
+RUNS=/mnt/4tb/artifacts/KnightLM/expire/runs
+
+# CPU sanity of the same command (minutes, tiny encoder)
+python3 -m model.encoder.pretrain --corpus $CORPUS --out /mnt/4tb/tmp/encoder-smoke --tiny --train-rows 2000 \
+  --epochs 3 --device cpu --knightlm $KNIGHTLM_BIN
+
+# P0: pretrain the encoder (GPU)
+$PY -m model.encoder.pretrain --corpus $CORPUS --out $RUNS/encoder-p0-a --knightlm $KNIGHTLM_BIN \
+  --train-rows 200000 --walk-share 1.0 --holdout-rows 10000 --epochs 20 --batch 256 --lr 1e-3 --device cuda
+cat $RUNS/encoder-p0-a/axis.json      # gate: every head reported; board-exact and legal-move set-exact near 1
+
+# P1: align the projector (GPU); rows are {fen, repetition?, prompt, completion} JSONL (S0 rules-QA rows, see below)
+$PY -m model.encoder.align --host /mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98 \
+  --encoder $RUNS/encoder-p0-a/encoder --rows <s0-rules-qa-rows.jsonl> --out $RUNS/projector-smolvlm-a \
+  --steps 3000 --batch 16 --lr 1e-3 --device cuda
+```
+
+Estimates (UNMEASURED; from `docs/model/board-encoder.md`): P0 400,000 positions x 20 epochs, about 20-40
+minutes on the 4090 (about 20 of them single-process plane building), under 4 GB; P1 3,000 steps x 16 rows,
+about 10-30 minutes, under 10 GB. Disk: a few hundred MB. Not tested: any GPU run, encoder accuracy on held-out
+positions, and the P1 rows (the S0 builder does not yet write `fen`/`repetition` rows for the encoder prompts;
+that converter is owed). Owed before the T4/T5 arms exist: P2 task training (adapter trainable beside the
+projector, the encoder frozen, the `image_hidden_states` path) with the same rows, steps and LoRA as T0, and the
+`apps/blut-knightlm/src/stages/board_encoder.rs` stages are still unregistered drafts (they call the same two
+commands). T5 differs from T4 only in its prompt kind (`play-enc-cgt`), so it reuses the same encoder and projector.
+
 ## Scoring the move-head and board-encoder arms (prepared, not run)
 
-Nothing here has run. The prompts, predictors and eval wiring are tested on a tiny random CPU host and with
+Nothing here has run on a GPU. The prompts, predictors and eval wiring are tested on a tiny random CPU host and with
 fake predictors; the commands below need trained artifacts that do not exist yet (the joint adapter and head
-run, the pretrained encoder and the aligned projector, the T4/T5 adapters) and a GPU for the 500M host. Each
+run, the pretrained encoder and the aligned projector, the T4/T5 adapters; the commands to make them are above) and a GPU for the 500M host. Each
 needs the owner's go. They score on the move holdout (`--corpus` default `run1-2026-09-a`), the same rows and
 scorecard as the Run 1 control, so arms compare on one table.
 
@@ -262,9 +359,8 @@ All numbers carry the arm label ("human-only move head" for S1).
 Serving the same artifacts (not part of scoring): `python -m model.serve.server --base-dir DIR --adapter-dir DIR
 --head-dir DIR` or `--encoder-dir DIR --projector-dir DIR --play-prompt-kind play-enc`.
 
-What the training runs must satisfy for these commands to be valid (owed, not written): the S1 adapter and head
-are trained on the two `play-head` views (head read at the last token of the head-read prompt,
-`hidden_states[-1]`; completion on the conditioned prompt) with the same rows, steps and LoRA as T0; the T4/T5
-adapters are trained on `play-enc`/`play-enc-cgt` rows with the projector trainable and the encoder frozen,
-through the `image_hidden_states` path. Not tested: any of this on the real SmolVLM, GPU memory and latency of
+What the training runs must satisfy for these commands to be valid: the S1 adapter and head are trained on the two
+`play-head` views (written above: `model.policy_head.train`, checked against the serve tokenisation) with the same
+rows, steps and LoRA as T0; the T4/T5 adapters (owed: P2, not written) are trained on `play-enc`/`play-enc-cgt` rows
+with the projector trainable and the encoder frozen, through the `image_hidden_states` path. Not tested: any of this on the real SmolVLM, GPU memory and latency of
 soft-token decoding, and `stop_strings` with embedding-input decoding on the real tokenizer.
