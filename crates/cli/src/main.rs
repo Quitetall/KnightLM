@@ -75,6 +75,20 @@ enum Command {
         #[arg(long)]
         rep: Option<u32>,
     },
+    /// Deterministic random playouts from the start position (plus any six-field
+    /// FENs on stdin); one JSON row `{fen, legal_moves}` per position, legal moves
+    /// in UCI from the compiler's rules core. Test data for the ctok/1 tokenizer.
+    Playouts {
+        #[arg(long, default_value_t = 20)]
+        games: usize,
+        #[arg(long, default_value_t = 120)]
+        plies: usize,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Also read FENs (one per line) from stdin.
+        #[arg(long)]
+        stdin_fens: bool,
+    },
     /// Replay JSONL SAN lines ({id, fen?, sans}) and report validated FENs.
     ReplayLines,
     /// Check observed board placement against the authoritative ledger.
@@ -160,6 +174,60 @@ fn emit<T: serde::Serialize>(value: &T, compact: bool) -> Result<()> {
             serde_json::to_string_pretty(&value)?
         }
     );
+    Ok(())
+}
+
+fn playouts(games: usize, plies: usize, seed: u64, stdin_fens: bool) -> Result<()> {
+    use knightlm_notation::fen::{CastlingStyle, parse_fen, write_fen};
+    use shakmaty::{CastlingMode, Chess, Position, uci::UciMove};
+    use std::io::{BufRead, Write};
+    let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+    let mut row = |pos: &Chess| -> Result<()> {
+        let mut moves: Vec<String> = pos
+            .legal_moves()
+            .iter()
+            .map(|m| UciMove::from_move(*m, CastlingMode::Standard).to_string())
+            .collect();
+        moves.sort();
+        let value = serde_json::json!({
+            "fen": write_fen(pos, CastlingStyle::XFen),
+            "legal_moves": moves,
+        });
+        writeln!(out, "{value}")?;
+        Ok(())
+    };
+    let mut state = seed.max(1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    for _ in 0..games {
+        let mut pos = Chess::default();
+        row(&pos)?;
+        for _ in 0..plies {
+            let moves = pos.legal_moves();
+            if moves.is_empty() {
+                break;
+            }
+            let mv = moves[(next() % moves.len() as u64) as usize];
+            pos.play_unchecked(mv);
+            row(&pos)?;
+        }
+    }
+    if stdin_fens {
+        for line in std::io::stdin().lock().lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let parsed = parse_fen(line.trim())?;
+            ensure!(parsed.has_clocks, "playouts needs six-field FENs");
+            row(&parsed.position)?;
+        }
+    }
+    out.flush()?;
     Ok(())
 }
 
@@ -297,6 +365,12 @@ fn main() -> Result<()> {
             knightlm_notation::cgt::parse_cgt(&text)?;
             println!("{text}");
         }
+        Command::Playouts {
+            games,
+            plies,
+            seed,
+            stdin_fens,
+        } => playouts(games, plies, seed, stdin_fens)?,
         Command::ReplayLines => corpus::replay_lines(
             std::io::stdin().lock(),
             std::io::BufWriter::new(std::io::stdout().lock()),

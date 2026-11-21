@@ -10,6 +10,7 @@ check:
 	python3 -m unittest model.tests.test_materialize model.tests.test_train_run model.tests.test_pipeline model.tests.test_prompt
 	python3 -m unittest model.eval.test_eval model.eval.test_oracles model.eval.test_explain model.eval.test_playmode model.eval.test_s0
 	python3 -m unittest model.serve.test_play model.serve.test_chat model.serve.test_coach
+	python3 -m unittest model.tokenizer.test_tokenizer model.tokenizer.test_hf
 	python3 -m unittest model.perceiver.test_perceiver
 	python3 scripts/check_cli.py
 	python3 scripts/check_ports.py
