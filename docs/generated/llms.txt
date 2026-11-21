@@ -45,6 +45,10 @@
 > -
 - doc:docs/app/migrations.md · document · - · Database migrations, and the one reset · docs/app/migrations.md:1
 
+## docs/app/models.md
+> -
+- doc:docs/app/models.md · document · - · Using a model from RustyBrickChess · docs/app/models.md:1
+
 ## docs/app/running.md
 > -
 - doc:docs/app/running.md · document · - · Running RustyBrickChess · docs/app/running.md:1
