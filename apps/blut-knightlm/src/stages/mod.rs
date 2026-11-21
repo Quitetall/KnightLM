@@ -2,12 +2,14 @@
 //! `blut-cookbook-standard`; so does dataset registration, which
 //! `register_corpus` wraps to make it rerunnable.
 
+pub mod board_encoder;
 pub mod claim_run;
 pub mod evaluate_checkpoint;
 pub mod materialize_corpus;
 pub mod register_corpus;
 pub mod register_run;
 
+pub use board_encoder::{AlignProjector, PretrainBoardEncoder};
 pub use claim_run::ClaimRun;
 pub use evaluate_checkpoint::EvaluateCheckpoint;
 pub use materialize_corpus::MaterializeCorpus;
