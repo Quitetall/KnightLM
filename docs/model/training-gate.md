@@ -268,7 +268,6 @@ are trained on the two `play-head` views (head read at the last token of the hea
 adapters are trained on `play-enc`/`play-enc-cgt` rows with the projector trainable and the encoder frozen,
 through the `image_hidden_states` path. Not tested: any of this on the real SmolVLM, GPU memory and latency of
 soft-token decoding, and `stop_strings` with embedding-input decoding on the real tokenizer.
-||||||| parent of 23f0c08 (Docs: reasoning v2 spec, training-gate entry)
 
 ## Reasoning v2 (prepared, not run)
 
