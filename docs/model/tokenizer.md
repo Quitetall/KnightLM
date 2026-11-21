@@ -252,11 +252,10 @@ cannot read its own input:
   `lm_head` rows would sit next to the host rows they were built from and compete with them at decode
   time; training lets the model push them down. A serving layer should still mask the ctok ids when it
   samples. (`--ctok-rows embed` trains the input rows only.)
-- Blocker for a GPU run: the pinned BLUT image-text trainer builds its `LoraConfig` without
-  `trainable_token_indices`, rejects `spec.extra`, and the recipe pins the stock base weights. A run needs
-  a cookbook change (pass `trainable_token_indices` and accept the extended base snapshot built by
-  `python -m model.train.ctok build-base`), so `model.train.run --tokenizer ctok1` is preflight-only and
-  refuses `--gpu`.
+- GPU path: the recipe base `smolvlm-500m-ctok1` (the extended snapshot from
+  `python -m model.train.ctok build-base`, verified against the pinned stock weights) and the blut-cookbooks
+  trainer pass `trainable_token_indices` for `embed_tokens` and the untied `lm_head`
+  (`model.train.run --tokenizer ctok1`; docs/model/training-gate.md). Nothing has been trained.
 - Resize on load: the base checkpoint has `vocab_size = 49280`. Before loading the
   adapter, run `resize_token_embeddings(len(tokenizer))` (both matrices grow to
   `base + 2496`); the adapter's saved matrices then replace them. The reload test
