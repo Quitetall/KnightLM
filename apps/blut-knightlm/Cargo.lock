@@ -203,7 +203,7 @@ dependencies = [
 [[package]]
 name = "blut-cookbook-standard"
 version = "0.2.0"
-source = "git+https://github.com/Quitetall/blut-cookbooks.git?rev=d54ea8408e1b22bcc646ca3bca9f396c6cdc7e9d#d54ea8408e1b22bcc646ca3bca9f396c6cdc7e9d"
+source = "git+https://github.com/Quitetall/blut-cookbooks.git?rev=110857b7255eab2f11aa08c40c192c21a0b8b1b7#110857b7255eab2f11aa08c40c192c21a0b8b1b7"
 dependencies = [
  "anyhow",
  "async-trait",

@@ -27,10 +27,9 @@ path = "src/main.rs"
 # blut-cookbooks would link two different `blut` crates whose Stage and Recipe
 # types do not unify. One engine only: whatever blut-cookbook-standard resolves.
 blut = { version = "=0.2.0-alpha.2", default-features = false }
-# STANDARD COOKBOOK: PR #3 of blut-cookbooks added arch = "image_text". This rev is the head of
-# blut-cookbooks PR #5 (`trainable_token_indices` for an extended-vocabulary base, arms T1/T3), NOT yet a
-# merge commit that passed the full gate: DRAFT until PR #5 is merged, then pin its merge commit.
-blut-backends = { package = "blut-cookbook-standard", git = "https://github.com/Quitetall/blut-cookbooks.git", rev = "d54ea8408e1b22bcc646ca3bca9f396c6cdc7e9d" }
+# STANDARD COOKBOOK: the merge commit of blut-cookbooks PR #5 on `main` (PR #3 added arch = "image_text";
+# PR #5 adds `trainable_token_indices` for an extended-vocabulary base, arms T1/T3).
+blut-backends = { package = "blut-cookbook-standard", git = "https://github.com/Quitetall/blut-cookbooks.git", rev = "110857b7255eab2f11aa08c40c192c21a0b8b1b7" }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
