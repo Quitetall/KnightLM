@@ -124,6 +124,20 @@ Coach tools (scratch board and presentation only):
 | `mark_square` {square, color?} | board-write | highlight a square |
 | `clear_marks` {} | board-write | remove the model's marks |
 
+**Implemented:** `crates/ai/src/coach.rs`. A `CoachSession` holds the real game and a separate
+scratch branch (it starts at the real position). `scratch_set` validates a FEN, `scratch_step` plays
+1 to 8 moves all-or-nothing, `show_game_move` points at ply 0 to N of the real game, and the mark tools
+add or clear arrows and highlights (green when no colour, at most 16 marks, an identical mark replaces
+itself). Nothing here changes the real game. Marks and the ply pointer are returned as structured
+`UiEffect` data (`show_ply`, `add_mark`, `clear_marks`) for RBC to draw; the model sees only rules
+facts (FEN, check, legal-move count). Errors are typed with stable codes: `not_coach_tool`,
+`call_budget` (32 calls a turn), `bad_arguments`, `bad_fen`, `illegal_move`, `move_count`, `bad_ply`,
+`bad_square`, `bad_color`, `same_square`, `too_many_marks`. In the harness (`MoveHarness::Coach`) every
+`<tool_call>` block of the coach text is checked against the coach schema and run; a refused or failing
+call is shown to the model on the next round but is not a move attempt, and after a fallback the marks
+and the reply are withheld together. The serving side (`model/serve/coach.py`) forwards valid coach
+calls as OpenAI `tool_calls` for these executors and refuses `submit_move`, play-only tools and app tools.
+
 A long chat shows both schemas: the harness may present coach and play schemas in
 one prompt for a long chat, but each call is still checked against the schema of
 the mode the harness assigned to that turn. The combined prefix is its own fixed
@@ -169,8 +183,10 @@ retry count and fallback use are recorded per move. **Implemented:**
 is `request_move` unchanged, so KnightLM and every existing provider behave as
 before; `Play` and `Coach` are opt-in, return a `HarnessMove` (attempts, rejected,
 `fallback`, read calls, provisional revisions, reply) and fall back to the same
-grammar-constrained request that KnightLM uses. Nothing selects the tools harness
-by default yet, and the model has not been trained on it.
+grammar-constrained request that KnightLM uses. `play::select_harness` picks the harness by mode where RBC asks a model
+for a move (`model_match_move`): a competitive game gets `Play`, a game with chat allowed gets `Coach`,
+but only for a KnightLM seat and only when the app enables it (`RBC_TOOLS_HARNESS=1`), because the model
+has not been trained on the tools format; every other seat or setting keeps `Default`.
 
 ## 6. Packet fields for repetition and the 50-move rule
 
@@ -227,6 +243,13 @@ Implemented:
   Rust output (this is the Rust/Python parity test; Python then reads the same file).
 - Packet facts presence (repetition count, claim flags, halfmove clock in FEN):
   `crates/core/tests/contracts.rs` (existing) covers the facts; no change.
+
+Also implemented: `crates/ai/src/coach.rs` unit tests (scratch isolation, all-or-nothing steps, typed
+errors, marks as UI effects, the call budget); `play_harness.rs` coach end to end with a scripted provider
+(provisional lines, tool calls, marks, committed move) and `select_harness` by mode;
+`crates/ai/tests/coach_seam.rs` (a served coach completion run on the Rust executors);
+`provisional_cases.json` (Rust generates, `model/serve/test_coach.py` reproduces); the serve chat turn
+(`model/serve/test_coach.py`).
 
 Spec only: nothing in this list remains; a tools-harness run against a real
 model and training on the play completion format are not done.

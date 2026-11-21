@@ -66,7 +66,17 @@ pub struct StreamOptions {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KnightlmRequestExt {
-    pub mode: String,
+    /// Decoding: `raw` or `constrained`. The server's default when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// Which turn this is: `play` (the default) or `coach` (chat on). In a coach turn the
+    /// model plays first, then replies; see `docs/model/modes-and-tools.md` section 3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<String>,
+    /// Coach turn only: the rolling chat summary (at most 1200 characters). The recent
+    /// messages are the request's earlier `messages`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 
 /// `chat.completion` response.
@@ -132,6 +142,27 @@ pub struct KnightlmExt {
     pub raw_code: String,
     pub legal: bool,
     pub manifest_hash: String,
+    /// Present on a coach turn only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coach: Option<CoachExt>,
+}
+
+/// What a coach turn decided. The move is never a tool call: coach has no `submit_move`.
+/// `tool_calls` on the message are coach tool calls for the app to execute.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoachExt {
+    /// The last legal `Provisional:` move, or the constrained fallback's move.
+    #[serde(rename = "move")]
+    pub mv: Option<String>,
+    /// Every legal provisional move, in order.
+    pub provisional: Vec<String>,
+    /// Provisional lines the gate refused.
+    pub rejected: u32,
+    /// No legal provisional line: the constrained path chose the move and no reply is shown.
+    pub fallback: bool,
+    /// Tool calls the server did not forward (not a coach tool, malformed).
+    pub refused_calls: Vec<String>,
 }
 
 /// The OpenAI error object: `{"error": {...}}`.

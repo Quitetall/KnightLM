@@ -1,0 +1,53 @@
+{
+  "id": "chatcmpl-0123456789abcdef01234567",
+  "object": "chat.completion",
+  "created": 1700000000,
+  "model": "knightlm",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "The knight comes out before the pawn push.",
+        "tool_calls": [
+          {
+            "id": "call_0123456789abcdef01234567",
+            "type": "function",
+            "function": {
+              "name": "mark_arrow",
+              "arguments": "{\"from\": \"g1\", \"to\": \"f3\", \"color\": \"blue\"}"
+            }
+          },
+          {
+            "id": "call_0123456789abcdef01234568",
+            "type": "function",
+            "function": {
+              "name": "scratch_step",
+              "arguments": "{\"moves\": [\"g1f3\", \"b8c6\"]}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 9,
+    "completion_tokens": 5,
+    "total_tokens": 14
+  },
+  "knightlm": {
+    "path": "model",
+    "code": "ok",
+    "raw_code": "ok",
+    "legal": true,
+    "manifest_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "coach": {
+      "move": "g1f3",
+      "provisional": ["e2e4", "g1f3"],
+      "rejected": 0,
+      "fallback": false,
+      "refused_calls": []
+    }
+  }
+}

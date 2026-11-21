@@ -15,6 +15,9 @@
 
 use knightlm_core::state::{GameRecord, GameState, PacketOptions, RuleSession, START_FEN};
 
+use crate::coach::{
+    CoachSession, Mark, UiEffect, extract_tool_calls, format_coach_result, strip_tool_calls,
+};
 use crate::game::{Match, MatchConfig, MatchMove, Player};
 use crate::model_turn::{
     ChatLine, ProvisionalTracker, READ_BUDGET, coach_prompt, execute_read, format_tool_result,
@@ -24,7 +27,9 @@ use crate::protocol::{ErrorInfo, ModelRef, StopReason};
 use crate::provider::{
     Cancellation, ChatMessage, CompletionRequest, Provider, ProviderEvent, error, error_code,
 };
-use crate::tools::{ModelMode, ModelToolbox, SubmitMoveGate, SubmitOutcome, parse_model_call};
+use crate::tools::{
+    ModelCallError, ModelMode, ModelToolbox, SubmitMoveGate, SubmitOutcome, parse_model_call,
+};
 
 /// Which kind of game this is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -569,6 +574,13 @@ pub struct HarnessMove {
     pub revisions: u32,
     /// Coach only: the reply, shown only once the move is legal and committed.
     pub reply: Option<String>,
+    /// Coach only: UI effects of the coach tools, in call order, for the app to
+    /// draw. Empty after a fallback, like the reply.
+    pub ui: Vec<UiEffect>,
+    /// Coach only: the marks on the board when the turn ended.
+    pub marks: Vec<Mark>,
+    /// Coach only: coach tool calls run (refused calls are not counted).
+    pub coach_calls: usize,
 }
 
 const PLAY_MAX_TOKENS: u32 = 600;
@@ -680,6 +692,9 @@ fn play_with_tools(
                 read_calls,
                 revisions: 0,
                 reply: None,
+                ui: Vec::new(),
+                marks: Vec::new(),
+                coach_calls: 0,
             })
         }
         None => Ok(HarnessMove {
@@ -689,6 +704,9 @@ fn play_with_tools(
             read_calls,
             revisions: 0,
             reply: None,
+            ui: Vec::new(),
+            marks: Vec::new(),
+            coach_calls: 0,
         }),
     }
 }
@@ -712,6 +730,10 @@ fn coach_with_provisional(
         .map_err(protocol_error)?;
     let attempts = game.config().max_retries.max(1) as u32;
     let mut tracker = ProvisionalTracker::new(legal, attempts);
+    let mut session =
+        CoachSession::new(state.record().clone()).map_err(|e| protocol_error(e.to_string()))?;
+    let toolbox = ModelToolbox::new(ModelMode::Coach);
+    let mut ui: Vec<UiEffect> = Vec::new();
     let mut messages = vec![ChatMessage::user(prompt)];
     let mut text = String::new();
     for _ in 0..attempts {
@@ -736,19 +758,45 @@ fn coach_with_provisional(
             Err(err) if cancel.is_cancelled() => return Err(err),
             Err(_) => streamed,
         };
-        let feedback = tracker.feed(&text, finished);
+        let mut feedback = tracker.feed(&text, finished);
+        // Coach tool calls run against the scratch board and the marks, never the
+        // real game. Their failures are shown to the model but are not move attempts.
+        let mut tool_feedback = Vec::new();
+        for parsed in extract_tool_calls(&text) {
+            let outcome = match parsed {
+                Err(ModelCallError::NotOneCall) if !finished => continue,
+                Err(err) => {
+                    tool_feedback.push(format!("<tool_error>{err}</tool_error>"));
+                    continue;
+                }
+                Ok(call) => match toolbox.check_call(&call) {
+                    Err(err) => {
+                        tool_feedback.push(format!("<tool_error>{err}</tool_error>"));
+                        continue;
+                    }
+                    Ok(_) => session.execute(&call),
+                },
+            };
+            tool_feedback.push(format_coach_result(&outcome));
+            if let Ok(reply) = outcome
+                && let Some(effect) = reply.ui
+            {
+                ui.push(effect);
+            }
+        }
         if tracker.committed().is_some() || tracker.exhausted() || !finished {
             break;
         }
+        if feedback.is_empty() {
+            feedback.push("Start with `Provisional: <legal UCI move>`.".to_owned());
+        }
+        feedback.extend(tool_feedback);
         messages.push(ChatMessage::assistant(text.clone()));
-        messages.push(ChatMessage::user(if feedback.is_empty() {
-            "Start with `Provisional: <legal UCI move>`.".to_owned()
-        } else {
-            feedback.join("\n")
-        }));
+        messages.push(ChatMessage::user(feedback.join("\n")));
     }
     let rejected = tracker.rejected();
     let revisions = tracker.accepted().saturating_sub(1);
+    let coach_calls = session.calls();
     match tracker.committed().map(str::to_owned) {
         Some(uci) => {
             let mut mv = game
@@ -767,7 +815,10 @@ fn coach_with_provisional(
                 fallback: false,
                 read_calls: 0,
                 revisions,
-                reply: Some(strip_provisional_lines(&text)),
+                reply: Some(strip_provisional_lines(&strip_tool_calls(&text))),
+                ui,
+                marks: session.marks().to_vec(),
+                coach_calls,
             })
         }
         None => Ok(HarnessMove {
@@ -777,7 +828,43 @@ fn coach_with_provisional(
             read_calls: 0,
             revisions,
             reply: None,
+            ui: Vec::new(),
+            marks: Vec::new(),
+            coach_calls,
         }),
+    }
+}
+
+/// Whether `model` is a KnightLM seat, the only model the tools harness is for.
+pub fn is_knightlm_seat(model: &ModelRef) -> bool {
+    (model.provider == "local:LAMU" && model.model == "knightlm-smolvlm-500m")
+        || model.provider == crate::provider::SERVE_PROVIDER
+}
+
+/// The harness a seat gets, chosen by the match's mode (docs/model/modes-and-tools.md
+/// section 5). Call this wherever RBC asks a model for a move.
+///
+/// - Tools off, or a model that is not KnightLM: [`MoveHarness::Default`], the existing
+///   path, so every other provider behaves exactly as before.
+/// - A competitive game (chat off): [`MoveHarness::Play`].
+/// - A game where chat is allowed: [`MoveHarness::Coach`], with `chat` as its context
+///   (empty when there is none).
+///
+/// `tools_enabled` is a setting, not a default of the model: nothing is trained on the
+/// tools format yet, so the app turns it on explicitly.
+pub fn select_harness(
+    policy: &PlayPolicy,
+    model: &ModelRef,
+    chat: Option<CoachContext>,
+    tools_enabled: bool,
+) -> MoveHarness {
+    if !tools_enabled || !is_knightlm_seat(model) {
+        return MoveHarness::Default;
+    }
+    if policy.allows(PlayAction::Chat) {
+        MoveHarness::Coach(chat.unwrap_or_default())
+    } else {
+        MoveHarness::Play
     }
 }
 
@@ -804,6 +891,9 @@ pub fn request_move_with_harness(
             read_calls: 0,
             revisions: 0,
             reply: None,
+            ui: Vec::new(),
+            marks: Vec::new(),
+            coach_calls: 0,
         }),
         MoveHarness::Play => play_with_tools(game, provider, model, policy, cancel),
         MoveHarness::Coach(context) => {

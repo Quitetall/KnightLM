@@ -36,6 +36,7 @@ from pydantic import BaseModel, ConfigDict
 
 from model.corpus.pipeline import sha256_file
 from model.prompt import PLAY_KINDS, play_text, tool_names
+from model.serve import coach as coach_mode
 from model.serve.inference import MODES, Predictor
 
 PACKET_FORMAT_VERSION = 1  # crates/core SCHEMA_VERSION
@@ -88,7 +89,8 @@ class ChatRequest(BaseModel):
     max_tokens: int | None = None
     stream: bool = False
     stream_options: dict | None = None
-    knightlm: dict | None = None  # extension: {"mode": "raw" | "constrained"}
+    # extension: {"mode": "raw" | "constrained", "turn": "play" | "coach", "summary": str}
+    knightlm: dict | None = None
 
 
 class ApiError(Exception):
@@ -107,12 +109,18 @@ def message_text(message):
 
 def packet_from_messages(messages):
     """The packet in the last user message: after the play-prompt marker, bare JSON, or {"packet": ...}."""
+    return packet_and_text(messages)[0]
+
+
+def packet_and_text(messages):
+    """(packet, text the person typed before the packet marker in the last user message)."""
     if not messages or messages[-1].get("role") != "user":
         raise ApiError(400, "the last message must have role 'user' and carry the position packet",
                        "invalid_messages", "messages")
     text = message_text(messages[-1])
     at = text.rfind(PACKET_MARKER)
     body = text[at + len(PACKET_MARKER):] if at >= 0 else text
+    typed = text[:at] if at >= 0 else ""
     try:
         packet = json.loads(body.strip())
     except ValueError:
@@ -121,23 +129,27 @@ def packet_from_messages(messages):
         packet = packet["packet"]
     if not isinstance(packet, dict) or not packet.get("legal_moves"):
         raise ApiError(422, "the position packet has no legal_moves", "bad_packet", "messages")
-    return packet
+    return packet, typed
 
 
-def check_tools(req):
-    """Play tools are fixed by the server: a request may omit them or name exactly these."""
-    allowed = tool_names("play")
+TURNS = ("play", "coach")
+
+
+def check_tools(req, turn="play"):
+    """Tools are fixed by the server: a request may omit them or name exactly these. A play turn
+    allows the play tools only; a coach turn (chat on) shows both schemas. App tools never pass."""
+    allowed = tool_names("play") + (tool_names("coach") if turn == "coach" else [])
     for i, tool in enumerate(req.tools or []):
         name = (tool.get("function") or {}).get("name") if tool.get("type") == "function" else None
         if name not in allowed:
-            raise ApiError(400, f"tool {name!r} is not available in play mode; the server fixes the tools to {allowed}",
+            raise ApiError(400, f"tool {name!r} is not available in {turn} mode; the server fixes the tools to {allowed}",
                            "tool_not_allowed", f"tools[{i}]")
     choice = req.tool_choice
     if choice in (None, "auto", "required"):
         return
     name = (choice.get("function") or {}).get("name") if isinstance(choice, dict) else None
     if name not in allowed:
-        raise ApiError(400, f"tool_choice {choice!r} is not available in play mode", "tool_not_allowed", "tool_choice")
+        raise ApiError(400, f"tool_choice {choice!r} is not available in {turn} mode", "tool_not_allowed", "tool_choice")
 
 
 def chat_completion(req, p, manifest, now=None):
@@ -159,6 +171,36 @@ def chat_completion(req, p, manifest, now=None):
     }
 
 
+def coach_completion(req, turn, manifest, now=None):
+    """The chat.completion object for one coach turn (`turn` is a model.serve.coach.CoachTurn).
+
+    The move is never a tool call (coach has no submit_move): it rides in `knightlm.coach.move`.
+    `content` is the reply, withheld after a fallback; `tool_calls` are validated coach tool calls
+    for the app's executors (crates/ai/src/coach.rs)."""
+    message = {"role": "assistant", "content": turn.reply or None}
+    if turn.tool_calls:
+        message["tool_calls"] = [
+            {"id": "call_" + uuid.uuid4().hex[:24], "type": "function",
+             "function": {"name": c["name"], "arguments": json.dumps(c["arguments"], ensure_ascii=False)}}
+            for c in turn.tool_calls]
+    legal = turn.move is not None
+    from_model = legal and not turn.fallback
+    return {
+        "id": "chatcmpl-" + uuid.uuid4().hex[:24], "object": "chat.completion", "created": int(now or time.time()),
+        "model": req.model,
+        "choices": [{"index": 0, "message": message,
+                     "finish_reason": "tool_calls" if turn.tool_calls else "stop"}],
+        "usage": {"prompt_tokens": turn.input_tokens, "completion_tokens": turn.output_tokens,
+                  "total_tokens": turn.input_tokens + turn.output_tokens},
+        "knightlm": {"path": "model" if from_model else ("constrained_move" if legal else "none"),
+                     "code": "ok" if legal else "no_provisional",
+                     "raw_code": "ok" if from_model else "no_provisional",
+                     "legal": legal, "manifest_hash": manifest["manifest_hash"],
+                     "coach": {"move": turn.move, "provisional": turn.provisional, "rejected": turn.rejected,
+                               "fallback": turn.fallback, "refused_calls": turn.refused_calls}},
+    }
+
+
 def sse(obj):
     return "data: " + (obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False)) + "\n\n"
 
@@ -173,18 +215,18 @@ def chat_stream(completion, include_usage):
     def chunk(delta, finish=None, **extra):
         return dict(base, choices=[{"index": 0, "delta": delta, "finish_reason": finish}], **extra)
 
-    yield sse(chunk({"role": "assistant", "content": None if message.get("tool_calls") else ""}))
-    if message.get("tool_calls"):
-        call = message["tool_calls"][0]
+    text = message["content"] or ""
+    calls = message.get("tool_calls") or []
+    yield sse(chunk({"role": "assistant", "content": None if calls and not text else ""}))
+    for i in range(0, len(text), STREAM_CHUNK_CHARS):
+        yield sse(chunk({"content": text[i:i + STREAM_CHUNK_CHARS]}))
+    for index, call in enumerate(calls):
         args = call["function"]["arguments"]
-        yield sse(chunk({"tool_calls": [{"index": 0, "id": call["id"], "type": "function",
-                                         "function": {"name": "submit_move", "arguments": ""}}]}))
+        yield sse(chunk({"tool_calls": [{"index": index, "id": call["id"], "type": "function",
+                                         "function": {"name": call["function"]["name"], "arguments": ""}}]}))
         for i in range(0, len(args), STREAM_CHUNK_CHARS):
-            yield sse(chunk({"tool_calls": [{"index": 0, "function": {"arguments": args[i:i + STREAM_CHUNK_CHARS]}}]}))
-    else:
-        text = message["content"] or ""
-        for i in range(0, len(text), STREAM_CHUNK_CHARS):
-            yield sse(chunk({"content": text[i:i + STREAM_CHUNK_CHARS]}))
+            yield sse(chunk({"tool_calls": [{"index": index,
+                                             "function": {"arguments": args[i:i + STREAM_CHUNK_CHARS]}}]}))
     yield sse(chunk({}, choice["finish_reason"], knightlm=completion["knightlm"]))
     if include_usage:
         yield sse(dict(base, choices=[], usage=completion["usage"]))
@@ -245,19 +287,46 @@ def create_app(predictor, mode="constrained", prompt="move"):
     def list_models():
         return {"object": "list", "data": [{"id": MODEL_ID, "object": "model", "created": 0, "owned_by": "knightlm"}]}
 
+    def coach_endpoint(req, packet, typed, mode, ext):
+        """Chat on: rolling summary + recent messages + the fresh packet; the model plays first, then replies."""
+        if not hasattr(predictor, "predict_coach"):
+            raise ApiError(501, "this predictor has no coach mode", "not_implemented", None, "server_error")
+        chosen = mode or ext.get("mode") or default_mode
+        if chosen not in MODES:
+            raise ApiError(422, f"mode must be one of {MODES}", "bad_mode", "knightlm.mode")
+        earlier = [(m.get("role"), message_text(m)) for m in req.messages[:-1]]
+        try:
+            summary, recent = coach_mode.chat_history(earlier, typed, ext.get("summary"))
+            turn_result = coach_mode.play_coach_turn(predictor, packet, summary, recent, chosen)
+        except coach_mode.ChatError as error:
+            raise ApiError(422, str(error), error.code, "messages") from error
+        except Exception as error:  # surfaced, never replaced by a guess
+            raise ApiError(500, f"inference failed: {error}", "inference_failed", None, "server_error") from error
+        completion = coach_completion(req, turn_result, manifest)
+        if req.stream:
+            include = bool((req.stream_options or {}).get("include_usage"))
+            return StreamingResponse(chat_stream(completion, include), media_type="text/event-stream")
+        return completion
+
     @app.post("/v1/chat/completions")
     def chat_completions(req: ChatRequest, mode: str | None = None):
         if req.model != MODEL_ID:
             raise ApiError(404, f"the model {req.model!r} does not exist; this server serves {MODEL_ID!r}",
                            "model_not_found", "model")
-        check_tools(req)
-        packet = packet_from_messages(req.messages)
+        ext = req.knightlm or {}
+        turn = ext.get("turn", "play")
+        if turn not in TURNS:
+            raise ApiError(422, f"turn must be one of {TURNS}", "bad_turn", "knightlm.turn")
+        check_tools(req, turn)
+        packet, typed = packet_and_text(req.messages)
+        if turn == "coach":
+            return coach_endpoint(req, packet, typed, mode, ext)
         if not hasattr(predictor, "predict_play"):
             raise ApiError(501, "this predictor has no play mode", "not_implemented", None, "server_error")
-        chosen = mode or (req.knightlm or {}).get("mode") or default_mode
+        chosen = mode or ext.get("mode") or default_mode
         if chosen not in MODES:
             raise ApiError(422, f"mode must be one of {MODES}", "bad_mode", "knightlm.mode")
-        explicit_raw = chosen == "raw" and (mode or (req.knightlm or {}).get("mode")) is not None
+        explicit_raw = chosen == "raw" and (mode or ext.get("mode")) is not None
         try:
             p = predictor.predict_play(packet, chosen)
         except Exception as error:  # surfaced, never replaced by a guess

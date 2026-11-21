@@ -953,4 +953,68 @@ mod tests {
             .collect();
         check_fixture("chat_summary_cases.json", &Value::Array(cases));
     }
+
+    /// Provisional-line cases both trackers answer identically; Python reads the same file.
+    #[test]
+    fn checked_in_provisional_cases_match_the_rust_tracker() {
+        let legal = ["e2e4", "g1f3", "d2d4", "e7e8q"];
+        let inputs: Vec<(u32, &str, bool)> = vec![
+            (5, "Provisional: e2e4\nThen the reply.", true),
+            (
+                5,
+                "Provisional: e2e4\nhmm, wait\nProvisional: g1f3\nbecause...",
+                true,
+            ),
+            (
+                5,
+                "Provisional: e2e4\nProvisional: e2e5\nProvisional: zzzz\n",
+                true,
+            ),
+            (2, "Provisional: e2e5\nProvisional: h7h1\n", true),
+            (2, "No provisional line at all.", true),
+            (
+                3,
+                "Provisional: d2d4\nProvisional: bad1\nProvisional: bad2\nProvisional: e2e4\n",
+                true,
+            ),
+            (5, "Provisional: e2e4\nProvisional: g1f", false),
+            (5, "Provisional: e2e4\nProvisional: g1f3", true),
+            (5, "Provisional: g1f3", false),
+            (5, "Provisional:e2e4  \r\nProvisional: g1f3\r\nok", true),
+            (
+                5,
+                "Provisional: I think e4\nMy Provisional: e2e4\nProvisional:\n",
+                true,
+            ),
+            (5, "Provisional: E2E4\nProvisional: e2e4 e2e4\n", true),
+            (1, "Provisional: e2e5\nProvisional: e2e4\n", true),
+            (5, "Provisional: e7e8q\nPromoted.\n", true),
+            (5, "", true),
+        ];
+        let cases: Vec<Value> = inputs
+            .iter()
+            .map(|(max, text, finished)| {
+                let mut tracker =
+                    ProvisionalTracker::new(legal.iter().map(|m| (*m).to_owned()).collect(), *max);
+                let feedback = tracker.feed(text, *finished);
+                let committed = tracker.committed().map(str::to_owned);
+                let reply = committed.is_some().then(|| strip_provisional_lines(text));
+                json!({
+                    "legal": legal,
+                    "max_attempts": max,
+                    "text": text,
+                    "finished": finished,
+                    "committed": committed,
+                    "fallback": tracker.committed().is_none(),
+                    "attempts": tracker.attempts(),
+                    "accepted": tracker.accepted(),
+                    "rejected": tracker.rejected(),
+                    "exhausted": tracker.exhausted(),
+                    "feedback": feedback,
+                    "reply": reply,
+                })
+            })
+            .collect();
+        check_fixture("provisional_cases.json", &Value::Array(cases));
+    }
 }
