@@ -129,6 +129,10 @@
 > -
 - doc:docs/model/trackb-smolvlm-study.md · document · - · Track B — SmolVLM architecture study (Burn-native admission) · docs/model/trackb-smolvlm-study.md:1
 
+## docs/model/training-gate.md
+> -
+- doc:docs/model/training-gate.md · document · - · Training gate: S0 board-grounding arms (prepared, not run) · docs/model/training-gate.md:1
+
 ## docs/model/training-glossary.md
 > -
 - doc:docs/model/training-glossary.md · document · - · Training vocabulary and where KnightLM sits · docs/model/training-glossary.md:1
