@@ -114,6 +114,14 @@ say "installed $BIN"
 mkdir -p "$SHARE_DIR/frontend"
 cp -R "$APP_DIR/frontend/public/." "$SHARE_DIR/frontend/"
 say "installed web assets $SHARE_DIR/frontend"
+# The model server's Python code, for Play AI (list: packaging/model-runtime.files).
+RUNTIME_DIR="$SHARE_DIR/model-runtime"
+rm -rf "$RUNTIME_DIR"
+while IFS= read -r rel; do
+  case "$rel" in ''|'#'*) continue ;; esac
+  install -D -m 644 "$APP_DIR/../../$rel" "$RUNTIME_DIR/$rel"
+done < "$APP_DIR/../../packaging/model-runtime.files"
+say "installed model server code $RUNTIME_DIR"
 
 if [ "$DESKTOP" -eq 1 ]; then
   mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
