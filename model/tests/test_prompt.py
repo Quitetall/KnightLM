@@ -123,5 +123,236 @@ class RustParity(unittest.TestCase):
         self.assertNotIn("submit_move", tool_names("coach", schemas))
 
 
+SCHEMAS_DIR = prompt.TOOLS_PATH.parent
+
+
+def _fixture(name):
+    return json.loads((SCHEMAS_DIR / name).read_text(encoding="utf-8"))
+
+
+class PromptParity(unittest.TestCase):
+    """prompt.py equals the prompts Rust renders (model_prompts.json)."""
+
+    def setUp(self):
+        self.fx = _fixture("model_prompts.json")
+
+    def test_constants_match_rust(self):
+        c = self.fx["constants"]
+        self.assertEqual(prompt.PLAY_INSTRUCTION, c["play_instruction"])
+        self.assertEqual(prompt.COACH_INSTRUCTION, c["coach_instruction"])
+        self.assertEqual(prompt.COMBINED_INSTRUCTION, c["combined_instruction"])
+        self.assertEqual(prompt.TOOL_CALL_FORMAT, c["tool_call_format"])
+        self.assertEqual(prompt.MAX_SUMMARY_CHARS, c["max_summary_chars"])
+        self.assertEqual(prompt.MAX_RECENT_MESSAGES, c["max_recent_messages"])
+        self.assertEqual(prompt.MAX_MESSAGE_CHARS, c["max_message_chars"])
+        self.assertEqual(prompt.MAX_REASONING_CHARS, c["max_reasoning_chars"])
+        self.assertEqual(prompt.EXCERPT_CHARS, c["excerpt_chars"])
+
+    def test_prefixes_and_example_prompts_match_rust_bytes(self):
+        self.assertEqual(prompt.prefix("play"), self.fx["prefixes"]["play"])
+        self.assertEqual(prompt.prefix("coach"), self.fx["prefixes"]["coach"])
+        self.assertEqual(prompt.combined_prefix(), self.fx["prefixes"]["combined"])
+        ex = self.fx["example"]
+        packet = json.loads(ex["packet"])
+        self.assertEqual(prompt.packet_json(packet), ex["packet"])
+        self.assertEqual(play_text(packet), ex["play"])
+        self.assertEqual(coach_text(packet, ex["summary"], ex["recent"]), ex["coach"])
+        self.assertEqual(prompt.combined_text(packet, "play", ex["summary"], ex["recent"]), ex["combined_play"])
+        self.assertEqual(prompt.combined_text(packet, "coach", ex["summary"], ex["recent"]), ex["combined_coach"])
+
+    def test_combined_prefix_shows_both_schemas_and_is_stable(self):
+        both = prompt.combined_prefix()
+        for name in tool_names("play") + tool_names("coach"):
+            self.assertIn(name, both)
+        a = prompt.combined_text(PACKET, "play")
+        b = prompt.combined_text(dict(PACKET, fen="8/8/8/8/8/8/8/K6k w - - 0 1"), "coach", summary="s")
+        self.assertTrue(a.startswith(both) and b.startswith(both))
+        self.assertTrue(a.endswith(prompt.packet_json(PACKET)))
+        with self.assertRaises(ValueError):
+            prompt.combined_text(PACKET, "both")
+
+    def test_coach_rule_is_provisional_and_play_prompt_has_no_provisional(self):
+        self.assertIn("Provisional:", prompt.COACH_INSTRUCTION)
+        self.assertNotIn("Provisional", prompt.PLAY_INSTRUCTION)
+        self.assertNotIn("Move:", prompt.COACH_INSTRUCTION)
+
+
+class PlayCompletionParity(unittest.TestCase):
+    def test_every_shared_case_gives_the_same_answer(self):
+        cases = _fixture("play_completion_cases.json")
+        self.assertGreater(len(cases), 20)
+        for case in cases:
+            text = case["text"]
+            if "ok" in case:
+                self.assertEqual(prompt.parse_play_completion(text), case["ok"], text)
+                self.assertEqual(
+                    prompt.format_play_completion(case["ok"]["reasoning"], case["ok"]["move"]), text.strip()
+                )
+            else:
+                with self.assertRaises(prompt.PlayCompletionError, msg=text) as ctx:
+                    prompt.parse_play_completion(text)
+                self.assertEqual(ctx.exception.code, case["error"], text)
+
+    def test_plain_json_extras_are_refused(self):
+        for text in (
+            '<tool_call>{"name":"submit_move","arguments":{"reasoning":NaN,"move":"e2e4"}}</tool_call>',
+            '<tool_call>{"name":"submit_move","arguments":{"reasoning":"a","move":"e2e4\\n"}}</tool_call>',
+        ):
+            with self.assertRaises(prompt.PlayCompletionError):
+                prompt.parse_play_completion(text)
+
+
+class ChatSummaryParity(unittest.TestCase):
+    def test_shared_cases(self):
+        cases = _fixture("chat_summary_cases.json")
+        for case in cases:
+            got = prompt.summarize_chat(case["previous"], case["messages"])
+            self.assertEqual(got, case["summary"])
+            self.assertLessEqual(len(got), prompt.MAX_SUMMARY_CHARS)
+
+    def test_deterministic_rolling_and_in_bounds_for_chat_context(self):
+        msgs = [{"role": "user" if i % 2 == 0 else "assistant", "text": f"{i} " + "word " * 100} for i in range(40)]
+        summary, recent = prompt.roll_chat(None, msgs)
+        self.assertEqual((summary, recent), prompt.roll_chat(None, msgs))
+        self.assertEqual(recent, msgs[-prompt.MAX_RECENT_MESSAGES:])
+        self.assertTrue(summary.startswith("\u2026"))
+        self.assertIn("A: 33 ", summary)
+        self.assertNotIn("U: 0 ", summary)
+        # The result always fits the chat-context bound.
+        prompt.chat_context(summary, [])
+        self.assertEqual(prompt.roll_chat("keep", msgs[:3]), ("keep", msgs[:3]))
+
+
+class ExistingKindsPinned(unittest.TestCase):
+    """The CGT kinds are additive: every older prompt keeps its exact bytes."""
+
+    def test_sha256_of_existing_prompts(self):
+        sha = lambda text: hashlib.sha256(text.encode()).hexdigest()  # noqa: E731
+        self.assertEqual(sha(user_text(PACKET)), "01c56b4dbcb7f790da7497a4f941e985f6a0cfc05e880430642f9919ed210d59")
+        self.assertEqual(sha(play_text(PACKET)), "ff82f8acc16df35f7544b1d243d8e72dbaa5942848d873be05e09a562665d3bb")
+        self.assertEqual(sha(coach_text(PACKET)), "ba08c3e4545022dafcd3aa1cbaf37e644c2d221f226be70ff76fb6a237018f79")
+        self.assertEqual(sha(prompt.combined_text(PACKET, "play")),
+                         "cac29031204ae65def028a99c76d975ee2f941e9c4980172d779771363c998e5")
+
+    def test_play_kind_is_play_text(self):
+        self.assertEqual(prompt.play_prompt("play", PACKET), play_text(PACKET))
+
+
+class CgtPlayKinds(unittest.TestCase):
+    def test_cgt_kinds_swap_only_the_position(self):
+        pre = prompt.prefix("play")
+        for kind, variant in (("play-cgt", "lite"), ("play-cgt-full", "full")):
+            text = prompt.play_prompt(kind, PACKET)
+            self.assertTrue(text.startswith(pre))
+            self.assertTrue(text.endswith(prompt.cgt_text(PACKET, variant)))
+            self.assertTrue(text[len(pre):].startswith(prompt.CGT_LABEL + f"cgt/1 {variant}\n"))
+            self.assertNotIn(PACKET["fen"], text)
+            self.assertNotIn("Position packet:", text)
+            for name in tool_names("coach"):
+                self.assertNotIn(name, text)
+
+    def test_cgt_text_is_the_compilers_output(self):
+        import subprocess
+        out = subprocess.run([str(prompt.knightlm_binary()), "cgt", "--fen", PACKET["fen"], "--variant", "full", "--rep", "1"],
+                             check=True, capture_output=True, text=True).stdout.rstrip("\n")
+        self.assertEqual(prompt.cgt_text(PACKET, "full"), out)
+        self.assertTrue(out.startswith("cgt/1 full\nturn w\ncastle KQkq\n"))
+        self.assertIn("rep 1\n", out)
+
+    def test_unknown_kind_and_variant_are_refused(self):
+        with self.assertRaises(ValueError):
+            prompt.play_prompt("play-cgt-medium", PACKET)
+        with self.assertRaises(ValueError):
+            prompt.cgt_text(PACKET, "medium")
+
+    def test_train_serve_and_eval_all_render_through_play_prompt(self):
+        """The serving predictor builds its prompt from play_prompt(kind, packet): same bytes as training/eval."""
+        from model.serve.inference import Predictor
+
+        class Processor:
+            def apply_chat_template(self, chat, tokenize=False, add_generation_prompt=False):
+                return chat[0]["content"][0]["text"]
+
+        class Tokenizer:
+            def encode(self, text, add_special_tokens=False):
+                return list(text.encode())
+
+        for kind in prompt.PLAY_KINDS:
+            predictor = object.__new__(Predictor)
+            predictor.prompt_kind, predictor.processor, predictor.tokenizer = kind, Processor(), Tokenizer()
+            packet = {**PACKET, "legal_moves": PACKET.get("legal_moves", ["e2e4"])}  # arm T1 lists the legal moves
+            text, ids = predictor._play_prompt_ids(packet)
+            self.assertEqual(text, prompt.play_prompt(kind, packet))
+            self.assertEqual(bytes(ids).decode(), text)
+
+    def test_qa_prompt_appends_one_question_line(self):
+        text = prompt.qa_prompt("play-cgt", PACKET, "Whose turn is it?")
+        self.assertEqual(text, prompt.play_prompt("play-cgt", PACKET) + "\nQuestion: Whose turn is it?")
+        with self.assertRaises(ValueError):
+            prompt.qa_prompt("play", PACKET, "two\nlines")
+
+
+HEAD_PACKET = {
+    "schema_version": 1, "ruleset": "standard-untimed-v1", "fen": "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1",
+    "legal_moves": ["e1d1", "e2e3"], "repetition_ledger": {"4k3/8/8/8/8/8/4P3/4K3 w - -": 1},
+    "facts": {"in_check": False, "repetition_count": 1},
+}
+
+
+class HeadAndEncoderKinds(unittest.TestCase):
+    """play-head, play-enc and play-enc-cgt are additive: byte goldens here, the older kinds stay pinned above."""
+
+    def sha(self, text):
+        return hashlib.sha256(text.encode()).hexdigest()
+
+    def test_kinds_are_registered_additively(self):
+        self.assertEqual(prompt.PLAY_KINDS[:5], ("play", "play-cgt", "play-cgt-full", "play-t1", "play-t3"))
+        for kind in ("play-head", "play-enc", "play-enc-cgt"):
+            self.assertIn(kind, prompt.PLAY_KINDS)
+
+    def test_play_head_reads_before_the_move_and_names_it_after(self):
+        base = prompt.play_text(HEAD_PACKET)
+        read = prompt.play_prompt("play-head", HEAD_PACKET)
+        self.assertEqual(read, base + "\nMove head:")
+        self.assertTrue(read.endswith(prompt.packet_json(HEAD_PACKET) + "\nMove head:"))
+        said = prompt.play_prompt("play-head", HEAD_PACKET, head_move="e2e3")
+        self.assertEqual(said, read + " e2e3")
+        self.assertTrue(said.startswith(read))  # the head read the same text the language stage continues
+        self.assertEqual(self.sha(read), "32ee2544a9ce704b13b215663dc943809cbb0fffd1508a60c822541d3f2f1d97")
+        self.assertEqual(self.sha(said), "bb306ac522f5ddba5737e4fa7b80a183d404e3245bc1b67db1898191f7cdeffd")
+
+    def test_play_head_refuses_an_illegal_or_misplaced_head_move(self):
+        with self.assertRaises(ValueError):
+            prompt.play_prompt("play-head", HEAD_PACKET, head_move="a1a1")
+        with self.assertRaises(ValueError):
+            prompt.play_prompt("play", HEAD_PACKET, head_move="e2e3")
+        with self.assertRaises(ValueError):
+            prompt.play_prompt("play-enc", HEAD_PACKET, head_move="e2e3")
+
+    def test_play_enc_has_slots_and_rules_but_no_board(self):
+        text = prompt.play_prompt("play-enc", HEAD_PACKET)
+        want = (prompt.prefix("play") + "Board tokens:\n" + "<image>" * 64 + "\nRules:\n"
+                + '{"facts":{"in_check":false,"repetition_count":1},"legal_moves":["e1d1","e2e3"],'
+                  '"ruleset":"standard-untimed-v1","schema_version":1}')
+        self.assertEqual(text, want)
+        self.assertNotIn(HEAD_PACKET["fen"], text)
+        self.assertNotIn("4k3/8", text)  # nor the ledger, whose keys spell the placement
+        self.assertEqual(text.count("<image>"), 64)
+        self.assertEqual(prompt.play_prompt("play-enc", HEAD_PACKET, n_board_tokens=80).count("<image>"), 80)
+        self.assertEqual(self.sha(text), "a4b53c538b7a3cfbca373cc0701da905ee38e2b964237fe70f3b4282cc68b0cf")
+
+    def test_play_enc_cgt_adds_the_compilers_text_beside_the_slots(self):
+        text = prompt.play_prompt("play-enc-cgt", HEAD_PACKET)
+        plain = prompt.play_prompt("play-enc", HEAD_PACKET)
+        cgt = prompt.cgt_text(HEAD_PACKET, "lite")
+        self.assertEqual(text, plain + "\n" + prompt.CGT_LABEL + cgt)
+        self.assertTrue(cgt.startswith("cgt/1 lite\n"))
+        self.assertNotIn(HEAD_PACKET["fen"], text)
+
+    def test_the_completion_is_the_unchanged_play_call(self):
+        reply = prompt.format_play_completion("I choose e2e3.", "e2e3")
+        self.assertEqual(prompt.parse_play_completion(reply), {"reasoning": "I choose e2e3.", "move": "e2e3"})
+
+
 if __name__ == "__main__":
     unittest.main()

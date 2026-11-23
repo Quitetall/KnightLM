@@ -10,6 +10,11 @@ import signal
 import subprocess
 
 CORPUS_FORMAT = "knightlm-lichess-v2"
+# v2 rows plus a `reasoning` string on every row (model/corpus/reasoning.py). Same split,
+# same audit; a separate format so neither reader can load the other by accident.
+REASONING_FORMAT = "knightlm-lichess-v2-reasoning-v1"
+FORMATS = (CORPUS_FORMAT, REASONING_FORMAT)
+MAX_REASONING_CHARS = 400
 SPLITS = ("train", "holdout")
 MANIFEST = "manifest.json"
 
@@ -79,7 +84,35 @@ def split_candidates(rows, train_count, holdout_count):
     return train, holdout
 
 
-def validate_rows(rows, source):
+def validate_reasoning(rows):
+    """Shape of the reasoning field: present, bounded, names the played move. Content is
+    re-derived by `verify_reasoning` (needs the knightlm binary)."""
+    for row in rows:
+        text = row.get("reasoning")
+        if (
+            not isinstance(text, str)
+            or not text.strip()
+            or len(text) > MAX_REASONING_CHARS
+            or "\n" in text
+            or row["target"] not in text.replace(",", " ").replace(".", " ").split()
+        ):
+            raise ValueError(f"invalid reasoning for game {row['game_id']}")
+
+
+def verify_reasoning(rows, binary, timeout=3600):
+    """Regenerate every row's reasoning from the rules and refuse any difference."""
+    from model.corpus import reasoning
+
+    for row, text in zip(rows, reasoning.reasoning_for_rows(binary, rows, timeout), strict=True):
+        if row["reasoning"] != text:
+            raise ValueError(f"reasoning for game {row['game_id']} differs from the {reasoning.GENERATOR_VERSION} generator")
+
+
+def validate_rows(rows, source, reasoning=False):
+    if not reasoning and any("reasoning" in row for row in rows):
+        raise ValueError("reasoning field in a corpus that is not the reasoning format")
+    if reasoning:
+        validate_reasoning(rows)
     for row in rows:
         packet = row["packet"]
         if (
@@ -115,12 +148,18 @@ def write_shards(output, name, rows, shard_games):
     }
 
 
-def write_corpus(output, train, holdout, shard_games, provenance):
+def write_corpus(output, train, holdout, shard_games, provenance, corpus_format=CORPUS_FORMAT):
     """Write audited splits as fixed-size shards plus a manifest; return the manifest."""
+    if corpus_format not in FORMATS:
+        raise ValueError(f"unsupported corpus format {corpus_format!r}")
     audit_splits(train, holdout)
+    if corpus_format == REASONING_FORMAT:
+        validate_reasoning([*train, *holdout])
+    elif any("reasoning" in row for row in (*train, *holdout)):
+        raise ValueError("reasoning field in a corpus that is not the reasoning format")
     output.mkdir()
     manifest = {
-        "format": CORPUS_FORMAT,
+        "format": corpus_format,
         **provenance,
         "shard_games": shard_games,
         "reserved_families": sorted({row["family"] for row in holdout}),
@@ -133,7 +172,7 @@ def write_corpus(output, train, holdout, shard_games, provenance):
     return manifest
 
 
-def read_split(root, name, entry, source):
+def read_split(root, name, entry, source, reasoning=False):
     rows = []
     for shard in entry["files"]:
         contents = (root / shard["file"]).read_bytes()
@@ -145,7 +184,7 @@ def read_split(root, name, entry, source):
         rows.extend(shard_rows)
     if len(rows) != entry["games"]:
         raise ValueError(f"{name} game count mismatch")
-    validate_rows(rows, source)
+    validate_rows(rows, source, reasoning)
     stamps = sorted(map(timestamp, rows))
     if (utc(stamps[0]), utc(stamps[-1]), months(rows)) != (
         entry["first_utc"],
@@ -156,17 +195,32 @@ def read_split(root, name, entry, source):
     return rows
 
 
-def read_corpus(root):
-    """Return (train, holdout) rows after checking every manifest claim."""
+def read_corpus(root, allow_rules_drift=False):
+    """Return (train, holdout) rows after checking every manifest claim.
+
+    An S0 rules-QA corpus (model/corpus/s0.py) is dispatched to its own reader, which also refuses
+    a recorded rules revision that differs from the one in use unless `allow_rules_drift`."""
     manifest = json.loads((root / MANIFEST).read_text())
-    if manifest["format"] != CORPUS_FORMAT:
+    if manifest["format"] in ("knightlm-s0-rules-qa-v1", "knightlm-s0-rules-qa-v2"):
+        from model.corpus import s0
+
+        return s0.read_corpus(root, allow_rules_drift)
+    if manifest["format"] == "knightlm-lichess-v2-reasoning-v2":
+        from model.corpus import reasoning2
+
+        return reasoning2.read_corpus(root, allow_rules_drift)
+    if manifest["format"] not in FORMATS:
         raise ValueError("unsupported corpus format")
+    reasoning = manifest["format"] == REASONING_FORMAT
+    if reasoning and manifest.get("reasoning", {}).get("generator") is None:
+        raise ValueError("reasoning corpus manifest does not name its generator")
     listed = {shard["file"] for name in SPLITS for shard in manifest["shards"][name]["files"]}
     present = {path.name for path in root.iterdir()} - {MANIFEST}
     if listed != present:
         raise ValueError(f"shards not accounted for by the manifest: {sorted(listed ^ present)[:3]}")
     splits = [
-        read_split(root, name, manifest["shards"][name], manifest["source"]["file"]) for name in SPLITS
+        read_split(root, name, manifest["shards"][name], manifest["source"]["file"], reasoning)
+        for name in SPLITS
     ]
     audit_splits(*splits)
     if manifest["reserved_families"] != sorted({row["family"] for row in splits[1]}):
@@ -211,6 +265,26 @@ def build(args, parser):
         rows = compile_candidates(args.knightlm, args.pgn, args.candidates, args.compile_timeout)
         train, holdout = split_candidates(rows, args.train_games, args.holdout_games)
         stamps = sorted(map(timestamp, rows))
+        extra, corpus_format = {}, CORPUS_FORMAT
+        if args.reasoning:
+            from model.corpus import reasoning, render
+
+            corpus_format = REASONING_FORMAT
+            train, holdout = (
+                [dict(row, reasoning=text) for row, text in zip(split, reasoning.reasoning_for_rows(args.knightlm, split), strict=True)]
+                for split in (train, holdout)
+            )
+            extra["reasoning"] = {
+                "generator": reasoning.GENERATOR_VERSION,
+                "generator_sha256": reasoning.generator_sha256(),
+                "facts": "knightlm corpus-facts (shakmaty on the notation crate); binary is compiler_sha256",
+                "max_chars": reasoning.MAX_CHARS,
+                "max_words": reasoning.MAX_WORDS,
+                "render": "model/corpus/render.py",
+                "render_sha256": sha256_file(Path(render.__file__)),
+                "prompt": "model.prompt.play_text(packet)",
+                "completion": "one submit_move tool call: arguments reasoning then move",
+            }
         manifest = write_corpus(
             args.output,
             train,
@@ -228,9 +302,14 @@ def build(args, parser):
                 "selection": "first eligible stream prefix; one decision at ply 24; rated standard blitz/rapid; both Elo >= 1600",
                 "split": "strictly later holdout; disjoint Lichess IDs, ECO two-character groups and scored positions",
                 "target": "played_uci_move",
+                **extra,
             },
+            corpus_format,
         )
-        read_corpus(args.output)
+        built = read_corpus(args.output)
+        if args.reasoning:
+            for split in built:
+                verify_reasoning(split, args.knightlm)
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         parser.exit(1, f"corpus build failed: {error}\n")
     shards = manifest["shards"]
@@ -242,8 +321,32 @@ def build(args, parser):
 
 def audit(args, parser):
     try:
-        train, holdout = read_corpus(args.corpus)
-    except (OSError, ValueError, KeyError) as error:
+        manifest_format = json.loads((args.corpus / MANIFEST).read_text())["format"]
+        train, holdout = read_corpus(args.corpus, args.allow_rules_drift)
+        if args.knightlm and manifest_format in ("knightlm-s0-rules-qa-v1", "knightlm-s0-rules-qa-v2"):
+            from model.corpus import s0
+
+            manifest = json.loads((args.corpus / MANIFEST).read_text())
+            if sha256_file(args.knightlm) != manifest["rules"]["binary_sha256"] and not args.allow_rules_drift:
+                raise ValueError("--knightlm binary differs from the one that built the corpus (rules.binary_sha256); "
+                                 "pass --allow-rules-drift to re-derive anyway")
+            for split in (train, holdout):
+                s0.verify_rows(split, args.knightlm.resolve(), manifest["arm"], manifest_format)
+        elif args.knightlm and manifest_format == "knightlm-lichess-v2-reasoning-v2":
+            from model.corpus import reasoning2
+
+            manifest = json.loads((args.corpus / MANIFEST).read_text())
+            if sha256_file(args.knightlm) != manifest["rules"]["binary_sha256"] and not args.allow_rules_drift:
+                raise ValueError("--knightlm binary differs from the one that built the corpus (rules.binary_sha256); "
+                                 "pass --allow-rules-drift to re-derive anyway")
+            for split in (train, holdout):
+                reasoning2.verify_rows(split, args.knightlm.resolve(), manifest["variant"])
+        elif args.knightlm:
+            if manifest_format != REASONING_FORMAT:
+                raise ValueError("--knightlm re-derives reasoning, and this corpus has none")
+            for split in (train, holdout):
+                verify_reasoning(split, args.knightlm)
+    except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
         parser.exit(1, f"corpus audit failed: {error}\n")
     print(
         f"Accepted {len(train)} train and {len(holdout)} holdout games in {args.corpus}: "
@@ -263,10 +366,15 @@ def main():
     make.add_argument("--holdout-games", type=int, default=100)
     make.add_argument("--candidates", type=int, default=4000)
     make.add_argument("--shard-games", type=int, default=10000)
+    make.add_argument("--reasoning", action="store_true",
+                      help="add the rules-derived reasoning field (format knightlm-lichess-v2-reasoning-v1)")
     make.add_argument("--compile-timeout", type=int, default=3600, help="seconds")
     make.set_defaults(run=build)
     check = commands.add_parser("audit", help="re-check a corpus directory against its manifest")
     check.add_argument("corpus", type=Path)
+    check.add_argument("--knightlm", type=Path, help="reasoning and S0 corpora: also re-derive every reasoning or answer with this binary")
+    check.add_argument("--allow-rules-drift", action="store_true",
+                       help="S0 corpora: accept a recorded rules revision or compiler binary that differs from the one in use")
     check.set_defaults(run=audit)
     args = parser.parse_args()
     args.run(args, parser)

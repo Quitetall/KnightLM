@@ -9,7 +9,7 @@
 
 ## CONTRIBUTING.md
 > -
-- doc:CONTRIBUTING.md · document · - · Contributing to RustyBrickChess · CONTRIBUTING.md:1
+- doc:CONTRIBUTING.md · document · - · Contributing to RustyBrickChess and KnightLM · CONTRIBUTING.md:1
 
 ## README.md
 > -
@@ -45,6 +45,10 @@
 > -
 - doc:docs/app/migrations.md · document · - · Database migrations, and the one reset · docs/app/migrations.md:1
 
+## docs/app/models.md
+> -
+- doc:docs/app/models.md · document · - · Using a model from RustyBrickChess · docs/app/models.md:1
+
 ## docs/app/running.md
 > -
 - doc:docs/app/running.md · document · - · Running RustyBrickChess · docs/app/running.md:1
@@ -55,7 +59,7 @@
 
 ## docs/contributors/README.md
 > -
-- doc:docs/contributors/README.md · document · - · Contributor onboarding · docs/contributors/README.md:1
+- doc:docs/contributors/README.md · document · - · Getting started · docs/contributors/README.md:1
 
 ## docs/contributors/secrets.md
 > -
@@ -73,6 +77,14 @@
 > -
 - doc:docs/contributors/work/training-loop.md · document · - · Four-person training plan · docs/contributors/work/training-loop.md:1
 
+## docs/model/README.md
+> -
+- doc:docs/model/README.md · document · - · KnightLM model docs · docs/model/README.md:1
+
+## docs/model/board-encoder.md
+> -
+- doc:docs/model/board-encoder.md · document · - · Board encoder (arms T4 and T5) · docs/model/board-encoder.md:1
+
 ## docs/model/contracts.md
 > -
 - doc:docs/model/contracts.md · document · - · Version 1 contracts · docs/model/contracts.md:1
@@ -80,6 +92,10 @@
 ## docs/model/corpus-v3.md
 > -
 - doc:docs/model/corpus-v3.md · document · - · Corpus v3: one pipeline for every source · docs/model/corpus-v3.md:1
+
+## docs/model/graph-text.md
+> -
+- doc:docs/model/graph-text.md · document · - · Chess Graph Text (`cgt/1`) · docs/model/graph-text.md:1
 
 ## docs/model/history/verification.md
 > -
@@ -89,17 +105,45 @@
 > -
 - doc:docs/model/modes-and-tools.md · document · - · Modes and tools contract · docs/model/modes-and-tools.md:1
 
+## docs/model/move-head.md
+> -
+- doc:docs/model/move-head.md · document · - · Move-policy head (arm: human-only move head) · docs/model/move-head.md:1
+
+## docs/model/perceiver.md
+> -
+- doc:docs/model/perceiver.md · document · - · Perceiver: image to `BoardObservation` · docs/model/perceiver.md:1
+
 ## docs/model/plan.md
 > -
 - doc:docs/model/plan.md · document · - · KnightLM implementation contract · docs/model/plan.md:1
+
+## docs/model/reasoning-v2.md
+> -
+- doc:docs/model/reasoning-v2.md · document · - · Reasoning v2: short, compiler-grounded reasoning · docs/model/reasoning-v2.md:1
+
+## docs/model/scorecard.md
+> -
+- doc:docs/model/scorecard.md · document · - · KnightLM scorecard: axes, comparability and limits · docs/model/scorecard.md:1
+
+## docs/model/seam.md
+> -
+- doc:docs/model/seam.md · document · - · The seam between RBC and KnightLM · docs/model/seam.md:1
 
 ## docs/model/strength-baseline.md
 > -
 - doc:docs/model/strength-baseline.md · document · - · KnightLM strength baseline protocol · docs/model/strength-baseline.md:1
 
+## docs/model/tokenizer.md
+> -
+- doc:docs/model/tokenizer.md · document · - · Chess tokenizer (`ctok/1`) · docs/model/tokenizer.md:1
+
 ## docs/model/trackb-smolvlm-study.md
 > -
 - doc:docs/model/trackb-smolvlm-study.md · document · - · Track B — SmolVLM architecture study (Burn-native admission) · docs/model/trackb-smolvlm-study.md:1
+
+## docs/model/training-gate.md
+> -
+- doc:docs/model/training-gate.md · document · - · Training gate: every arm, in run order (prepared, not run) · docs/model/training-gate.md:1
 
 ## docs/model/training-glossary.md
 > -
@@ -288,7 +332,7 @@
 
 ## docs/work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md
 > Update the README and app roadmap so a new reader can tell what ships today and what is still planned.
-- t-389d · ticket · open · Docs Contributor — Bring the RBC roadmap up to date · docs/work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md:1
+- t-389d · ticket · done · Docs Contributor — Bring the RBC roadmap up to date · docs/work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md:1
 
 ## docs/work/t-3a41/t-3a41-tournament-persistence-standings-and-combined.md
 > Store tournaments and resume without replaying or losing games.

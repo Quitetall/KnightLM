@@ -1,0 +1,114 @@
+[
+  {
+    "ok": {
+      "move": "g1f3",
+      "reasoning": "Develop the knight toward the center."
+    },
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"Develop the knight toward the center.\",\"move\":\"g1f3\"}}</tool_call>"
+  },
+  {
+    "ok": {
+      "move": "a7a8q",
+      "reasoning": "Promote: a quote \" a backslash \\ and an accent é.\nNew line."
+    },
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"Promote: a quote \\\" a backslash \\\\ and an accent é.\\nNew line.\",\"move\":\"a7a8q\"}}</tool_call>"
+  },
+  {
+    "ok": {
+      "move": "e2e4",
+      "reasoning": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"move\":\"e2e4\"}}</tool_call>"
+  },
+  {
+    "ok": {
+      "move": "e2e4",
+      "reasoning": "Spaced."
+    },
+    "text": "  \n<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"Spaced.\",\"move\":\"e2e4\"}}</tool_call>\n "
+  },
+  {
+    "error": "not_one_call",
+    "text": "g1f3"
+  },
+  {
+    "error": "not_one_call",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"a\",\"move\":\"e2e4\"}}</tool_call><tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"a\",\"move\":\"e2e4\"}}</tool_call>"
+  },
+  {
+    "error": "extra_text",
+    "text": "Thinking first.\n<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"a\",\"move\":\"e2e4\"}}</tool_call>"
+  },
+  {
+    "error": "extra_text",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"a\",\"move\":\"e2e4\"}}</tool_call> done"
+  },
+  {
+    "error": "malformed",
+    "text": "<tool_call>{nope</tool_call>"
+  },
+  {
+    "error": "malformed",
+    "text": "<tool_call>[1,2]</tool_call>"
+  },
+  {
+    "error": "malformed",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"a\",\"move\":\"e2e4\"},\"z\":1}</tool_call>"
+  },
+  {
+    "error": "malformed",
+    "text": "<tool_call>{\"name\":\"submit_move\"}</tool_call>"
+  },
+  {
+    "error": "malformed",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":[]}</tool_call>"
+  },
+  {
+    "error": "malformed",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"a\",\"move\":\"e2e4\",\"extra\":1}}</tool_call>"
+  },
+  {
+    "error": "malformed",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"a\",\"reasoning\":\"b\"}}</tool_call>"
+  },
+  {
+    "error": "wrong_tool",
+    "text": "<tool_call>{\"name\":\"list_legal_moves\",\"arguments\":{}}</tool_call>"
+  },
+  {
+    "error": "key_order",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"move\":\"e2e4\",\"reasoning\":\"a\"}}</tool_call>"
+  },
+  {
+    "error": "reasoning_missing",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"move\":\"e2e4\"}}</tool_call>"
+  },
+  {
+    "error": "reasoning_missing",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"   \",\"move\":\"e2e4\"}}</tool_call>"
+  },
+  {
+    "error": "reasoning_missing",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":5,\"move\":\"e2e4\"}}</tool_call>"
+  },
+  {
+    "error": "reasoning_too_long",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"move\":\"e2e4\"}}</tool_call>"
+  },
+  {
+    "error": "bad_move",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"a\",\"move\":\"Nf3\"}}</tool_call>"
+  },
+  {
+    "error": "bad_move",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"a\",\"move\":\"e2e9\"}}</tool_call>"
+  },
+  {
+    "error": "bad_move",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"a\",\"move\":\"e7e8k\"}}</tool_call>"
+  },
+  {
+    "error": "bad_move",
+    "text": "<tool_call>{\"name\":\"submit_move\",\"arguments\":{\"reasoning\":\"a\",\"move\":4}}</tool_call>"
+  }
+]

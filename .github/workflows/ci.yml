@@ -22,6 +22,29 @@ jobs:
       # `make check` never sees `apps/`: the server and wasm frontend crates are
       # excluded from the workspace, so their lints and tests need this step.
       - run: make check-apps
+  # The torch-dependent model tests skip when torch is missing, which `make check` only
+  # lists. Here CPU-only torch (official PyTorch CPU wheel index), pillow, transformers
+  # and peft are installed from pinned versions, so a skip for a missing dependency
+  # or an unbuilt binary fails the job.
+  model-torch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: rustup update stable && rustup default stable
+      - run: cargo build --locked -j 2
+      - name: Stockfish for the knightlm-uci game gate
+        run: |
+          timeout 120 sudo apt-get update
+          timeout 120 sudo apt-get install -y --no-install-recommends stockfish
+      - run: python3 -m venv "$RUNNER_TEMP/venv"
+      - run: >
+          timeout 900 "$RUNNER_TEMP/venv/bin/pip" install --no-cache-dir
+          --extra-index-url https://download.pytorch.org/whl/cpu
+          -r model/ci-requirements.txt
+      - run: make check-torch PYTHON="$RUNNER_TEMP/venv/bin/python" FORBID_SKIP='torch|transformers|peft|Pillow|numpy|fastapi|httpx|openai|not built|not installed'
+        env:
+          STOCKFISH_PATH: /usr/games/stockfish
   # The Tauri desktop shell: lint it, build it, launch it under a virtual display
   # and check the window, the per-launch token, single-instance and shutdown.
   desktop-shell:

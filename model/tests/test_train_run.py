@@ -10,6 +10,7 @@ import shutil
 import stat
 import tempfile
 import unittest
+from unittest import mock
 
 from model.corpus.pipeline import MANIFEST
 from model.corpus.test_pipeline import plant_leak, write_fixture
@@ -101,6 +102,72 @@ class EntryPointTests(unittest.TestCase):
         self.assertTrue(any("outside the usual LoRA range" in w for w in sanity["warnings"]))
         self.assertTrue(any("more than one epoch" in w for w in sanity["warnings"]))
 
+    def test_ctok1_refuses_a_stock_prompt_corpus_and_is_never_launched(self):
+        code, _, err = call([*self.base, "--run", "r1", "--tokenizer", "ctok1"])
+        self.assertEqual(code, 2)
+        self.assertIn("need --tokenizer ctok1", err)
+
+    def test_tokenizer_kind_guard(self):
+        rows = {"reasoning": [{"reasoning": "x", "game_id": "g"}], "s0": [{"qa": {}, "prompt_kind": "play-t3", "game_id": "g"}]}
+        run.check_tokenizer_kinds(rows["reasoning"], "play-t1", "ctok1")
+        run.check_tokenizer_kinds(rows["reasoning"], "play-cgt", "stock")
+        run.check_tokenizer_kinds(rows["s0"], "play", "ctok1")
+        for rows_, kind, tokenizer in ((rows["reasoning"], "play-t1", "stock"), (rows["reasoning"], "play", "ctok1"),
+                                       (rows["s0"], "play", "stock")):
+            with self.assertRaises(run.Refused):
+                run.check_tokenizer_kinds(rows_, kind, tokenizer)
+
+    def test_ctok1_without_an_extended_base_plans_the_recipe_and_refuses_gpu(self):
+        with mock.patch.object(run, "CTOK_BASE_DIR", self.tmp / "no-such-base"), \
+                mock.patch.object(run, "check_tokenizer_kinds"), mock.patch.object(run, "check_prompt_parity", return_value={"status": "ok"}):
+            code, out, _ = call([*self.base, "--run", "r1", "--tokenizer", "ctok1", "--json"])
+            self.assertEqual(code, 0, out)
+            plan = json.loads(out)
+            args = json.loads(plan["command"][-1])
+            self.assertEqual((args["base"], args["ctok_rows"], args["base_dir"]),
+                             ("smolvlm-500m-ctok1", "embed+head", str(self.tmp / "no-such-base")))
+            self.assertIn("ctok build-base", plan["launch_blocked"])
+            self.assertFalse(plan["tokenizer"]["extended_base_built"])
+            code, _, err = call([*self.base, "--run", "r1", "--tokenizer", "ctok1", "--gpu", "--blut-bin", str(self.stub("exit 0\n"))])
+            self.assertEqual(code, 2)
+            self.assertIn("no extended base", err)
+            self.assertFalse((self.runs / "r1").exists())
+
+    def test_ctok1_with_an_extended_base_is_accepted_for_gpu(self):
+        ext = self.tmp / "ext-base"
+        ext.mkdir()
+        (ext / "ctok-extension.json").write_text("{}")
+        with mock.patch.object(run, "check_tokenizer_kinds"), mock.patch.object(run, "check_prompt_parity", return_value={"status": "ok"}), \
+                mock.patch.object(run, "resolve_venv", return_value=(self.tmp, "test")):
+            code, out, _ = call([*self.base, "--run", "r1", "--tokenizer", "ctok1", "--base-dir", str(ext), "--ctok-rows", "embed",
+                                 "--gpu", "--blut-bin", str(self.stub("mkdir -p x\nexit 0\n"))])
+            self.assertIn("Launching (--gpu).", out)
+            entry = json.loads((self.runs / "r1" / "entry.json").read_text())
+            args = json.loads(entry["command"][-1])
+            self.assertEqual((args["base"], args["ctok_rows"], args["base_dir"]), ("smolvlm-500m-ctok1", "embed", str(ext)))
+
+    def test_extended_base_check_refuses_other_weights_a_tampered_file_and_a_stock_file(self):
+        from model.tokenizer import vocab
+        ext = self.tmp / "ext-base2"
+        ext.mkdir()
+        weights = ext / "model.safetensors"
+        weights.write_bytes(b"extended")
+        profile = {**bases.BASES["smolvlm-500m"], "weights_sha256": "a" * 64}
+        record = {"format": run.EXTENSION_FORMAT, "spec_version": vocab.SPEC_VERSION, "vocab_sha256": vocab.vocab_sha256(),
+                  "vocab_size": vocab.SIZE, "base": 49280, "seed": 0, "head_untied": True, "stock_weights_sha256": "a" * 64,
+                  "extended_weights_sha256": run.sha256_file(weights)}
+        (ext / "ctok-extension.json").write_text(json.dumps(record))
+        self.assertEqual(run.check_extended_base(profile, ext)[1]["status"], "ok")
+        for edit in ({"stock_weights_sha256": "b" * 64}, {"head_untied": False}, {"extended_weights_sha256": "0" * 64},
+                     {"vocab_sha256": "0" * 64}, {"spec_version": "ctok/2"}):
+            (ext / "ctok-extension.json").write_text(json.dumps({**record, **edit}))
+            with self.assertRaises(run.Refused, msg=str(edit)):
+                run.check_extended_base(profile, ext)
+        (ext / "ctok-extension.json").write_text(json.dumps(record))
+        weights.write_bytes(b"tampered")
+        with self.assertRaises(run.Refused):
+            run.check_extended_base(profile, ext)
+
     def test_gpu_without_a_binary_is_refused_before_anything_is_created(self):
         code, _, err = call([*self.base, "--run", "r1", "--gpu", "--blut-bin", str(self.tmp / "missing")])
         self.assertEqual(code, 2)
@@ -141,6 +208,21 @@ class EntryPointTests(unittest.TestCase):
         self.assertEqual((entry["status"], entry["returncode"]), ("failed", 7))
         self.assertEqual((self.runs / "done1" / "entry.json").read_text(), first)
         self.assertIn("boom", (self.runs / "bad1" / "blut.log").read_text())
+
+
+class LossSegmentTests(unittest.TestCase):
+    """The recipe puts loss on every completion token, so rows with tool-result spans are refused there."""
+
+    ROW = {"id": "r2b-train-000000", "segments": [{"text": "call", "loss": True}, {"text": "result", "loss": False},
+                                                   {"text": "final", "loss": True}]}
+
+    def test_a_row_with_a_result_span_is_refused_unless_the_flag_accepts_it(self):
+        with self.assertRaisesRegex(run.Refused, "r2b-train-000000.*without loss.*--allow-unmasked-results"):
+            run.check_loss_segments([{"id": "plain"}, self.ROW])
+        self.assertEqual(run.check_loss_segments([{"id": "plain"}, self.ROW], allow=True)["status"], "warning")
+
+    def test_rows_without_segments_or_with_only_loss_spans_pass(self):
+        self.assertIsNone(run.check_loss_segments([{"id": "plain"}, {"id": "a", "segments": [{"text": "x", "loss": True}]}]))
 
 
 class BaseTableTests(unittest.TestCase):

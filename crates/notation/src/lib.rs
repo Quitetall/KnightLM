@@ -5,6 +5,7 @@
 //! `nota-reader`, `nota-detect`, `nota-annot` (the last two land in later
 //! Warrants).
 
+pub mod cgt;
 pub mod descriptive;
 pub mod epd;
 pub mod fen;

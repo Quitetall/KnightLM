@@ -8,7 +8,7 @@ useDefault = true
 [allowlist]
 description = "Machine-written records and fixtures: their high-entropy strings are hashes, ids and chess positions, never credentials"
 paths = [
-    '''docs/(tickets|warrants)/.*journal\.jsonl$''',
+    '''docs/(tickets|warrants|work)/.*journal\.jsonl$''',
     '''docs/.*/checks/.*''',
     '''docs/generated/.*''',
     '''model/eval/fixtures/.*''',

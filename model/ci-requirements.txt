@@ -1,0 +1,15 @@
+# The torch-dependent model tests in CI (job `model-torch`): CPU-only wheels, pinned.
+# Install with:
+#   pip install --extra-index-url https://download.pytorch.org/whl/cpu -r model/ci-requirements.txt
+# torch comes from the official PyTorch CPU wheel index (the "+cpu" local version).
+torch==2.9.1+cpu
+numpy==2.3.5
+pillow==11.3.0
+transformers==5.5.3
+peft==0.21.2
+# serving app for the knightlm-uci game gate (model.serve.fake_server)
+fastapi==0.115.12
+uvicorn==0.34.2
+httpx==0.28.1
+# the official client, which model/serve/test_chat.py drives the chat endpoint with
+openai==1.93.0

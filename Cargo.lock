@@ -2960,6 +2960,16 @@ dependencies = [
  "knightlm-player",
  "serde",
  "serde_json",
+ "shakmaty",
+]
+
+[[package]]
+name = "knightlm-contract"
+version = "0.1.0"
+dependencies = [
+ "knightlm-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4149,6 +4159,7 @@ name = "rbc-ai"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "knightlm-contract",
  "knightlm-core",
  "rbc-db",
  "serde",

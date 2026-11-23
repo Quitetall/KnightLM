@@ -1,0 +1,22 @@
+name: Pick up a ticket
+description: Say you are taking a tracked work order or starter task
+labels: ["help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tracked work lives in `docs/work/` and `docs/tickets/` as OpenWarrant tickets; see the
+        [work orders](https://github.com/Quitetall/KnightLM/blob/main/docs/contributors/work/README.md).
+        Pick one there, run `war start <id> --as <your-handle>` in your checkout if you use `war`, and
+        tell us here so people on other forks do not duplicate it. A draft pull request with the id is welcome.
+  - type: input
+    id: ticket
+    attributes:
+      label: Ticket id
+      placeholder: t-389d
+    validations:
+      required: true
+  - type: textarea
+    id: plan
+    attributes:
+      label: What you will try first, and what you need

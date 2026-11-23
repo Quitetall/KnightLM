@@ -718,6 +718,9 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
                     <div class="muted">
                         {move || i18n::t(&language.get(), "settings.providers_hint")}
                     </div>
+                    <div class="muted">
+                        {move || i18n::t(&language.get(), "settings.knightlm_hint")}
+                    </div>
                     <ul class="provider-list">
                         {move || providers.get().into_iter().map(|provider| {
                             let id_remove = provider.id.clone();
@@ -747,12 +750,22 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
                                             provider_busy.set(true);
                                             spawn_local(async move {
                                                 match api::test_provider(&id).await {
-                                                    Ok(value) => provider_status.set(format!(
-                                                        "{}: {} model(s) in {} ms",
-                                                        if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) { "ok" } else { "failed" },
-                                                        value.get("models").and_then(|v| v.as_u64()).unwrap_or(0),
-                                                        value.get("latency_ms").and_then(|v| v.as_u64()).unwrap_or(0),
-                                                    )),
+                                                    Ok(value) => provider_status.set(
+                                                        if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                                            format!(
+                                                                "ok: {} model(s) in {} ms",
+                                                                value.get("models").and_then(|v| v.as_u64()).unwrap_or(0),
+                                                                value.get("latency_ms").and_then(|v| v.as_u64()).unwrap_or(0),
+                                                            )
+                                                        } else {
+                                                            // A typed error: a stable code and a sentence.
+                                                            format!(
+                                                                "failed ({}): {}",
+                                                                value["error"]["code"].as_str().unwrap_or("unknown"),
+                                                                value["error"]["message"].as_str().unwrap_or(""),
+                                                            )
+                                                        },
+                                                    ),
                                                     Err(error) => provider_status.set(error),
                                                 }
                                                 provider_busy.set(false);
@@ -828,6 +841,17 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
                                 }
                             });
                         }>{move || i18n::t(&language.get(), "settings.add_provider")}</button>
+                        <button class="provider-preset-knightlm" on:click=move |_| {
+                            spawn_local(async move {
+                                match api::add_provider_preset("knightlm").await {
+                                    Ok(_) => {
+                                        provider_status.set(String::new());
+                                        load_providers();
+                                    }
+                                    Err(error) => provider_status.set(error),
+                                }
+                            });
+                        }>{move || i18n::t(&language.get(), "settings.add_knightlm")}</button>
                         <button class="provider-scan" on:click=move |_| scan_local()>
                             {move || i18n::t(&language.get(), "settings.scan_local")}
                         </button>

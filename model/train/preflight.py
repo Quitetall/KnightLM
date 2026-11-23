@@ -53,8 +53,12 @@ def percentile(values, q):
     return ordered[min(len(ordered) - 1, int(q * len(ordered)))]
 
 
-def cpu_steps(base_dir, regex, examples, data, train, rank, alpha, lr, steps=2, batch=2, seq_len=2048):
-    """Two optimiser steps on CPU in float32 with the trainer's encode/collate."""
+def cpu_steps(base_dir, regex, examples, data, train, rank, alpha, lr, steps=2, batch=2, seq_len=2048, extension=None,
+              already_extended=False):
+    """Two optimiser steps on CPU in float32 with the trainer's encode/collate.
+
+    `extension` = (tokenizer, base, mode) for a ctok1 run: the model is extended in memory and the new rows train
+    through `trainable_token_indices` (model/train/ctok.py)."""
     import time
     import peft
     import torch
@@ -66,7 +70,15 @@ def cpu_steps(base_dir, regex, examples, data, train, rank, alpha, lr, steps=2, 
     model = AutoModelForImageTextToText.from_pretrained(base_dir, local_files_only=True, dtype=torch.float32)
     resolved = train.resolve_lora_regex({"lora_target_regex": regex}, model.config.model_type,
                                         [n for n, _ in model.named_modules()])
-    model = peft.get_peft_model(model, peft.LoraConfig(r=rank, lora_alpha=alpha, target_modules=resolved, bias="none"))
+    if extension:
+        from model.train import ctok
+        tokenizer, ext_base, mode = extension
+        if not already_extended:  # a built snapshot has its rows initialised and its matrices resized
+            ctok.extend_model(model, tokenizer, ext_base)
+        config = ctok.lora_config(peft, model, resolved, rank, alpha, ext_base, mode)
+    else:
+        config = peft.LoraConfig(r=rank, lora_alpha=alpha, target_modules=resolved, bias="none")
+    model = peft.get_peft_model(model, config)
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(params, lr=lr)
     before = [p.detach().clone() for p in params]
@@ -90,6 +102,10 @@ def cpu_steps(base_dir, regex, examples, data, train, rank, alpha, lr, steps=2, 
     changed = any(not torch.equal(a, p.detach()) for a, p in zip(before, params, strict=True))
     if not changed or max(norms) <= 0:
         raise ValueError("LoRA parameters did not update on CPU (zero gradient)")
-    return {"steps": steps, "batch": batch, "losses": losses, "grad_norms": norms,
+    extra = {}
+    if extension:
+        from model.train import ctok
+        extra = {"ctok_parameters": ctok.parameter_report(model), "ctok_mode": extension[2]}
+    return {**extra, "steps": steps, "batch": batch, "losses": losses, "grad_norms": norms,
             "trainable_parameters": sum(p.numel() for p in params), "lora_target_regex": resolved,
             "model_type": model.config.model_type, "seconds": round(time.monotonic() - started, 1)}

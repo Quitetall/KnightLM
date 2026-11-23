@@ -83,6 +83,17 @@ class FakeUciOracleTests(unittest.TestCase):
         self.assertEqual(axis["engine"]["nodes"], 800)
         self.assertEqual(len(axis["engine"]["weights_sha256"]), 64)
 
+    def test_backend_is_pinned_by_option_or_env_and_recorded(self):
+        records = predict_rows(ROWS, fakes.worked_example(), MODES, 1)
+        axis = oracles.lc0_axis(records, MODES, self.oracle())
+        self.assertEqual(axis["engine"]["backend"], "lc0 default")
+        self.assertNotIn("name Backend", self.log.read_text())
+        with mock.patch.dict(os.environ, {"LC0_BACKEND": "blas"}):
+            axis = oracles.lc0_axis(records, MODES, self.oracle())
+        self.assertEqual(axis["engine"]["backend"], "blas")
+        self.assertIn("setoption name Backend value blas", self.log.read_text())
+        self.assertEqual(self.oracle(backend="eigen").info()["backend"], "eigen")
+
     def test_maia_match_counts_every_row_and_reports_the_human_reference(self):
         with mock.patch.dict(os.environ, {"FAKE_UCI_SCRIPT": str(script(self.tmp / "m.json", maia_other_for=(2,)))}):
             weights = self.tmp / "maia-1500.pb.gz"
@@ -162,6 +173,21 @@ class SkipTests(unittest.TestCase):
                         mock.patch.object(oracles.shutil, "which", return_value=None)):
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    def test_maia_weights_dir_accepts_flat_and_stored_layouts(self):
+        flat, stored, empty = self.tmp / "flat", self.tmp / "stored", self.tmp / "empty"
+        for d in (flat, stored / "1500", empty):
+            d.mkdir(parents=True)
+        (flat / "maia-1500.pb.gz").write_bytes(b"f")
+        (stored / "1500" / "maia-1500.pb.gz").write_bytes(b"s")
+        self.assertEqual(oracles.find_maia_weights(1500, directory=flat), (flat / "maia-1500.pb.gz").resolve())
+        self.assertEqual(oracles.find_maia_weights(1500, directory=stored), (stored / "1500" / "maia-1500.pb.gz").resolve())
+        with mock.patch.dict(os.environ, {"MAIA_WEIGHTS_DIR": str(stored)}):
+            self.assertEqual(oracles.find_maia_weights(1500).name, "maia-1500.pb.gz")
+        with self.assertRaises(OracleUnavailable):
+            oracles.find_maia_weights(1500, directory=empty)
+        with self.assertRaises(OracleUnavailable):  # the stored layout has no 1100 here
+            oracles.find_maia_weights(1100, directory=stored)
 
     def test_named_reasons(self):
         with self.assertRaisesRegex(OracleUnavailable, "lc0 binary not found"):

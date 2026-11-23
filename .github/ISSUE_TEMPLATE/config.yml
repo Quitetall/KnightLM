@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Pick up tracked work (work orders by role)
+    url: https://github.com/Quitetall/KnightLM/blob/main/docs/contributors/work/README.md
+    about: Starter tasks and larger orders, with the war commands to claim them.
+  - name: Contributing guide
+    url: https://github.com/Quitetall/KnightLM/blob/main/CONTRIBUTING.md
+    about: Branch and pull request flow, CI jobs, and how to claim work.
+  - name: Getting started
+    url: https://github.com/Quitetall/KnightLM/blob/main/docs/contributors/README.md
+    about: Setup on a fresh clone for the RBC app and the KnightLM model path.

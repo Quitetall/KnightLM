@@ -41,6 +41,12 @@ pub mod study_bundle;
 #[cfg(feature = "core")]
 pub mod game;
 
+#[cfg(feature = "core")]
+pub mod coach;
+
+#[cfg(feature = "core")]
+pub mod model_turn;
+
 #[cfg(feature = "provider")]
 pub mod context_diff;
 

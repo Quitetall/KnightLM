@@ -134,6 +134,21 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     let local_models = RwSignal::new(Vec::<(String, String)>::new());
     let opponent = RwSignal::new(1usize);
     let scanning = RwSignal::new(false);
+    // Chat on is a coach turn (a rolling summary plus the recent messages go to
+    // the model, and it may draw on the board); off is the competition harness.
+    let chat_on = RwSignal::new(true);
+    // 0 is the opponent itself; k + 1 is the k-th model offered below.
+    let coach_choice = RwSignal::new(0usize);
+    let stored_coach = RwSignal::new(None::<(String, String)>);
+    // Models of registered providers (settings > providers): (provider ref, label, model).
+    let registered = RwSignal::new(Vec::<(String, String, String)>::new());
+    let chat_log = RwSignal::new(Vec::<(String, String)>::new());
+    // The chat as the server rolled it: the summary and the recent messages.
+    let chat_ctx = RwSignal::new((None::<String>, Vec::<serde_json::Value>::new()));
+    let chat_input = RwSignal::new(String::new());
+    // What the coach drew on the board, and the ply it pointed at.
+    let coach_marks = RwSignal::new(Vec::<brick_chess::Shape>::new());
+    let coach_ply = RwSignal::new(None::<(usize, String)>);
     let scan_local = move || {
         message.set(String::new());
         scanning.set(true);
@@ -169,6 +184,124 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
             scanning.set(false);
         });
     };
+    let load_registered = move || {
+        spawn_local(async move {
+            if let Ok(list) = db_api::list_providers().await {
+                registered.set(
+                    list.into_iter()
+                        .flat_map(|provider| {
+                            let reference = format!("provider:{}", provider.id);
+                            let label = provider.label;
+                            provider
+                                .models
+                                .into_iter()
+                                .map(move |model| (reference.clone(), label.clone(), model.id))
+                        })
+                        .collect(),
+                );
+            }
+        });
+    };
+    Effect::new(move |_| load_registered());
+    Effect::new(move |_| {
+        spawn_local(async move {
+            if let Ok((chat, coach)) = db_api::load_chat_seats().await {
+                if let Some(chat) = chat {
+                    chat_on.set(chat);
+                }
+                stored_coach.set(coach);
+            }
+        });
+    });
+    // The coach models offered: every local model, then every registered one.
+    let coach_options = move || {
+        let mut options: Vec<(String, String)> = local_models
+            .get()
+            .into_iter()
+            .map(|(label, model)| (format!("local:{label}"), model))
+            .collect();
+        options.extend(
+            registered
+                .get()
+                .into_iter()
+                .map(|(reference, _, model)| (reference, model)),
+        );
+        options
+    };
+    // The stored coach seat selects its option once the lists have loaded.
+    Effect::new(move |_| {
+        let options = coach_options();
+        if let Some(stored) = stored_coach.get()
+            && coach_choice.get_untracked() == 0
+            && let Some(index) = options.iter().position(|option| *option == stored)
+        {
+            coach_choice.set(index + 1);
+        }
+    });
+    let coach_seat = move || -> Option<(String, String)> {
+        let index = coach_choice.get_untracked().checked_sub(1)?;
+        coach_options().into_iter().nth(index)
+    };
+    let save_chat = move || {
+        let (chat, coach) = (chat_on.get_untracked(), coach_seat());
+        spawn_local(async move {
+            let _ = db_api::save_chat_seats(chat, coach).await;
+        });
+    };
+    let set_ctx = move |chat: &serde_json::Value| {
+        if chat.is_null() {
+            return;
+        }
+        chat_ctx.set((
+            chat["summary"].as_str().map(str::to_owned),
+            chat["recent"].as_array().cloned().unwrap_or_default(),
+        ));
+    };
+    // What a model turn brings back for the screen: the marks and the pointer the
+    // coach drew, its reply for the chat, and the chat as the server rolled it.
+    let apply_turn = move |reply: &serde_json::Value| {
+        let tools = &reply["tools"];
+        coach_marks.set(crate::board::shapes_from_coach_marks(&tools["marks"]));
+        coach_ply.set(crate::board::coach_pointer(&tools["ui"]));
+        if let Some(text) = tools["reply"]
+            .as_str()
+            .filter(|text| !text.trim().is_empty())
+        {
+            chat_log.update(|log| log.push(("assistant".into(), text.to_string())));
+        }
+        set_ctx(&reply["chat"]);
+    };
+    let send_chat = move || {
+        let text = chat_input.get_untracked().trim().to_string();
+        let Some(id) = selected.get_untracked() else {
+            return;
+        };
+        if text.is_empty() || busy.get_untracked() {
+            return;
+        }
+        chat_input.set(String::new());
+        chat_log.update(|log| log.push(("user".into(), text.clone())));
+        busy.set(true);
+        message.set(String::new());
+        let (summary, history) = chat_ctx.get_untracked();
+        let coach = coach_seat()
+            .map(|(provider, model)| serde_json::json!({"provider": provider, "model": model}));
+        let body = serde_json::json!({
+            "message": text, "coach": coach, "summary": summary, "history": history,
+        });
+        spawn_local(async move {
+            match ai_api::match_action(&id, "chat", body).await {
+                Ok(value) => {
+                    if let Some(reply) = value["reply"].as_str() {
+                        chat_log.update(|log| log.push(("assistant".into(), reply.to_string())));
+                    }
+                    set_ctx(&value["chat"]);
+                }
+                Err(error) => message.set(error),
+            }
+            busy.set(false);
+        });
+    };
     let reload = move || {
         spawn_local(async move {
             match ai_api::list_ai_matches().await {
@@ -196,6 +329,13 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
     // Follow the selection.
     Effect::new(move |_| {
         replay_ply.set(None);
+        let _ = selected.get();
+        chat_log.set(Vec::new());
+        chat_ctx.set((None, Vec::new()));
+        coach_marks.set(Vec::new());
+        coach_ply.set(None);
+    });
+    Effect::new(move |_| {
         if let Some(id) = selected.get() {
             let already_loaded = detail.with_untracked(|payload| {
                 payload.as_ref().and_then(|value| value["id"].as_str()) == Some(id.as_str())
@@ -295,12 +435,22 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                 serde_json::json!({"kind": "model", "provider": "local:LAMU", "model": KNIGHTLM_MODEL})
             }
             choice => {
-                let Some((label, model)) = choice.checked_sub(2).and_then(|index| {
-                    local_models.with_untracked(|models| models.get(index).cloned())
-                }) else {
+                let Some(index) = choice.checked_sub(2) else {
                     return;
                 };
-                serde_json::json!({"kind": "model", "provider": format!("local:{label}"), "model": model})
+                let local = local_models.with_untracked(|models| models.get(index).cloned());
+                if let Some((label, model)) = local {
+                    serde_json::json!({"kind": "model", "provider": format!("local:{label}"), "model": model})
+                } else {
+                    // Past the local models: a model of a registered provider.
+                    let offset = index - local_models.with_untracked(|models| models.len());
+                    let Some((reference, _, model)) =
+                        registered.with_untracked(|models| models.get(offset).cloned())
+                    else {
+                        return;
+                    };
+                    serde_json::json!({"kind": "model", "provider": reference, "model": model})
+                }
             }
         };
         message.set(String::new());
@@ -334,10 +484,15 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
         busy.set(true);
         message.set(String::new());
         knightlm_vote.set(None);
+        let (summary, history) = chat_ctx.get_untracked();
         let model_options = serde_json::json!({
             "thinking": thinking.get_untracked(),
             "knightlm_samples": knightlm_samples.get_untracked(),
             "knightlm_temperature": knightlm_temperature.get_untracked(),
+            "chat": chat_on.get_untracked(),
+            "coach": coach_seat().map(|(provider, model)| serde_json::json!({"provider": provider, "model": model})),
+            "summary": summary,
+            "history": history,
         });
         let body = if action == "model-move" {
             model_options.clone()
@@ -352,6 +507,9 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         .get("knightlm_vote")
                         .filter(|vote| !vote.is_null())
                         .cloned();
+                    if action == "model-move" {
+                        apply_turn(&value);
+                    }
                     let next = value.get("match").cloned().unwrap_or(value);
                     if next.get("id").is_some() {
                         let model_reply = action == "move"
@@ -366,6 +524,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         if model_reply {
                             match ai_api::match_action(&id, "model-move", model_options).await {
                                 Ok(reply) if selected.get_untracked().as_deref() == Some(&id) => {
+                                    apply_turn(&reply);
                                     knightlm_vote.set(
                                         reply
                                             .get("knightlm_vote")
@@ -465,6 +624,12 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             {move || local_models.get().into_iter().enumerate().map(|(index, (label, model))| view! {
                                 <option value=index + 2 selected=move || opponent.get() == index + 2>{format!("{label} · {model}")}</option>
                             }).collect_view()}
+                            {move || {
+                                let local = local_models.with(|models| models.len());
+                                registered.get().into_iter().enumerate().map(|(index, (_, label, model))| view! {
+                                    <option value=local + index + 2 selected=move || opponent.get() == local + index + 2>{format!("{label} · {model}")}</option>
+                                }).collect_view()
+                            }}
                         </select>
                     </label>
                     <button
@@ -486,6 +651,32 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                         ctx.practice_mode.set("spar".into());
                         ctx.switch_tab.run(crate::model::Tab::Practice);
                     }>{move || i18n::t(&language.get(), "play.engine")}</button>
+                </div>
+                <div class="play-new play-chat-controls">
+                    <label title=move || i18n::t(&language.get(), "play.chat_hint")>
+                        <input type="checkbox" class="play-chat-toggle"
+                            prop:checked=move || chat_on.get()
+                            disabled=move || busy.get()
+                            on:change=move |event| {
+                                chat_on.set(event_target_checked(&event));
+                                save_chat();
+                            } />
+                        {move || i18n::t(&language.get(), "play.chat_on")}
+                    </label>
+                    <label>
+                        {move || i18n::t(&language.get(), "play.coach_model")}
+                        <select class="play-coach" disabled=move || busy.get() || !chat_on.get()
+                            prop:value=move || coach_choice.get().to_string()
+                            on:change=move |event| {
+                                coach_choice.set(event_target_value(&event).parse().unwrap_or(0));
+                                save_chat();
+                            }>
+                            <option value="0">{move || i18n::t(&language.get(), "play.coach_same")}</option>
+                            {move || coach_options().into_iter().enumerate().map(|(index, (_, model))| view! {
+                                <option value=index + 1 selected=move || coach_choice.get() == index + 1>{model}</option>
+                            }).collect_view()}
+                        </select>
+                    </label>
                 </div>
                 <div class="play-new">
                     <label title=move || i18n::t(&language.get(), "play.thinking_hint")>
@@ -596,6 +787,7 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 board_only=true
                                 read_only=finished || !human_turn || replay.is_some()
                                 interaction_disabled=busy.into()
+                                shapes=Signal::derive(move || coach_marks.get())
                                 lang=language.into()
                                 on_move=Callback::new(move |(uci, _, _): (String, String, String)| {
                                     act("move", serde_json::json!({"mv": uci}));
@@ -644,7 +836,14 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                     let prefix = if color == "white" { format!("{number}.") } else { String::new() };
                                     let ply = index + 1;
                                     view! {
-                                        <li class=format!("ply {color}")>
+                                        <li class=move || {
+                                            // The coach's scratch-board pointer: ply n is the n-th move.
+                                            if coach_ply.get().is_some_and(|(pointed, _)| pointed == ply) {
+                                                format!("ply {color} pointed")
+                                            } else {
+                                                format!("ply {color}")
+                                            }
+                                        }>
                                             <button data-match-ply=ply
                                                 aria-pressed=if replay.unwrap_or(moves.len()) == ply { "true" } else { "false" }
                                                 on:click=move |_| replay_ply.set(Some(ply))>
@@ -654,6 +853,46 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                     }
                                 }).collect_view()}
                             </ol>
+                            {move || coach_ply.get().map(|(ply, fen)| view! {
+                                <div class="coach-pointer" role="status">
+                                    <span>{i18n::tf(&language.get(), "play.coach_pointing", &[("ply", ply.to_string())])}</span>
+                                    <Board
+                                        pgn=Signal::derive(String::new)
+                                        load_fen=Signal::derive(move || Some((0, fen.clone(), "standard".into())))
+                                        board_only=true
+                                        read_only=true
+                                        lang=language.into()
+                                    />
+                                </div>
+                            })}
+                            <div class="match-chat">
+                                <h4>{move || i18n::t(&language.get(), "play.chat_title")}</h4>
+                                {move || if chat_on.get() {
+                                    view! {
+                                        <ul class="chat-log" aria-live="polite">
+                                            {move || chat_log.get().into_iter().map(|(role, text)| view! {
+                                                <li class=format!("chat-line {role}")>{text}</li>
+                                            }).collect_view()}
+                                        </ul>
+                                        <div class="chat-compose">
+                                            <input class="chat-input" type="text"
+                                                placeholder=move || i18n::t(&language.get(), "play.chat_placeholder")
+                                                prop:value=move || chat_input.get()
+                                                on:input=move |event| chat_input.set(event_target_value(&event))
+                                                on:keydown=move |event| {
+                                                    if event.key() == "Enter" {
+                                                        send_chat();
+                                                    }
+                                                } />
+                                            <button class="chat-send" disabled=move || busy.get() on:click=move |_| send_chat()>
+                                                {move || i18n::t(&language.get(), "play.chat_send")}
+                                            </button>
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    view! { <p class="muted">{move || i18n::t(&language.get(), "play.chat_off_note")}</p> }.into_any()
+                                }}
+                            </div>
 
                             <div class="match-actions">
                                 {tournament_game.then(|| view! {

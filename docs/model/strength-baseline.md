@@ -194,6 +194,13 @@ run's artifacts. Nothing is downloaded by this repository. Leela search with a
 node limit is repeatable on one backend but not bit-exact across GPUs or
 backends, so record the machine in the run notes.
 
+First real-engine run (2026-11-20, lc0 v0.32.1 built from source, no Linux release binary exists; Maia 1100/1500/1900,
+GPL-3 with the maia-chess repo): lc0 has no `Hash` option (`error Unknown option: Hash`), so `--hash-mb 0` is required, as
+built. A source build with onnxruntime present defaults to the `onnx-cpu` backend and a CUDA build would default to a GPU
+one, so set `LC0_BACKEND` (for example `blas`) to pin it; the backend is recorded in the engine block. Maia 1500 at one
+node matched the human move on 144/300 holdout rows (48%), in line with the published figure. No licence was found for the
+Leela network weights, so none was downloaded; the lc0 axis was exercised with a Maia net, which is a weak stand-in.
+
 Engine-zero (WAR-0005) holds for these oracles. They are called only by
 `model.eval` after the model has committed to a move. `model.eval.test_oracles`
 scans `model/serve` and `model/prompt.py` for imports of `model.eval` or
@@ -328,6 +335,53 @@ settings, `scorecard.json` (minus its `run` block), `predictions.jsonl` and the
 tactical set are byte-identical (tested with a deterministic predictor, with
 different Stockfish worker counts). Model decoding and latency are the
 predictor's responsibility.
+
+## Play-mode scoring (reasoning-corpus adapters)
+
+An adapter trained on the reasoning corpus (`knightlm-lichess-v2-reasoning-v1`) answers the
+play prompt (`model.prompt.play_text`) with one `submit_move` call, `reasoning` then `move`.
+The move-only prompt above cannot measure it, so a scorecard has a **prompt kind**:
+`move` (everything above) or `play` (`--prompt-kind play`). A play card:
+
+- names its axes `play_raw_legality` and `play_constrained_legality`, never `raw_legality`;
+- scores the same holdout rows, CPL, human-move match, tactics, optional oracles and games
+  through the committed move, so those numbers read like the move card's;
+- adds `play_completion` per mode: completions valid, the model's own text valid before any
+  repair, parsed move legal, every stable refusal code, and which path produced the move;
+- adds `play_explanation` per mode: the generated reasoning checked by `model.eval.explain`
+  (claims checkable and failed; a completion with no recoverable reasoning is `missing`).
+
+Raw legality in play mode is stricter than the move card's: the completion must parse
+(`not_one_call`, `extra_text`, `malformed`, `wrong_tool`, `key_order`, `reasoning_missing`,
+`reasoning_too_long`, `bad_move`), name a legal move (`illegal_move`) and agree with the move its
+reasoning states (`stated_move_mismatch`, status `inconsistent`). `parsed_move_legal` reports
+the looser question beside it. Nothing is repaired in raw mode.
+
+Constrained mode in play mode keeps the model's completion when it already passes every check
+(path `model`). Otherwise the move field alone is chosen from the legal list, by the same
+greedy trie decode as the move card, after the model's own reasoning (`constrained_move`); when
+the model wrote no recoverable reasoning, the call head is supplied and the model writes the
+reasoning (`constrained_forced_reasoning`; the untrained base lands here on almost every row).
+Only if that fails too is there no move (`constrained_no_reasoning`, a failure row). An
+illegal move is never returned in constrained mode.
+
+`compare` prints `NOT COMPARABLE: prompt kind differs` and exits 3 without a table when a move
+card meets a play card; `--allow-prompt-mismatch` prints the table anyway (marked ALLOWED).
+Compare an adapter with the untrained base scored under the same play prompt, not with the
+move-only baseline.
+
+```sh
+export KNIGHTLM_BASE_DIR=/mnt/4tb/artifacts/KnightLM/expire/models/smolvlm-500m-a7da5b98
+# add KNIGHTLM_ADAPTER_DIR=<run dir>/adapter for an adapter; leave it unset for the untrained base
+/mnt/4tb/venvs/knightlm-serve/bin/python -m model.eval.run --prompt-kind play \
+  --predictor model.eval.playmode:from_env --label run1-playmode --rows 2000 \
+  --corpus /mnt/4tb/artifacts/KnightLM/expire/corpus/run1-reasoning-2026-09-a
+/mnt/4tb/venvs/knightlm-serve/bin/python -m model.eval.compare <base-playmode-dir> <run1-playmode-dir>
+```
+
+Caveats: the reasoning corpus reasoning is derived from the human move after the fact, so the
+explanation axis counts board claims that hold or fail; it does not show the model analysed
+anything. Greedy decoding stops at 256 new tokens (`play_max_new_tokens` in the card inputs).
 
 ## Reference floor (not a model)
 

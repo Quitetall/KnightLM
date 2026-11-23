@@ -1665,3 +1665,118 @@ pub fn shapes_from_content(content: &serde_json::Value) -> Vec<Shape> {
     }
     shapes
 }
+
+/// Shapes for the marks a coach turn returns (`tools.marks` of a model move).
+///
+/// The server sends the structured data `crates/ai/src/coach.rs` produced:
+/// `{"kind":"arrow","from","to","color"}` and `{"kind":"square","square","color"}`.
+/// An arrow is an arrow; a marked square is a highlighted square. Anything that
+/// is not one of those (or names an unreadable square) is skipped, never guessed.
+pub fn shapes_from_coach_marks(marks: &serde_json::Value) -> Vec<Shape> {
+    let valid = |square: &str| name_to_index(square).is_some();
+    let color = |mark: &serde_json::Value| {
+        mark.get("color")
+            .and_then(|c| c.as_str())
+            .unwrap_or("green")
+            .to_string()
+    };
+    marks
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|mark| match mark.get("kind").and_then(|k| k.as_str())? {
+                    "arrow" => {
+                        let from = mark.get("from")?.as_str()?;
+                        let to = mark.get("to")?.as_str()?;
+                        (valid(from) && valid(to)).then(|| Shape::Arrow {
+                            from: from.into(),
+                            to: to.into(),
+                            color: color(mark),
+                        })
+                    }
+                    "square" => {
+                        let square = mark.get("square")?.as_str()?;
+                        valid(square).then(|| Shape::Highlight {
+                            squares: vec![square.into()],
+                            color: color(mark),
+                        })
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The ply the coach last pointed at on its scratch board, from the ordered
+/// `tools.ui` effects of a turn: `(ply, fen)` of the last `show_ply`.
+pub fn coach_pointer(effects: &serde_json::Value) -> Option<(usize, String)> {
+    effects
+        .as_array()?
+        .iter()
+        .rfind(|effect| effect.get("effect").and_then(|e| e.as_str()) == Some("show_ply"))
+        .and_then(|effect| {
+            Some((
+                effect.get("ply")?.as_u64()? as usize,
+                effect.get("fen")?.as_str()?.to_string(),
+            ))
+        })
+}
+
+#[cfg(test)]
+mod coach_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn marks_become_arrows_and_highlighted_squares_in_their_colour() {
+        let shapes = shapes_from_coach_marks(&json!([
+            {"kind": "arrow", "from": "e2", "to": "e4", "color": "red"},
+            {"kind": "square", "square": "d5", "color": "blue"},
+        ]));
+        assert_eq!(
+            shapes,
+            vec![
+                Shape::Arrow {
+                    from: "e2".into(),
+                    to: "e4".into(),
+                    color: "red".into()
+                },
+                Shape::Highlight {
+                    squares: vec!["d5".into()],
+                    color: "blue".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_mark_that_is_not_readable_is_skipped_not_guessed() {
+        let shapes = shapes_from_coach_marks(&json!([
+            {"kind": "arrow", "from": "e2", "to": "z9", "color": "red"},
+            {"kind": "square", "color": "red"},
+            {"kind": "spiral", "square": "a1"},
+            {"kind": "square", "square": "a1"},
+        ]));
+        assert_eq!(
+            shapes,
+            vec![Shape::Highlight {
+                squares: vec!["a1".into()],
+                color: "green".into()
+            }]
+        );
+        assert!(shapes_from_coach_marks(&json!(null)).is_empty());
+    }
+
+    #[test]
+    fn the_pointer_is_the_last_show_ply_of_the_turn() {
+        let effects = json!([
+            {"effect": "show_ply", "ply": 1, "fen": "f1"},
+            {"effect": "add_mark", "mark": {"kind": "square", "square": "a1", "color": "red"}},
+            {"effect": "show_ply", "ply": 3, "fen": "f3"},
+            {"effect": "clear_marks"},
+        ]);
+        assert_eq!(coach_pointer(&effects), Some((3, "f3".to_string())));
+        assert_eq!(coach_pointer(&json!([{"effect": "clear_marks"}])), None);
+    }
+}

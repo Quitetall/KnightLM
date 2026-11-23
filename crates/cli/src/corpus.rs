@@ -48,6 +48,7 @@ pub fn write_candidates(
         let packet = state.compile(PacketOptions {
             legal_choices: true,
             derived_features: false,
+            ..PacketOptions::default()
         });
         ensure!(
             packet

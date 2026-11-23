@@ -16,13 +16,14 @@
 //! The base model and LoRA regex are parameters (`base`, `lora_target_regex`),
 //! e.g. `"base": "qwen3_5-0.8b"`.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use blut::framework::error::RecipeError;
 use blut::framework::plan::Plan;
 use blut::recipes::recipe::Recipe;
 use blut_backends::backends::hf_trainer::stages::hf_sft_train::{Args as TrainArgs, HfSftTrain};
-use blut_backends::backends::hf_trainer::{ARCH_IMAGE_TEXT, ImageTextOpts};
+use blut_backends::backends::hf_trainer::{ARCH_IMAGE_TEXT, ImageTextOpts, TokenRows};
 use blut_backends::stages::register_dataset::Args as RegDsArgs;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -52,7 +53,9 @@ pub struct Args {
     /// knightlm-lichess-v2 corpus directory (Run 1 by default).
     #[serde(default = "default_corpus")]
     pub corpus_dir: PathBuf,
-    /// Base-model profile: `smolvlm-500m` (default) or `qwen3_5-0.8b`.
+    /// Base-model profile: `smolvlm-500m` (default), `qwen3_5-0.8b`, or
+    /// `smolvlm-500m-ctok1` (the stock weights with the ctok/1 vocabulary appended; the
+    /// snapshot must have been built by `python -m model.train.ctok build-base`).
     #[serde(default = "default_base")]
     pub base: String,
     /// Override the profile's snapshot directory.
@@ -61,6 +64,10 @@ pub struct Args {
     /// Override the LoRA target regex (full match on module names).
     #[serde(default)]
     pub lora_target_regex: Option<String>,
+    /// Extended-vocabulary bases only: `embed` trains the new input rows, `embed+head`
+    /// (default there) the new output rows too, both through `trainable_token_indices`.
+    #[serde(default)]
+    pub ctok_rows: Option<String>,
     #[serde(default = "default_rank")]
     pub rank: u32,
     #[serde(default = "default_alpha")]
@@ -286,9 +293,54 @@ impl Recipe for KnightlmLora {
 
         let run_dir = args.run_root.join(&run);
         let base_dir = prof.dir_or(args.base_dir.as_deref());
+        // An extended base trains its new rows only through `trainable_token_indices`, against the
+        // extended weights' own digest; a stock base takes neither.
+        let (base_sha, token_indices, extension) =
+            match (&prof.extension, args.ctok_rows.as_deref()) {
+                (None, None) => (
+                    prof.weights_sha256.to_string(),
+                    None,
+                    serde_json::Value::Null,
+                ),
+                (None, Some(_)) => {
+                    return Err(bad(
+                        "ctok_rows",
+                        format!("base '{}' has no vocabulary extension", prof.key),
+                    ));
+                }
+                (Some(ext), rows) => {
+                    let rows = rows.unwrap_or("embed+head");
+                    if !matches!(rows, "embed" | "embed+head") {
+                        return Err(bad("ctok_rows", "must be embed or embed+head"));
+                    }
+                    let verified = prof
+                        .verify_extension(&base_dir)
+                        .map_err(|m| bad("base_dir", m))?;
+                    let range = || TokenRows::Range {
+                        start: ext.base,
+                        end: ext.base + ext.size,
+                    };
+                    let mut map = BTreeMap::from([("embed_tokens".to_string(), range())]);
+                    if rows == "embed+head" {
+                        map.insert("lm_head".to_string(), range());
+                    }
+                    let info = json!({
+                        "spec_version": ext.spec_version, "base": ext.base, "size": ext.size,
+                        "rows": rows, "stock_weights_sha256": prof.weights_sha256,
+                        "vocab_sha256": verified.vocab_sha256, "seed": verified.seed,
+                    });
+                    (verified.extended_weights_sha256, Some(map), info)
+                }
+            };
         let prompt_sha = sha256_file(&crate::runctx::repo_root().join("model/prompt.py"))
             .map_err(|e| bad("corpus_dir", format!("cannot read model/prompt.py: {e}")))?;
         let dataset_name = format!("knightlm-{}-{}", &manifest_sha[..12], &prompt_sha[..8]);
+        // v2 and the reasoning variant share this recipe; the registry records which one this is.
+        let corpus_format = std::fs::read_to_string(&manifest)
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|value| value["format"].as_str().map(str::to_owned))
+            .unwrap_or_else(|| "knightlm-lichess-v2".into());
 
         let config = json!({
             "base": prof.key, "batch_size": args.batch_size, "grad_accum": args.grad_accum,
@@ -299,7 +351,7 @@ impl Recipe for KnightlmLora {
             "max_grad_norm": args.max_grad_norm, "save_steps": args.save_steps,
             "keep_checkpoints": args.keep_checkpoints, "max_steps": args.max_steps,
             "shuffle_buffer": args.shuffle_buffer, "lora_target_regex_override": args.lora_target_regex,
-            "arch": ARCH_IMAGE_TEXT,
+            "arch": ARCH_IMAGE_TEXT, "vocabulary_extension": extension,
         });
         let recipe_args = serde_json::to_value(&args)
             .map_err(|e| RecipeError::CompileFailed(format!("serialize args: {e}")))?;
@@ -337,12 +389,11 @@ impl Recipe for KnightlmLora {
                 shuffle_buffer: args.shuffle_buffer,
                 max_steps: args.max_steps,
                 logging_steps: args.logging_steps,
-                base_sha256: prof
-                    .trainer_checks_sha
-                    .then(|| prof.weights_sha256.to_string()),
+                base_sha256: prof.trainer_checks_sha.then(|| base_sha.clone()),
                 checkpoint_root: Some(run_dir.join("checkpoints")),
                 verify_reload: Some(args.verify_reload),
                 adapter_path: None,
+                trainable_token_indices: token_indices,
             },
         };
 
@@ -361,7 +412,7 @@ impl Recipe for KnightlmLora {
                     name: dataset_name,
                     kind: "sft".into(),
                     metadata: Some(
-                        json!({"corpus_format": "knightlm-lichess-v2",
+                        json!({"corpus_format": corpus_format,
                                "corpus_manifest_sha256": manifest_sha,
                                "prompt_py_sha256": prompt_sha})
                         .to_string(),
@@ -407,7 +458,7 @@ impl Recipe for KnightlmLora {
                     base_repository: prof.repository.into(),
                     base_revision: prof.revision.into(),
                     weights_file: prof.weights_file.into(),
-                    base_sha256: prof.weights_sha256.into(),
+                    base_sha256: base_sha,
                     corpus_dir: args.corpus_dir.clone(),
                     config,
                     notes: args.notes.clone(),
@@ -513,5 +564,74 @@ mod tests {
     fn recipe_is_registered_under_the_hf_backend() {
         assert_eq!(KnightlmLora::NAME, "knightlm_lora");
         assert_eq!(DEF.name, "knightlm_lora");
+    }
+
+    fn ctok_dir(td: &tempfile::TempDir, rows_ok: bool) -> PathBuf {
+        let dir = td.path().join("ctok-base");
+        std::fs::create_dir_all(&dir).unwrap();
+        let weights = dir.join("model.safetensors");
+        std::fs::write(&weights, b"extended").unwrap();
+        let sha = sha256_file(&weights).unwrap();
+        let stock = profile::find("smolvlm-500m-ctok1").unwrap().weights_sha256;
+        let record = json!({
+            "format": "knightlm-ctok-extension/1", "spec_version": "ctok/1", "vocab_sha256": "v",
+            "vocab_size": if rows_ok { 2496 } else { 10 }, "base": 49280, "seed": 0,
+            "head_untied": true, "stock_weights_sha256": stock, "extended_weights_sha256": sha,
+        });
+        std::fs::write(dir.join("ctok-extension.json"), record.to_string()).unwrap();
+        dir
+    }
+
+    fn ctok_args(td: &tempfile::TempDir, rows_ok: bool) -> Args {
+        let mut a = args(td);
+        a.base = "smolvlm-500m-ctok1".into();
+        a.base_dir = Some(ctok_dir(td, rows_ok));
+        a
+    }
+
+    #[test]
+    fn an_extended_base_passes_the_new_rows_to_the_trainer() {
+        let td = corpus();
+        let a = ctok_args(&td, true);
+        assert!(KnightlmLora.compile(a).is_ok());
+        let prof = profile::find("smolvlm-500m-ctok1").unwrap();
+        let verified = prof.verify_extension(&ctok_dir(&td, true)).unwrap();
+        assert_ne!(verified.extended_weights_sha256, prof.weights_sha256);
+        assert!(!prof.evaluable);
+    }
+
+    #[test]
+    fn extended_base_needs_a_matching_snapshot_and_valid_rows() {
+        let td = corpus();
+        assert!(matches!(
+            KnightlmLora.compile(ctok_args(&td, false)),
+            Err(RecipeError::InvalidArgs {
+                field: Some("base_dir"),
+                ..
+            })
+        ));
+        let mut a = ctok_args(&td, true);
+        a.ctok_rows = Some("head".into());
+        assert!(matches!(
+            KnightlmLora.compile(a),
+            Err(RecipeError::InvalidArgs {
+                field: Some("ctok_rows"),
+                ..
+            })
+        ));
+        let mut stock = args(&td);
+        stock.ctok_rows = Some("embed".into());
+        assert!(matches!(
+            KnightlmLora.compile(stock),
+            Err(RecipeError::InvalidArgs {
+                field: Some("ctok_rows"),
+                ..
+            })
+        ));
+        // no snapshot at the default directory: refused, never trained on the stock weights
+        let mut a = args(&td);
+        a.base = "smolvlm-500m-ctok1".into();
+        a.base_dir = Some(td.path().join("absent"));
+        assert!(KnightlmLora.compile(a).is_err());
     }
 }

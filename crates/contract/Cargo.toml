@@ -1,0 +1,12 @@
+[package]
+name = "knightlm-contract"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-only"
+description = "The wire contract between RBC (the app) and KnightLM (the ML path): packet, model tool schemas, goldens and OpenAI chat-completions types."
+
+[dependencies]
+knightlm-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true

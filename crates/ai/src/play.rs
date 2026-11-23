@@ -13,12 +13,22 @@
 //! a model that answers with an illegal move gets [`MatchConfig::max_retries`]
 //! chances, and the match never records a move the rules refuse.
 
-use knightlm_core::state::{GameRecord, GameState, PacketOptions, START_FEN};
+use knightlm_core::state::{GameRecord, GameState, PacketOptions, RuleSession, START_FEN};
 
+use crate::coach::{
+    CoachSession, Mark, UiEffect, extract_tool_calls, format_coach_result, strip_tool_calls,
+};
 use crate::game::{Match, MatchConfig, MatchMove, Player};
-use crate::protocol::{ErrorInfo, ModelRef};
+use crate::model_turn::{
+    ChatLine, ProvisionalTracker, READ_BUDGET, coach_prompt, execute_read, format_tool_result,
+    play_prompt, strip_provisional_lines,
+};
+use crate::protocol::{ErrorInfo, ModelRef, StopReason};
 use crate::provider::{
     Cancellation, ChatMessage, CompletionRequest, Provider, ProviderEvent, error, error_code,
+};
+use crate::tools::{
+    ModelCallError, ModelMode, ModelToolbox, SubmitMoveGate, SubmitOutcome, parse_model_call,
 };
 
 /// Which kind of game this is.
@@ -186,17 +196,14 @@ pub fn move_prompt(game: &Match, policy: &PlayPolicy) -> String {
     prompt
 }
 
-/// Match the pilot's single user message and canonical packet serialization.
-fn knightlm_move_request(
-    game: &Match,
-    model: &ModelRef,
-) -> anyhow::Result<(CompletionRequest, Vec<String>)> {
+/// The authoritative state of an untimed standard match, replayed from its moves.
+fn replayed_state(game: &Match) -> anyhow::Result<GameState> {
     let config = game.config();
     anyhow::ensure!(
         config.ruleset == "standard-v1" && config.time_control.is_none(),
         "the KnightLM pilot plays untimed standard chess"
     );
-    let state = GameState::replay(&GameRecord {
+    GameState::replay(&GameRecord {
         schema_version: knightlm_core::SCHEMA_VERSION,
         game_id: "rbc-match".into(),
         source: "rbc-play".into(),
@@ -204,10 +211,19 @@ fn knightlm_move_request(
         history_complete: config.start_fen == START_FEN,
         moves: game.moves().iter().map(|mv| mv.uci.clone()).collect(),
         variant: "standard".into(),
-    })?;
+    })
+}
+
+/// Match the pilot's single user message and canonical packet serialization.
+fn knightlm_move_request(
+    game: &Match,
+    model: &ModelRef,
+) -> anyhow::Result<(CompletionRequest, Vec<String>)> {
+    let state = replayed_state(game)?;
     let packet = state.compile(PacketOptions {
         legal_choices: true,
         derived_features: false,
+        ..PacketOptions::default()
     });
     let legal = game.legal_uci_moves();
     anyhow::ensure!(
@@ -516,4 +532,372 @@ pub fn watch_step(
         attempts: played.attempts,
         annotated,
     })
+}
+
+// --- the modes-and-tools harness ---------------------------------------------
+//
+// Opt-in: `request_move` and every existing provider path above are unchanged.
+// Contract: docs/model/modes-and-tools.md.
+
+/// How a model's move is obtained.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum MoveHarness {
+    /// The existing path ([`request_move`]): KnightLM through its legal-move
+    /// grammar, other models through the SAN/UCI prompt.
+    #[default]
+    Default,
+    /// Play mode: the model calls tools, ends with `submit_move`.
+    Play,
+    /// Coach mode: the last legal `Provisional:` line is the move.
+    Coach(CoachContext),
+}
+
+/// Bounded chat context for a coach turn.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CoachContext {
+    pub summary: Option<String>,
+    pub recent: Vec<ChatLine>,
+}
+
+/// A move from the tools harness, with what happened on the way.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HarnessMove {
+    pub played: ModelMove,
+    /// Attempts the gate refused (illegal moves, malformed or invisible calls).
+    pub rejected: u32,
+    /// The constrained-decoding fallback chose the move: an intervention, not
+    /// unaided play.
+    pub fallback: bool,
+    /// Rule queries spent from the shared [`READ_BUDGET`].
+    pub read_calls: usize,
+    /// Coach only: legal `Provisional:` lines after the first.
+    pub revisions: u32,
+    /// Coach only: the reply, shown only once the move is legal and committed.
+    pub reply: Option<String>,
+    /// Coach only: UI effects of the coach tools, in call order, for the app to
+    /// draw. Empty after a fallback, like the reply.
+    pub ui: Vec<UiEffect>,
+    /// Coach only: the marks on the board when the turn ended.
+    pub marks: Vec<Mark>,
+    /// Coach only: coach tool calls run (refused calls are not counted).
+    pub coach_calls: usize,
+}
+
+const PLAY_MAX_TOKENS: u32 = 600;
+const COACH_MAX_TOKENS: u32 = 1024;
+
+fn protocol_error(message: impl Into<String>) -> ErrorInfo {
+    error(error_code::PROTOCOL, message.into(), false)
+}
+
+fn tool_packet_json(state: &GameState) -> anyhow::Result<String> {
+    // No `legal_moves` in the packet: the model asks `list_legal_moves`.
+    Ok(serde_json::to_value(state.compile(PacketOptions::default()))?.to_string())
+}
+
+fn constrained_fallback(
+    game: &mut Match,
+    provider: &dyn Provider,
+    model: &ModelRef,
+    cancel: &Cancellation,
+) -> Result<ModelMove, ErrorInfo> {
+    let (request, legal) = knightlm_move_request(game, model)
+        .map_err(|failure| protocol_error(failure.to_string()))?;
+    let uci = complete_knightlm_move(provider, &request, &legal, cancel)?;
+    apply_knightlm_move(game, uci)
+}
+
+fn play_with_tools(
+    game: &mut Match,
+    provider: &dyn Provider,
+    model: &ModelRef,
+    policy: &PlayPolicy,
+    cancel: &Cancellation,
+) -> Result<HarnessMove, ErrorInfo> {
+    let state = replayed_state(game).map_err(|e| protocol_error(e.to_string()))?;
+    let legal = game.legal_uci_moves();
+    if game.result().is_some() || legal.is_empty() {
+        return Err(protocol_error(
+            "the model has no legal move in this position",
+        ));
+    }
+    let prompt = tool_packet_json(&state).map_err(|e| protocol_error(e.to_string()))?;
+    let attempts = game.config().max_retries.max(1) as u32;
+    let mut gate = SubmitMoveGate::new(legal, attempts);
+    let mut session = RuleSession::new(state, READ_BUDGET);
+    let toolbox = ModelToolbox::new(ModelMode::Play);
+    let mut messages = vec![ChatMessage::user(play_prompt(&prompt))];
+    let mut accepted = None;
+    // Every turn either spends an attempt, spends a read, or is a refused read.
+    for _ in 0..attempts as usize + READ_BUDGET + 1 {
+        let request = CompletionRequest::new(model.model.clone(), messages.clone())
+            .with_temperature(0.0)
+            .with_max_tokens(PLAY_MAX_TOKENS)
+            .with_stream(false);
+        let response = provider.complete(&request, cancel, &mut |_event: ProviderEvent| {})?;
+        let raw = response.content.trim().to_string();
+        messages.push(ChatMessage::assistant(raw.clone()));
+        let failure = match parse_model_call(&raw) {
+            Err(err) => err.to_string(),
+            Ok(call) => match toolbox.check_call(&call) {
+                Err(err) => err.to_string(),
+                Ok(_) if call.name == "submit_move" => {
+                    let mv = call.arguments["move"].as_str().unwrap_or_default();
+                    match gate.submit(mv) {
+                        SubmitOutcome::Accepted(uci) => {
+                            let reasoning = call.arguments["reasoning"].as_str().map(str::to_owned);
+                            accepted = Some((uci, reasoning, raw));
+                            break;
+                        }
+                        SubmitOutcome::Rejected { error, .. } => {
+                            messages.push(ChatMessage::user(error));
+                            continue;
+                        }
+                        SubmitOutcome::Fallback => break,
+                    }
+                }
+                Ok(_) => {
+                    let result = match execute_read(&mut session, &call) {
+                        Ok(reply) => format_tool_result(&reply),
+                        Err(refusal) => refusal,
+                    };
+                    messages.push(ChatMessage::user(result));
+                    continue;
+                }
+            },
+        };
+        match gate.reject(failure) {
+            SubmitOutcome::Rejected { error, .. } => messages.push(ChatMessage::user(error)),
+            _ => break,
+        }
+    }
+    let read_calls = session.calls();
+    let rejected = gate.attempts().saturating_sub(accepted.is_some() as u32);
+    match accepted {
+        Some((uci, reasoning, raw)) => {
+            let mut mv = game
+                .apply(&uci)
+                .map_err(|failure| protocol_error(failure.to_string()))?;
+            game.note_attempts(mv.ply, gate.attempts());
+            mv.attempts = gate.attempts();
+            Ok(HarnessMove {
+                played: ModelMove {
+                    mv,
+                    reasoning: policy.keep_reasoning(reasoning),
+                    raw,
+                    attempts: gate.attempts(),
+                },
+                rejected,
+                fallback: false,
+                read_calls,
+                revisions: 0,
+                reply: None,
+                ui: Vec::new(),
+                marks: Vec::new(),
+                coach_calls: 0,
+            })
+        }
+        None => Ok(HarnessMove {
+            played: constrained_fallback(game, provider, model, cancel)?,
+            rejected,
+            fallback: true,
+            read_calls,
+            revisions: 0,
+            reply: None,
+            ui: Vec::new(),
+            marks: Vec::new(),
+            coach_calls: 0,
+        }),
+    }
+}
+
+fn coach_with_provisional(
+    game: &mut Match,
+    provider: &dyn Provider,
+    model: &ModelRef,
+    context: &CoachContext,
+    cancel: &Cancellation,
+) -> Result<HarnessMove, ErrorInfo> {
+    let state = replayed_state(game).map_err(|e| protocol_error(e.to_string()))?;
+    let legal = game.legal_uci_moves();
+    if game.result().is_some() || legal.is_empty() {
+        return Err(protocol_error(
+            "the model has no legal move in this position",
+        ));
+    }
+    let packet = tool_packet_json(&state).map_err(|e| protocol_error(e.to_string()))?;
+    let prompt = coach_prompt(&packet, context.summary.as_deref(), &context.recent)
+        .map_err(protocol_error)?;
+    let attempts = game.config().max_retries.max(1) as u32;
+    let mut tracker = ProvisionalTracker::new(legal, attempts);
+    let mut session =
+        CoachSession::new(state.record().clone()).map_err(|e| protocol_error(e.to_string()))?;
+    let toolbox = ModelToolbox::new(ModelMode::Coach);
+    let mut ui: Vec<UiEffect> = Vec::new();
+    let mut messages = vec![ChatMessage::user(prompt)];
+    let mut text = String::new();
+    for _ in 0..attempts {
+        let request = CompletionRequest::new(model.model.clone(), messages.clone())
+            .with_temperature(0.0)
+            .with_max_tokens(COACH_MAX_TOKENS)
+            .with_stream(true);
+        let mut streamed = String::new();
+        let outcome = provider.complete(&request, cancel, &mut |event: ProviderEvent| {
+            if let ProviderEvent::ContentDelta(delta) = event {
+                streamed.push_str(&delta);
+            }
+        });
+        // Out of tokens or out of time: what arrived still counts, but an
+        // unterminated last line may be cut mid-move and is ignored.
+        let finished = match &outcome {
+            Ok(response) => response.stop_reason != StopReason::MaxTokens,
+            Err(_) => false,
+        };
+        text = match outcome {
+            Ok(response) => response.content,
+            Err(err) if cancel.is_cancelled() => return Err(err),
+            Err(_) => streamed,
+        };
+        let mut feedback = tracker.feed(&text, finished);
+        // Coach tool calls run against the scratch board and the marks, never the
+        // real game. Their failures are shown to the model but are not move attempts.
+        let mut tool_feedback = Vec::new();
+        for parsed in extract_tool_calls(&text) {
+            let outcome = match parsed {
+                Err(ModelCallError::NotOneCall) if !finished => continue,
+                Err(err) => {
+                    tool_feedback.push(format!("<tool_error>{err}</tool_error>"));
+                    continue;
+                }
+                Ok(call) => match toolbox.check_call(&call) {
+                    Err(err) => {
+                        tool_feedback.push(format!("<tool_error>{err}</tool_error>"));
+                        continue;
+                    }
+                    Ok(_) => session.execute(&call),
+                },
+            };
+            tool_feedback.push(format_coach_result(&outcome));
+            if let Ok(reply) = outcome
+                && let Some(effect) = reply.ui
+            {
+                ui.push(effect);
+            }
+        }
+        if tracker.committed().is_some() || tracker.exhausted() || !finished {
+            break;
+        }
+        if feedback.is_empty() {
+            feedback.push("Start with `Provisional: <legal UCI move>`.".to_owned());
+        }
+        feedback.extend(tool_feedback);
+        messages.push(ChatMessage::assistant(text.clone()));
+        messages.push(ChatMessage::user(feedback.join("\n")));
+    }
+    let rejected = tracker.rejected();
+    let revisions = tracker.accepted().saturating_sub(1);
+    let coach_calls = session.calls();
+    match tracker.committed().map(str::to_owned) {
+        Some(uci) => {
+            let mut mv = game
+                .apply(&uci)
+                .map_err(|failure| protocol_error(failure.to_string()))?;
+            game.note_attempts(mv.ply, tracker.attempts());
+            mv.attempts = tracker.attempts();
+            Ok(HarnessMove {
+                played: ModelMove {
+                    mv,
+                    reasoning: None,
+                    raw: text.clone(),
+                    attempts: tracker.attempts(),
+                },
+                rejected,
+                fallback: false,
+                read_calls: 0,
+                revisions,
+                reply: Some(strip_provisional_lines(&strip_tool_calls(&text))),
+                ui,
+                marks: session.marks().to_vec(),
+                coach_calls,
+            })
+        }
+        None => Ok(HarnessMove {
+            played: constrained_fallback(game, provider, model, cancel)?,
+            rejected,
+            fallback: true,
+            read_calls: 0,
+            revisions,
+            reply: None,
+            ui: Vec::new(),
+            marks: Vec::new(),
+            coach_calls,
+        }),
+    }
+}
+
+/// Whether `model` is a KnightLM seat, the only model the tools harness is for.
+pub fn is_knightlm_seat(model: &ModelRef) -> bool {
+    (model.provider == "local:LAMU" && model.model == "knightlm-smolvlm-500m")
+        || model.provider == crate::provider::SERVE_PROVIDER
+}
+
+/// The harness a seat gets, chosen by the match's mode (docs/model/modes-and-tools.md
+/// section 5). Call this wherever RBC asks a model for a move.
+///
+/// - Tools off, or a model that is not KnightLM: [`MoveHarness::Default`], the existing
+///   path, so every other provider behaves exactly as before.
+/// - A competitive game (chat off): [`MoveHarness::Play`].
+/// - A game where chat is allowed: [`MoveHarness::Coach`], with `chat` as its context
+///   (empty when there is none).
+///
+/// `tools_enabled` is a setting, not a default of the model: nothing is trained on the
+/// tools format yet, so the app turns it on explicitly.
+pub fn select_harness(
+    policy: &PlayPolicy,
+    model: &ModelRef,
+    chat: Option<CoachContext>,
+    tools_enabled: bool,
+) -> MoveHarness {
+    if !tools_enabled || !is_knightlm_seat(model) {
+        return MoveHarness::Default;
+    }
+    if policy.allows(PlayAction::Chat) {
+        MoveHarness::Coach(chat.unwrap_or_default())
+    } else {
+        MoveHarness::Play
+    }
+}
+
+/// Obtain one model move with the chosen harness.
+///
+/// [`MoveHarness::Default`] is exactly [`request_move`]. [`MoveHarness::Play`]
+/// and [`MoveHarness::Coach`] follow docs/model/modes-and-tools.md: the retry
+/// budget is `MatchConfig::max_retries` (at least one), and when the model
+/// commits no legal move the existing constrained-decoding path chooses one and
+/// the result says so (`fallback`). The match is untouched on failure.
+pub fn request_move_with_harness(
+    game: &mut Match,
+    provider: &dyn Provider,
+    model: &ModelRef,
+    policy: &PlayPolicy,
+    harness: &MoveHarness,
+    cancel: &Cancellation,
+) -> Result<HarnessMove, ErrorInfo> {
+    match harness {
+        MoveHarness::Default => Ok(HarnessMove {
+            played: request_move(game, provider, model, policy, cancel)?,
+            rejected: 0,
+            fallback: false,
+            read_calls: 0,
+            revisions: 0,
+            reply: None,
+            ui: Vec::new(),
+            marks: Vec::new(),
+            coach_calls: 0,
+        }),
+        MoveHarness::Play => play_with_tools(game, provider, model, policy, cancel),
+        MoveHarness::Coach(context) => {
+            coach_with_provisional(game, provider, model, context, cancel)
+        }
+    }
 }

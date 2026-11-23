@@ -496,6 +496,51 @@ fn provider_reads_a_single_json_completion() {
     );
 }
 
+// --- the KnightLM chat-completions server (docs/model/seam.md) -----------------
+
+#[test]
+fn provider_reads_the_knightlm_chat_completion_with_its_extension_field() {
+    let mock = Mock::start(vec![Reply::Json(
+        knightlm_contract::CHAT_COMPLETION_EXAMPLE_JSON.to_string(),
+    )]);
+    let provider = provider(&mock, RetryPolicy::none());
+    let (result, _events) = run(&provider, &ask(Vec::new()), &Cancellation::new());
+
+    let response = result.expect("knightlm completion");
+    assert_eq!(response.stop_reason, StopReason::ToolCalls);
+    assert_eq!(response.tool_calls[0].name, "submit_move");
+    assert_eq!(
+        response.tool_calls[0].arguments,
+        serde_json::json!({"reasoning": "White to move. I choose e2e4.", "move": "e2e4"})
+    );
+    assert_eq!(response.usage.tokens_in, 9);
+}
+
+#[test]
+fn provider_assembles_the_knightlm_streamed_tool_call() {
+    let frames = [
+        r#"{"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":null},"finish_reason":null}]}"#,
+        r#"{"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"submit_move","arguments":""}}]},"finish_reason":null}]}"#,
+        r#"{"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"reasoning\": \"Open.\", "}}]},"finish_reason":null}]}"#,
+        r#"{"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"move\": \"e2e4\"}"}}]},"finish_reason":null}]}"#,
+        r#"{"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"knightlm":{"path":"model","code":"ok","raw_code":"ok","legal":true,"manifest_hash":"h"}}"#,
+        r#"{"id":"c","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":9,"completion_tokens":5,"total_tokens":14}}"#,
+    ];
+    let mut sse_frames: Vec<String> = frames.iter().map(|f| sse(f)).collect();
+    sse_frames.push(DONE.to_string());
+    let mock = Mock::start(vec![Reply::Sse(sse_frames)]);
+    let provider = provider(&mock, RetryPolicy::none());
+    let (result, _events) = run(&provider, &ask(Vec::new()), &Cancellation::new());
+
+    let response = result.expect("streamed knightlm completion");
+    assert_eq!(response.stop_reason, StopReason::ToolCalls);
+    assert_eq!(response.tool_calls[0].id, "call_1");
+    assert_eq!(
+        response.tool_calls[0].arguments,
+        serde_json::json!({"reasoning": "Open.", "move": "e2e4"})
+    );
+}
+
 #[test]
 fn provider_reads_a_tool_call_from_a_single_json_completion() {
     let mock = Mock::start(vec![Reply::Json(

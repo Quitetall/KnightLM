@@ -1,8 +1,19 @@
-"""python -m model.eval.compare [--changed-only] A B: per-axis deltas side by side. No composite.
+"""python -m model.eval.compare [--changed-only] [--allow-prompt-mismatch] A B: per-axis deltas side by side. No composite.
 
 A and B are scorecard directories (or scorecard.json files). Deltas are B - A.
 Whether higher is better differs per axis, so the direction column says which
 way is improvement; nothing is summed or weighted across axes.
+
+A scorecard has a prompt kind: "move" (the move-only prompt), "play" (the play-mode prompt
+and tool-call completion with the FEN packet, arm T0) or "play-cgt" / "play-cgt-full" (the same
+with the position as Chess Graph Text, arm T2); "play-head" (the move-head arm), "play-enc" and
+"play-enc-cgt" (board encoder arms T4 and T5). A card run with --move-head carries axes.move_head,
+which compares like any other axis (its absence on one side shows as a missing value, never a zero). Cards of different kinds measure different
+tasks: compare prints NOT COMPARABLE and exits 3 without a table, unless
+--allow-prompt-mismatch is given (the notes still print, marked ALLOWED). A card with no
+prompt_kind is a move card. One exception, by design: two S0 rules-QA cards whose corpora carry the same
+`matched_sha256` (same ids, questions and answers, different prompt rendering) are the arms of
+one experiment and compare without the flag; the note says so. An unknown kind is refused.
 """
 
 import json
@@ -10,10 +21,15 @@ import sys
 from pathlib import Path
 
 from model.eval.render import fmt
+from model.prompt import PLAY_KINDS
+
+KNOWN_KINDS = ("move", *PLAY_KINDS)
 
 # (axis path suffix) -> "up" or "down" is better. Unlisted numeric leaves get no arrow.
 LOWER_IS_BETTER = ("centipawn_loss", "latency_ms", "token_cost", "failures", "rows_unscored")
-LOWER_IS_BETTER_LEAVES = ("failed", "failed_total", "explanations_missing", "explanations_with_a_failed_claim")
+LOWER_IS_BETTER_LEAVES = ("failed", "failed_total", "explanations_missing", "explanations_with_a_failed_claim",
+                          "claim_failure_rate", "parse_failures",
+                          "ece", "illegal_mass_mean", "nll_mean_over_scored_rows")
 SKIP = ("gate", "set", "engine", "protocol", "tokenizer_recount", "rating", "status", "source")
 
 
@@ -46,16 +62,42 @@ def direction(path):
         return "down"
     if any(part in path.split(".") for part in LOWER_IS_BETTER) or leaf == "losses":
         return "down"
-    if leaf in ("rate", "accuracy", "score", "matches", "correct", "legal", "wins"):
+    if leaf in ("rate", "accuracy", "score", "matches", "correct", "legal", "wins", "valid"):
         return "up"
     return ""
+
+
+PROMPT_MISMATCH = "NOT COMPARABLE: prompt kind differs"
+
+
+ARMS_NOTE = "ARMS of one matched S0 corpus"
+
+
+def prompt_kind(card):
+    kind = card.get("prompt_kind", "move")
+    if kind not in KNOWN_KINDS:
+        raise ValueError(f"unknown prompt kind {kind!r}; this compare knows {KNOWN_KINDS}")
+    return kind
+
+
+def matched_key(card):
+    """The S0 matched-corpus key of a card, or None for any other card."""
+    return (card.get("inputs", {}).get("corpus", {}) or {}).get("matched_sha256")
 
 
 def comparability(a, b):
     notes = []
     ia, ib = a.get("inputs", {}), b.get("inputs", {})
+    matched = matched_key(a) is not None and matched_key(a) == matched_key(b)
+    if prompt_kind(a) != prompt_kind(b):
+        if matched:
+            notes.append(f"{ARMS_NOTE} ({prompt_kind(a)} vs {prompt_kind(b)}): same ids, questions and answers; only the prompt rendering differs")
+        else:
+            notes.append(f"{PROMPT_MISMATCH} ({prompt_kind(a)} vs {prompt_kind(b)}): the two scorecards measure different tasks")
     checks = {
-        "corpus manifest": lambda i: i.get("corpus", {}).get("corpus_manifest_sha256"),
+        "play prompt": lambda i: i.get("settings", {}).get("play_prompt_sha256"),
+        "play max new tokens": lambda i: i.get("settings", {}).get("play_max_new_tokens"),
+        "corpus manifest": lambda i: i.get("corpus", {}).get("matched_sha256") or i.get("corpus", {}).get("corpus_manifest_sha256"),
         "rows": lambda i: i.get("corpus", {}).get("rows_used"),
         "stockfish depth": lambda i: (i.get("stockfish") or {}).get("depth"),
         "stockfish binary": lambda i: (i.get("stockfish") or {}).get("stockfish_sha256"),
@@ -85,14 +127,22 @@ def compare(a, b):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     changed_only = "--changed-only" in argv
-    argv = [a for a in argv if a != "--changed-only"]
+    allow_prompt = "--allow-prompt-mismatch" in argv
+    argv = [a for a in argv if a not in ("--changed-only", "--allow-prompt-mismatch")]
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2
     a, b = load(argv[0]), load(argv[1])
     print(f"A = {argv[0]}\nB = {argv[1]}\nDeltas are B - A. No composite score is computed.")
+    refused = False
     for note in comparability(a, b):
+        if note.startswith(PROMPT_MISMATCH):
+            refused = not allow_prompt
+            note = note if refused else "ALLOWED (--allow-prompt-mismatch) " + note
         print(note)
+    if refused:
+        print("No table: pass --allow-prompt-mismatch to print one anyway.", file=sys.stderr)
+        return 3
     table = [r for r in compare(a, b) if not changed_only or r[3] != 0]
     width = max((len(r[0]) for r in table), default=10)
     print(f"{'axis':<{width}}  {'A':>10}  {'B':>10}  {'delta':>10}  better")

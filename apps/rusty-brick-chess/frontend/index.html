@@ -223,6 +223,15 @@
     .match-error { margin: .3rem 0; color: #ffb2ac; }
     .match-error:empty { display: none; }
     .match-moves { display: flex; flex-wrap: wrap; gap: .3rem .6rem; list-style: none; padding: 0; }
+    .match-moves .ply.pointed { outline: 2px solid var(--accent); border-radius: 4px; padding: 0 .2rem; }
+    .coach-pointer { display: flex; flex-direction: column; gap: .3rem; max-width: 220px; margin: .5rem 0; color: var(--accent); }
+    .match-chat { margin-top: .7rem; }
+    .match-chat h4 { margin: 0 0 .3rem; }
+    .chat-log { list-style: none; padding: 0; margin: 0 0 .4rem; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: .3rem; }
+    .chat-line { padding: .35rem .55rem; border-radius: 7px; border: 1px solid var(--line); overflow-wrap: anywhere; }
+    .chat-line.user { align-self: flex-end; }
+    .chat-compose { display: flex; gap: .4rem; }
+    .chat-compose .chat-input { flex: 1; font: inherit; padding: .4rem .6rem; border-radius: 7px; border: 1px solid var(--line); }
     .match-handoff, .play-more { margin-top: .7rem; }
     .match-pgn { flex-basis: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
     .play-more summary { cursor: pointer; color: var(--muted); }

@@ -1,4 +1,4 @@
-"""python -m model.eval.run --predictor SPEC --label NAME --rows N
+"""python -m model.eval.run --predictor SPEC --label NAME --rows N [--prompt-kind KIND] [--move-head]
 
 Writes eval-<label>-<UTC>/ under the artifacts keep directory: scorecard.json,
 scorecard.md, predictions.jsonl, inputs.json (+ games.json when games are played).
@@ -14,13 +14,17 @@ from pathlib import Path
 
 from model.eval import explain as explain_module
 from model.eval import games as games_module
+from model.eval import move_head as move_head_module
+from model.eval import playmode
 from model.eval import oracles
 from model.eval.corpus import load_holdout, sha256_file
 from model.eval.engine import REPO, StockfishScorer
 from model.eval.predictors import MODES, load_predictor, predictor_manifest
 from model.eval.render import render_markdown
-from model.eval.scorecard import attach_cpl, build_scorecard, call_with_timeout, predict_rows
+from model.eval.scorecard import PLAY_KINDS, PROMPT_KINDS, attach_cpl, build_scorecard, call_with_timeout, predict_rows
 from model.eval.tactics import load_tactics
+
+from model.corpus.s0 import FORMATS as S0_FORMATS
 
 KEEP_ROOT = Path("/mnt/4tb/artifacts/KnightLM/keep")
 DEFAULT_CORPUS = Path("/mnt/4tb/artifacts/KnightLM/expire/corpus/run1-2026-09-a")
@@ -104,20 +108,84 @@ def collect_explanations(args, rows, records, predictor):
     return axis
 
 
+def play_settings(play):
+    """What fixes the play prompt and decode, so compare can refuse a mismatch. Empty for move-only."""
+    if not play:
+        return {}
+    import hashlib
+    from model import prompt as prompt_module
+    from model.serve.inference import PLAY_MAX_NEW_TOKENS
+    return {"play_prompt_sha256": hashlib.sha256(prompt_module.prefix("play").encode()).hexdigest(),
+            "play_max_new_tokens": PLAY_MAX_NEW_TOKENS}
+
+
+def cgt_settings(kind):
+    """The CGT renderer an arm reads: compiler binary hash and variant. Empty for the FEN packet and move kinds."""
+    from model import prompt as prompt_module
+    if kind in prompt_module.CTOK_KINDS:
+        from model.tokenizer import vocab
+        out = {"ctok_spec": vocab.SPEC_VERSION, "ctok_vocab_sha256": vocab.vocab_sha256()}
+        if kind != "play-t1":
+            import hashlib
+            out["compiler_sha256"] = hashlib.sha256(prompt_module.knightlm_binary().read_bytes()).hexdigest()
+        return out
+    if kind not in prompt_module.CGT_VARIANT:
+        return {}
+    import hashlib
+    return {"cgt_variant": prompt_module.CGT_VARIANT[kind], "cgt_label": prompt_module.CGT_LABEL,
+            "compiler_sha256": hashlib.sha256(prompt_module.knightlm_binary().read_bytes()).hexdigest()}
+
+
+def add_move_head_axis(args, rows, records, predictor, scorer, extra_axes):
+    """The move_head axis (docs/model/move-head.md): masked and raw head moves per row, scored beside the
+    language moves. Needs a predictor with logits(packet); the per-row result is kept in predictions.jsonl."""
+    head = getattr(predictor, "inner", predictor)
+    if not callable(getattr(head, "logits", None)):
+        raise SystemExit("--move-head needs a predictor with logits(packet) (model.eval.playmode:head_from_env)")
+    head_records, card = move_head_module.evaluate(rows, head, scorer, args.timeout_s)
+    extra_axes["move_head"] = card["axes"]["move_head"]
+    for record, mh in zip(records, head_records, strict=True):
+        record["move_head"] = {k: mh[k] for k in ("masked", "raw", "error", "stats")}
+
+
+def evaluate_s0(args, rows, corpus_info, predictor, description):
+    """Score an S0 rules-QA holdout: exact answer per question type, no moves, no engine."""
+    from model.eval import s0 as s0_module
+    kind = corpus_info["prompt_kind"]
+    records = s0_module.predict_rows(rows, getattr(predictor, "inner", predictor), kind, args.timeout_s)
+    scorecard = s0_module.scorecard(records, kind, len(rows))
+    inputs = {"corpus": corpus_info, "predictor": description, "predictor_manifest": predictor_manifest(predictor),
+              "git": git_state(), "stockfish": None, "oracles": None, "tactical_set": None,
+              "settings": {"rows": args.rows, "modes": ["raw"], "timeout_s": args.timeout_s, "label": args.label,
+                           "prompt_kind": kind, "s0": True, **cgt_settings(kind)},
+              "python": platform.python_version()}
+    return records, scorecard, inputs
+
+
 def evaluate(args, predictor, description):
     rows, corpus_info = load_holdout(args.corpus, args.rows)
+    if corpus_info["corpus_format"] in S0_FORMATS:
+        return evaluate_s0(args, rows, corpus_info, predictor, description)
     modes = tuple(args.modes)
     tactics = load_tactics(args.tactics, rows) if args.tactics else None
-    records = predict_rows(rows, predictor, modes, args.timeout_s)
+    play = args.prompt_kind in PLAY_KINDS
+    records = predict_rows(rows, predictor, modes, args.timeout_s, args.prompt_kind)
     scorer = None if args.no_stockfish else StockfishScorer(args.depth, args.workers)
     if scorer:
         attach_cpl(records, scorer, modes)
     if args.tokenizer:
         recount_output_tokens(records, modes, args.tokenizer)
     extra_axes, oracle_info = add_oracle_axes(args, records, modes)
-    if args.explain or args.explanations:
+    if play:  # the reasoning the model wrote is the explanation; no second call
+        extra_axes["play_explanation"] = playmode.explanation_axis(rows, records, modes)
+    elif args.explain or args.explanations:
         extra_axes["explanation"] = collect_explanations(args, rows, records, predictor)
-    scorecard = build_scorecard(records, modes, scorer.info() if scorer else None, tactics, len(rows))
+    if play and any(r[m].get("head_move") is not None for r in records for m in modes):
+        extra_axes["head_agreement"] = playmode.head_agreement_axis(records, modes)
+    if args.move_head:
+        add_move_head_axis(args, rows, records, predictor, scorer, extra_axes)
+    scorecard = build_scorecard(records, modes, scorer.info() if scorer else None, tactics, len(rows),
+                                args.prompt_kind)
     scorecard["axes"].update(extra_axes)
     if args.tokenizer:
         for mode in modes:
@@ -134,7 +202,9 @@ def evaluate(args, predictor, description):
                      "cpl_depth": args.depth, "label": args.label,
                      "oracles": list(args.oracles), "maia_rating": args.maia_rating if "maia" in args.oracles else None,
                      "lc0_nodes": args.lc0_nodes if "lc0" in args.oracles else None,
-                     "explain": bool(args.explain or args.explanations)},
+                     "explain": bool(args.explain or args.explanations),
+                     **({"move_head": True} if args.move_head else {}),
+                     "prompt_kind": args.prompt_kind, **play_settings(play), **cgt_settings(args.prompt_kind)},
         "python": platform.python_version(),
     }
     return records, scorecard, inputs
@@ -201,6 +271,15 @@ def main(argv=None):
                         help="score explanations from the predictor's explain(packet)")
     parser.add_argument("--explanations", type=Path, default=None,
                         help="JSONL of {fen, text} explanations to score instead of calling the predictor")
+    parser.add_argument("--prompt-kind", default="move", choices=PROMPT_KINDS,
+                        help="move: the move-only prompt. play: the play-mode prompt and tool-call completion "
+                             "(the reasoning corpus format); scores the reasoning too. play-cgt / play-cgt-full: "
+                             "the same with the position as Chess Graph Text (arm T2); needs a predictor "
+                             "trained on that prompt. An S0 rules-QA corpus sets its own kind")
+    parser.add_argument("--move-head", action="store_true",
+                        help="also score the move head (axes.move_head: masked and raw, top-1/top-3, NLL, calibration, "
+                             "CPL); needs a predictor with logits(packet), e.g. model.eval.playmode:head_from_env. "
+                             "Off by default; arm label: human-only move head")
     parser.add_argument("--out-root", type=Path, default=KEEP_ROOT)
     args = parser.parse_args(argv)
     if args.no_tactics:
@@ -209,7 +288,15 @@ def main(argv=None):
     out = args.out_root / f"eval-{args.label}-{stamp}"
     if out.exists():
         parser.error(f"{out} already exists")
-    predictor, description = load_predictor(args.predictor)
+    manifest = json.loads((args.corpus / "manifest.json").read_text())
+    if manifest["format"] in S0_FORMATS:  # the corpus fixes the prompt kind; a conflicting flag is an error
+        if args.prompt_kind not in ("move", manifest["prompt_kind"]):
+            parser.error(f"--prompt-kind {args.prompt_kind} conflicts with the S0 corpus kind {manifest['prompt_kind']}")
+        args.prompt_kind = manifest["prompt_kind"]
+        args.modes = ["raw"]
+        if args.move_head:
+            parser.error("--move-head scores move rows; an S0 rules-QA corpus has none")
+    predictor, description = load_predictor(args.predictor, args.prompt_kind)
     records, scorecard, inputs = evaluate(args, predictor, description)
     games_summary = play_games(args, predictor, description) if args.games else None
     write_outputs(out, records, scorecard, inputs, games_summary)

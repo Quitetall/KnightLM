@@ -143,6 +143,39 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     ("play.opponent", "Opponent model", "Modelo oponente"),
     (
+        "play.chat_on",
+        "Chat with the coach",
+        "Charlar con el entrenador",
+    ),
+    (
+        "play.chat_hint",
+        "On: the model answers as a coach and can draw on the board. Off: competition play, moves only. A rated game never chats.",
+        "Activado: el modelo responde como entrenador y puede dibujar en el tablero. Desactivado: partida de competición, solo jugadas. Una partida con rating nunca conversa.",
+    ),
+    ("play.coach_model", "Coach model", "Modelo entrenador"),
+    (
+        "play.coach_same",
+        "Same as opponent",
+        "El mismo que el oponente",
+    ),
+    ("play.chat_title", "Coach chat", "Chat con el entrenador"),
+    ("play.chat_send", "Send", "Enviar"),
+    (
+        "play.chat_placeholder",
+        "Ask about the position",
+        "Pregunta sobre la posición",
+    ),
+    (
+        "play.chat_off_note",
+        "Chat is off: the model only plays moves.",
+        "El chat está desactivado: el modelo solo juega.",
+    ),
+    (
+        "play.coach_pointing",
+        "The coach points at ply {ply}",
+        "El entrenador señala la jugada {ply}",
+    ),
+    (
         "play.default_model",
         "Default endpoint",
         "Servidor predeterminado",
@@ -1347,6 +1380,16 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "De dónde vienen los modelos. El campo de clave es el nombre de una variable de entorno o entrada del llavero, nunca el secreto.",
     ),
     ("settings.provider_label", "Name", "Nombre"),
+    (
+        "settings.add_knightlm",
+        "Add KnightLM server",
+        "Añadir servidor KnightLM",
+    ),
+    (
+        "settings.knightlm_hint",
+        "A KnightLM checkpoint served locally is just another OpenAI-compatible provider; no KnightLM code runs in this app.",
+        "Un punto de control KnightLM servido localmente es otro proveedor compatible con OpenAI; esta app no ejecuta código de KnightLM.",
+    ),
     (
         "settings.key_ref",
         "KEY_REF (env var or keyring:svc/acct)",

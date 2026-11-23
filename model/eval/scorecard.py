@@ -19,6 +19,11 @@ from model.eval.predictors import MODES
 UCI_MOVE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
 RAW_LEGALITY_GATE = 0.90  # KLM-WAR-0008: reported threshold, not a filter
 FAILURE_KINDS = ("illegal", "unparseable", "empty", "exception", "timeout", "missing")
+PLAY_FAILURE_KINDS = FAILURE_KINDS + ("inconsistent",)  # legal move, but not the one the reasoning states
+from model.prompt import PLAY_KINDS
+
+PROMPT_KINDS = ("move", *PLAY_KINDS)  # play = FEN packet (T0); play-cgt, play-cgt-full = Chess Graph Text (T2)
+PLAY_EXTRAS = ("reasoning", "play_code", "play_path", "play_raw_code", "stated_move", "parsed_move_legal")
 
 
 def call_with_timeout(predictor, packet, mode, timeout_s):
@@ -51,8 +56,27 @@ def classify(move, legal_moves):
     return None if move in legal_moves else "illegal"
 
 
-def predict_rows(rows, predictor, modes=MODES, timeout_s=60.0):
-    """Run every row through every mode. Returns one record per row."""
+def classify_play(move, code, legal_moves):
+    """Status of a play-mode answer: the move gate, then the completion code the serve layer reported."""
+    if code is None:
+        return classify(move, legal_moves)
+    if code == "ok":
+        return classify(move, legal_moves)
+    if code == "illegal_move":
+        return "illegal"
+    if code == "stated_move_mismatch":
+        return "inconsistent"
+    return "unparseable"
+
+
+def predict_rows(rows, predictor, modes=MODES, timeout_s=60.0, prompt_kind="move"):
+    """Run every row through every mode. Returns one record per row.
+
+    prompt_kind "play" adds the play-mode fields (reasoning, completion code, path) to each
+    entry and classifies by the predictor's completion code; "move" records are unchanged."""
+    if prompt_kind not in PROMPT_KINDS:
+        raise ValueError(f"prompt_kind must be one of {PROMPT_KINDS}")
+    play = prompt_kind in PLAY_KINDS
     records = []
     for index, row in enumerate(rows):
         packet = row["packet"]
@@ -72,7 +96,18 @@ def predict_rows(rows, predictor, modes=MODES, timeout_s=60.0):
                     output_tokens=getattr(value, "output_tokens", None),
                     latency_ms=latency if latency is not None else round(wall, 3),
                 )
-                kind = classify(move, packet["legal_moves"])
+                if play:
+                    entry.update(reasoning=getattr(value, "reasoning", None), play_code=getattr(value, "code", None),
+                                 play_path=getattr(value, "path", None), play_raw_code=getattr(value, "raw_code", None),
+                                 stated_move=getattr(value, "stated_move", None))
+                    if getattr(value, "head_move", None) is not None:  # a move head chose; only play-head cards carry it
+                        entry["head_move"] = value.head_move
+                    entry["parsed_move_legal"] = isinstance(move, str) and move in packet["legal_moves"]
+                    kind = classify_play(move, entry["play_code"], packet["legal_moves"])
+                else:
+                    kind = classify(move, packet["legal_moves"])
+            elif play:
+                entry.update(dict.fromkeys(PLAY_EXTRAS))
             entry["status"] = kind or "ok"
             entry["matches_target"] = entry["status"] == "ok" and entry["move"] == row["target"]
             record[mode] = entry
@@ -119,10 +154,10 @@ def attach_cpl(records, scorer, modes):
                 raise RuntimeError(f"engine disagrees with compiler legality for {record['fen']} {entry['move']}")
 
 
-def mode_block(records, mode, scored):
+def mode_block(records, mode, scored, kinds_list=FAILURE_KINDS):
     n = len(records)
     entries = [r[mode] for r in records]
-    kinds = {k: sum(e["status"] == k for e in entries) for k in FAILURE_KINDS}
+    kinds = {k: sum(e["status"] == k for e in entries) for k in kinds_list}
     legal = sum(e["status"] == "ok" for e in entries)
     out = {
         "legality": {"legal": legal, "n": n, "rate": rate(legal, n)},
@@ -166,20 +201,51 @@ def tactical_block(records, mode, tactics, scored):
     return out
 
 
-def build_scorecard(records, modes, scorer_info=None, tactics=None, requested_rows=None):
+def play_completion_block(records, mode):
+    """Play-mode completion accounting: how the model's own text fared, by stable code and by path."""
+    from model.serve.play import PATHS, PLAY_CODES
+    n = len(records)
+    entries = [r[mode] for r in records]
+    by_code = {c: 0 for c in PLAY_CODES}
+    by_code["no_reply"] = 0  # timeout or exception: nothing came back to check
+    for e in entries:
+        by_code[e["play_code"] if e.get("play_code") in by_code else "no_reply"] += 1
+    paths = {p: sum(e.get("play_path") == p for e in entries) for p in PATHS}
+    raw_ok = sum(e.get("play_raw_code") == "ok" for e in entries)
+    parsed_legal = sum(bool(e.get("parsed_move_legal")) for e in entries)
+    return {"completion_valid": {"valid": by_code["ok"], "n": n, "rate": rate(by_code["ok"], n)},
+            "model_completion_valid": {"valid": raw_ok, "n": n, "rate": rate(raw_ok, n),
+                                       "note": "the model's own text passed every check, before any constrained repair"},
+            "parsed_move_legal": {"legal": parsed_legal, "n": n, "rate": rate(parsed_legal, n)},
+            "by_code": by_code, "by_path": paths}
+
+
+def build_scorecard(records, modes, scorer_info=None, tactics=None, requested_rows=None, prompt_kind="move"):
     n = len(records)
     requested = requested_rows if requested_rows is not None else n
     if n < requested:  # rows never attempted are failures, not omissions
         raise ValueError(f"{requested - n} requested rows have no prediction record")
     scored = scorer_info is not None
-    per_mode = {m: mode_block(records, m, scored) for m in modes}
+    play = prompt_kind in PLAY_KINDS
+    per_mode = {m: mode_block(records, m, scored, PLAY_FAILURE_KINDS if play else FAILURE_KINDS) for m in modes}
     axes = {"rows": n}
-    if "raw" in per_mode:
+    if play:
+        # Own axis names: a play scorecard is never silently the same thing as a move-only one.
+        if "raw" in per_mode:
+            raw = per_mode["raw"]["legality"]
+            axes["play_raw_legality"] = dict(raw, gate={"threshold": RAW_LEGALITY_GATE,
+                                                        "met": raw["rate"] is not None and raw["rate"] >= RAW_LEGALITY_GATE,
+                                                        "note": "reported threshold; the completion must parse, name a "
+                                                                "legal move and agree with its reasoning"})
+        if "constrained" in per_mode:
+            axes["play_constrained_legality"] = per_mode["constrained"]["legality"]
+        axes["play_completion"] = {m: play_completion_block(records, m) for m in modes}
+    elif "raw" in per_mode:
         raw = per_mode["raw"]["legality"]
         axes["raw_legality"] = dict(raw, gate={"threshold": RAW_LEGALITY_GATE,
                                                "met": raw["rate"] is not None and raw["rate"] >= RAW_LEGALITY_GATE,
                                                "note": "reported threshold; every row stays in the denominator"})
-    if "constrained" in per_mode:
+    if "constrained" in per_mode and not play:
         axes["constrained_legality"] = per_mode["constrained"]["legality"]
     axes["played_move_match"] = {m: per_mode[m]["played_move_match"] for m in modes}
     axes["centipawn_loss"] = ({m: per_mode[m]["centipawn_loss"] for m in modes} | {"engine": scorer_info}
@@ -193,4 +259,4 @@ def build_scorecard(records, modes, scorer_info=None, tactics=None, requested_ro
     axes["games"] = None
     return {"schema": SCORECARD_SCHEMA, "composite_score": None,
             "composite_note": "none by design: axes are reported separately (t-c199, KLM-WAR-0008 OBL-002)",
-            "modes": list(modes), "axes": axes}
+            "prompt_kind": prompt_kind, "modes": list(modes), "axes": axes}

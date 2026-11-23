@@ -67,15 +67,27 @@ class HttpPredictor:
             return {"unavailable": str(error)}
 
 
-def load_predictor(spec):
-    """Return (predictor, description)."""
+def load_predictor(spec, prompt_kind="move"):
+    """Return (predictor, description). A play kind (play, play-cgt, play-cgt-full) speaks that play prompt
+    (model.eval.playmode); a python predictor is told which one through its `prompt_kind` attribute."""
+    from model.prompt import PLAY_KINDS
+    play = prompt_kind in PLAY_KINDS
+    if play:
+        from model.eval.playmode import HttpPlayPredictor, PlayAdapter
     if spec.startswith(("http://", "https://")):
-        return HttpPredictor(spec), {"kind": "http", "url": spec}
+        return (HttpPlayPredictor(spec) if play else HttpPredictor(spec)), {"kind": "http", "url": spec}
     module_name, _, attr = spec.partition(":")
     if not attr:
         raise ValueError("python predictor spec must be 'module:factory'")
     factory = getattr(importlib.import_module(module_name), attr)
-    return factory(), {"kind": "python", "spec": spec}
+    predictor = factory()
+    if play and hasattr(predictor, "predict_play"):
+        if prompt_kind != "play" and not hasattr(predictor, "prompt_kind"):
+            raise ValueError(f"predictor {spec!r} cannot speak prompt kind {prompt_kind!r} (no prompt_kind attribute)")
+        if hasattr(predictor, "prompt_kind"):
+            predictor.prompt_kind = prompt_kind
+        predictor = PlayAdapter(predictor)
+    return predictor, {"kind": "python", "spec": spec}
 
 
 def predictor_manifest(predictor):

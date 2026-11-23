@@ -26,26 +26,25 @@ def user_chat(packet):
 
 from pathlib import Path
 
-TOOLS_PATH = Path(__file__).resolve().parent.parent / "crates" / "ai" / "schemas" / "model_tools.json"
+TOOLS_PATH = Path(__file__).resolve().parent.parent / "crates" / "contract" / "schemas" / "model_tools.json"
 
 MODES = ("play", "coach")
 MAX_SUMMARY_CHARS = 1200
 MAX_RECENT_MESSAGES = 6
 MAX_MESSAGE_CHARS = 800
 
-PLAY_INSTRUCTION = (
-    "You are playing chess in competition mode. Write one short reasoning field, "
-    "then call submit_move with a legal UCI move. Use only the tools listed; "
-    "reply with a single tool call.\n"
-)
-COACH_INSTRUCTION = (
-    "You are a chess coach playing a game. Your first line must be "
-    "`Move: <legal UCI move>`; then reply to the user. Use only the tools listed.\n"
-)
+PLAY_INSTRUCTION = 'You are playing chess in competition mode. Reply with exactly one tool call: call submit_move with a short reasoning field first, then a legal UCI move. Use only the tools listed.\n'
+# `play-reads` (reasoning v2 variant b, docs/model/reasoning-v2.md): the same prompt except that the read tools may be
+# called before submit_move, so the "exactly one tool call" wording is replaced for that kind only.
+PLAY_READS_INSTRUCTION = 'You are playing chess in competition mode. You may first call read tools to check facts, one tool call per turn, each answered by a tool result; then finish with a tool call to submit_move with a short reasoning field first, then a legal UCI move. Use only the tools listed.\n'
+COACH_INSTRUCTION = 'You are a chess coach playing a game. Your first line must be `Provisional: <legal UCI move>`. You may think aloud and later write another `Provisional: <legal UCI move>` line to change it; the last legal one is your move when you stop. Then reply to the user. Use only the tools listed.\n'
+COMBINED_INSTRUCTION = "You are a chess coach that also plays competitively. The line `Mode: play` or `Mode: coach` after the tool lists names this turn's mode; call only that mode's tools. In play mode reply with exactly one submit_move call, reasoning field first, then a legal UCI move. In coach mode your first line must be `Provisional: <legal UCI move>`, which a later `Provisional:` line may revise (the last legal one is your move), then reply to the user.\n"
 _INSTRUCTIONS = {"play": PLAY_INSTRUCTION, "coach": COACH_INSTRUCTION}
 TOOL_CALL_FORMAT = (
     '<tool_call>{"name": "<tool>", "arguments": {...}}</tool_call>\n'
 )
+MAX_REASONING_CHARS = 400
+EXCERPT_CHARS = 120
 
 
 def load_tool_schemas(path=None):
@@ -62,16 +61,16 @@ def _check_mode(mode):
         raise ValueError(f"unknown mode {mode!r}; expected one of {MODES}")
 
 
-def prefix(mode, schemas=None):
+def prefix(mode, schemas=None, instruction=None):
     """The fixed part of a prompt: instruction, call format, this mode's schema.
 
     Identical for every turn of a mode, so a serving cache can reuse it. It never
-    mentions the other mode's tools.
+    mentions the other mode's tools. `instruction` replaces the mode's instruction (play-reads only).
     """
     _check_mode(mode)
     tools = (schemas or load_tool_schemas())["modes"][mode]
     return (
-        _INSTRUCTIONS[mode]
+        (instruction or _INSTRUCTIONS[mode])
         + TOOL_CALL_FORMAT
         + "Tools:\n"
         + json.dumps(tools, sort_keys=True, separators=(",", ":"))
@@ -100,9 +99,9 @@ def chat_context(summary=None, recent=()):
     return "".join(parts)
 
 
-def play_text(packet, schemas=None):
+def play_text(packet, schemas=None, instruction=None):
     """Play mode: instruction, play schema, packet. Nothing else; packet last."""
-    return prefix("play", schemas) + "Position packet:\n" + packet_json(packet)
+    return prefix("play", schemas, instruction) + "Position packet:\n" + packet_json(packet)
 
 
 def coach_text(packet, summary=None, recent=(), schemas=None):
@@ -118,3 +117,281 @@ def coach_text(packet, summary=None, recent=(), schemas=None):
 def mode_chat(text):
     """Wrap a mode prompt as one user turn, like user_chat."""
     return [{"role": "user", "content": [{"type": "text", "text": text}]}]
+
+
+# --- Combined prefix for a long chat -------------------------------------------
+# Both schemas in one fixed prefix; each call is still checked against the schema
+# of the mode named on the `Mode:` line (docs/model/modes-and-tools.md section 3).
+
+
+def _blob(mode, schemas):
+    return json.dumps(schemas["modes"][mode], sort_keys=True, separators=(",", ":"))
+
+
+def combined_prefix(schemas=None):
+    schemas = schemas or load_tool_schemas()
+    return (
+        COMBINED_INSTRUCTION
+        + TOOL_CALL_FORMAT
+        + "Play tools:\n"
+        + _blob("play", schemas)
+        + "\nCoach tools:\n"
+        + _blob("coach", schemas)
+        + "\n"
+    )
+
+
+def combined_text(packet, mode, summary=None, recent=(), schemas=None):
+    """Long chat: both schemas, then this turn's mode, chat context, packet last."""
+    _check_mode(mode)
+    return (
+        combined_prefix(schemas)
+        + f"Mode: {mode}\n"
+        + chat_context(summary, recent)
+        + "Position packet:\n"
+        + packet_json(packet)
+    )
+
+
+# --- Play-mode completion format -------------------------------------------------
+# The exact completion a play row is trained to write: one submit_move call whose
+# arguments are `reasoning` then `move`, nothing outside the block. The Rust parser
+# (crates/ai/src/model_turn.rs) and this one are pinned by
+# crates/contract/schemas/play_completion_cases.json.
+
+import re
+
+TOOL_CALL_OPEN = "<tool_call>"
+TOOL_CALL_CLOSE = "</tool_call>"
+_UCI = re.compile(r"[a-h][1-8][a-h][1-8][qrbn]?")
+
+
+class PlayCompletionError(ValueError):
+    """`code` is the spelling shared with Rust's PlayCompletionError::code."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+class _Obj(list):
+    """A JSON object as ordered (key, value) pairs, duplicates kept."""
+
+
+def _no_constant(name):
+    raise ValueError(name)
+
+
+def format_play_completion(reasoning, move):
+    return (
+        TOOL_CALL_OPEN
+        + '{"name":"submit_move","arguments":{"reasoning":'
+        + json.dumps(reasoning, ensure_ascii=False)
+        + ',"move":'
+        + json.dumps(move, ensure_ascii=False)
+        + "}}"
+        + TOOL_CALL_CLOSE
+    )
+
+
+def parse_play_completion(text):
+    """Return {"reasoning", "move"} or raise PlayCompletionError. Legality is not checked."""
+    err = PlayCompletionError
+    if text.count(TOOL_CALL_OPEN) != 1 or text.count(TOOL_CALL_CLOSE) != 1:
+        raise err("not_one_call")
+    start, end = text.index(TOOL_CALL_OPEN), text.index(TOOL_CALL_CLOSE)
+    if end < start:
+        raise err("not_one_call")
+    if text[:start].strip() or text[end + len(TOOL_CALL_CLOSE):].strip():
+        raise err("extra_text")
+    try:
+        top = json.loads(
+            text[start + len(TOOL_CALL_OPEN):end].strip(),
+            object_pairs_hook=_Obj,
+            parse_constant=_no_constant,
+        )
+    except ValueError:
+        raise err("malformed") from None
+    if not isinstance(top, _Obj):
+        raise err("malformed")
+    keys = [k for k, _ in top]
+    fields = dict(top)
+    if sorted(keys) != ["arguments", "name"] or not isinstance(fields["name"], str):
+        raise err("malformed")
+    args = fields["arguments"]
+    if not isinstance(args, _Obj):
+        raise err("malformed")
+    if fields["name"] != "submit_move":
+        raise err("wrong_tool")
+    names = [k for k, _ in args]
+    if names != ["reasoning", "move"]:
+        if names == ["move", "reasoning"]:
+            raise err("key_order")
+        raise err("reasoning_missing" if names == ["move"] else "malformed")
+    reasoning, move = args[0][1], args[1][1]
+    if not isinstance(reasoning, str) or not reasoning.strip():
+        raise err("reasoning_missing")
+    if len(reasoning) > MAX_REASONING_CHARS:
+        raise err("reasoning_too_long")
+    if not isinstance(move, str) or not _UCI.fullmatch(move):
+        raise err("bad_move")
+    return {"reasoning": reasoning, "move": move}
+
+
+# --- Deterministic chat summarizer -------------------------------------------------
+# No model call. Mirrors summarize_chat / roll_chat in model_turn.rs, pinned by
+# crates/contract/schemas/chat_summary_cases.json.
+
+
+def _excerpt(text):
+    flat = " ".join(text.split())
+    return flat if len(flat) <= EXCERPT_CHARS else flat[: EXCERPT_CHARS - 1] + "\u2026"
+
+
+def summarize_chat(previous, dropped):
+    """Fold dropped messages into the rolling summary, bounded by MAX_SUMMARY_CHARS."""
+    parts = [previous] if previous else []
+    for message in dropped:
+        tag = "U" if message["role"] == "user" else "A"
+        parts.append(f"{tag}: {_excerpt(message['text'])}")
+    joined = " | ".join(parts)
+    if len(joined) <= MAX_SUMMARY_CHARS:
+        return joined
+    tail = joined[-(MAX_SUMMARY_CHARS - 1):]
+    cut = tail.find(" | ")
+    if cut >= 0:
+        tail = tail[cut + 3:]
+    return "\u2026" + tail
+
+
+def roll_chat(summary, messages):
+    """Keep the last MAX_RECENT_MESSAGES messages; fold older ones into the summary."""
+    messages = list(messages)
+    skip = max(0, len(messages) - MAX_RECENT_MESSAGES)
+    if skip == 0:
+        return summary, messages
+    return summarize_chat(summary, messages[:skip]), messages[skip:]
+
+
+# --- Play prompt with Chess Graph Text (arms T0 / T2) ---------------------------------
+# `play` is the FEN packet prompt above (arm T0, the control). `play-cgt` and `play-cgt-full`
+# are the same prompt with the position rendered as cgt/1 text (docs/model/graph-text.md)
+# instead of the packet JSON: same instruction, same play schema, same completion format, and the
+# position last. The text comes from the Rust compiler (`knightlm cgt`), never from Python.
+
+import functools
+import os
+import subprocess
+
+# `play-t1`, `play-t3`, `play-t3-full` are arms T1 and T3: the position as ctok/1 token strings
+# (model/tokenizer/arms.py). They need the extended tokenizer (model/tokenizer/hf.py); the completion
+# is the same host-text play call, so parse_play_completion reads their replies unchanged.
+CTOK_KINDS = ("play-t1", "play-t3", "play-t3-full")
+# `play-head` is the move-head arm (docs/model/move-head.md); `play-enc` and `play-enc-cgt` are the board
+# encoder arms T4 and T5 (docs/model/board-encoder.md). All three are additive: every older kind keeps its bytes.
+HEAD_KINDS = ("play-head",)
+ENC_KINDS = ("play-enc", "play-enc-cgt")
+# `play-reads` is reasoning v2 variant b: read calls and their results before submit_move. It is a training and
+# scoring kind (the rows carry `segments`); the Python Predictor serves one call and refuses it.
+READS_KINDS = ("play-reads",)
+PLAY_KINDS = ("play", "play-cgt", "play-cgt-full", *CTOK_KINDS, *HEAD_KINDS, *ENC_KINDS, *READS_KINDS)
+CGT_VARIANT = {"play-cgt": "lite", "play-cgt-full": "full", "play-enc-cgt": "lite"}
+CGT_LABEL = "Position graph:\n"
+_REPO = Path(__file__).resolve().parent.parent
+
+
+def knightlm_binary(explicit=None):
+    """The compiler binary: explicit path, KNIGHTLM_BIN, then target/release and target/debug."""
+    candidates = [explicit, os.environ.get("KNIGHTLM_BIN"), _REPO / "target/release/knightlm", _REPO / "target/debug/knightlm"]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return Path(candidate).resolve()
+    raise FileNotFoundError("knightlm binary not found: build it (cargo build --release -p knightlm-cli) or set KNIGHTLM_BIN")
+
+
+@functools.lru_cache(maxsize=65536)
+def _cgt(binary, fen, rep, variant):
+    cmd = [binary, "cgt", "--fen", fen, "--variant", variant]
+    if rep is not None:
+        cmd += ["--rep", str(rep)]
+    return subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30).stdout.rstrip("\n")
+
+
+def cgt_text(packet, variant, binary=None):
+    """cgt/1 text for a packet's position. The repetition count is the packet's own (`?` if absent)."""
+    if variant not in ("lite", "full"):
+        raise ValueError(f"unknown cgt variant {variant!r}")
+    rep = packet["facts"].get("repetition_count")
+    return _cgt(str(knightlm_binary(binary)), packet["fen"], rep, variant)
+
+
+def check_play_kind(kind):
+    if kind not in PLAY_KINDS:
+        raise ValueError(f"unknown play prompt kind {kind!r}; expected one of {PLAY_KINDS}")
+
+
+# --- Move-head and board-encoder prompts ---------------------------------------------------------
+# play-head: the packet prompt plus a closing label. The move head reads the host's last hidden state at
+# the end of this text (head_prompt, no move), so it cannot name its own answer. The language stage then
+# sees the same text with the head's move after the label (head_move=m*), writes the usual play call
+# (reasoning, then move) and the move field is pinned to m*. The completion format is unchanged.
+# play-enc / play-enc-cgt: no FEN. The board is `n_board_tokens` host `<image>` placeholders (the encoder's
+# soft tokens replace them, model/encoder/inject.py); the text carries only the packet's rule facts (legal
+# moves and facts, no FEN and no repetition ledger, whose keys spell the placement). play-enc-cgt adds the
+# cgt/1 lite text beside the soft tokens.
+
+HEAD_LABEL = "\nMove head:"
+ENC_LABEL = "Board tokens:\n"
+RULES_LABEL = "\nRules:\n"
+IMAGE_TOKEN = "<image>"
+BOARD_TOKENS = 64  # SmolVLM-500M image_seq_len; the encoder default
+_ENC_HIDDEN = ("fen", "repetition_ledger")
+
+
+def rules_json(packet):
+    """The packet without the position: nothing here lets the model read the board as text."""
+    return packet_json({k: v for k, v in packet.items() if k not in _ENC_HIDDEN})
+
+
+def play_prompt(kind, packet, schemas=None, binary=None, head_move=None, n_board_tokens=BOARD_TOKENS):
+    """The play prompt for a kind: `play` is play_text; `play-cgt*` swap the packet for CGT text;
+    `play-t1` and `play-t3*` swap it for ctok/1 token strings; `play-head` ends in HEAD_LABEL (plus the
+    head's move when `head_move` is given); `play-enc*` replace the position with board-token slots."""
+    check_play_kind(kind)
+    if head_move is not None and kind not in HEAD_KINDS:
+        raise ValueError(f"head_move only applies to {HEAD_KINDS}, not {kind!r}")
+    if kind == "play":
+        return play_text(packet, schemas)
+    if kind in READS_KINDS:
+        return play_text(packet, schemas, PLAY_READS_INSTRUCTION)
+    if kind in HEAD_KINDS:
+        text = play_text(packet, schemas) + HEAD_LABEL
+        if head_move is None:
+            return text
+        if head_move not in packet.get("legal_moves", ()):
+            raise ValueError(f"head move {head_move!r} is not legal in the packet")
+        return text + " " + head_move
+    if kind in ENC_KINDS:
+        text = prefix("play", schemas) + ENC_LABEL + IMAGE_TOKEN * n_board_tokens + RULES_LABEL + rules_json(packet)
+        if kind == "play-enc-cgt":
+            text += "\n" + CGT_LABEL + cgt_text(packet, CGT_VARIANT[kind], binary)
+        return text
+    if kind in CTOK_KINDS:
+        from model.tokenizer import arms
+
+        text = cgt_text(packet, arms.CGT_VARIANT[kind], binary) if kind in arms.CGT_VARIANT else None
+        return prefix("play", schemas) + arms.LABEL + arms.position_text(kind, packet, text)
+    return prefix("play", schemas) + CGT_LABEL + cgt_text(packet, CGT_VARIANT[kind], binary)
+
+
+# --- S0 rules-QA prompt (docs/model/s0 corpus: model/corpus/s0.py) -----------------------
+# A question about the position, appended after it. The completion is the play call whose
+# `reasoning` field is the answer.
+
+QA_LABEL = "\nQuestion: "
+
+
+def qa_prompt(kind, packet, question, schemas=None, binary=None):
+    if "\n" in question:
+        raise ValueError("a question is one line")
+    return play_prompt(kind, packet, schemas, binary) + QA_LABEL + question

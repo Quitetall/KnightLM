@@ -28,7 +28,6 @@ Open work orders, by phase.
 - `KLM-WAR-0021` Release 1 hardening: performance, security, full suite, docs and RC · Order · draft · docs/warrants/KLM-WAR-0021
 - `t-1ce9` Release Engineer — Qualify RBC on native Windows · Order · open · docs/work/t-1ce9/t-1ce9-release-engineer-qualify-rbc-on-native-windows.md
 - `t-3458` Data Engineer — Build and audit the Run 1 corpus · Order · in_progress · docs/tickets/t-3458.md
-- `t-389d` Docs Contributor — Bring the RBC roadmap up to date · Ticket · open · docs/work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md
 - `t-5b6e` QA Engineer — Isolate the RBC browser release gate · Order · open · docs/work/t-5b6e/t-5b6e-qa-engineer-isolate-the-rbc-browser-release-gate.md
 - `t-5cd8` Representation/Evaluation Engineer — Agree on the corpus-to-trainer contract · Ticket · open · docs/work/t-5cd8/t-5cd8-representation-evaluation-engineer-agree-on-the.md
 - `t-8021` Playtester — Try the first KnightLM game in RBC · Ticket · open · docs/work/t-8021/t-8021-playtester-try-the-first-knightlm-game-in-rbc.md
