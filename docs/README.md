@@ -1,14 +1,17 @@
 # Documentation
 
-RustyBrickChess (RBC) is the app. KnightLM is the chess model being trained for it.
+RustyBrickChess (RBC) is the open-source chess workstation. KnightLM is the ML path: corpus,
+tokenizer, encoder, training, evaluation and serving. They meet at [the seam](model/seam.md).
 
 | I want to… | Start here |
 | --- | --- |
 | Install RBC or open the app | [Running RBC](app/running.md) |
-| Make my first contribution | [Contributor onboarding](contributors/README.md) |
+| Set up a fresh clone, for the app or the model | [Getting started](contributors/README.md) |
+| Open a pull request, see what CI checks, claim work | [CONTRIBUTING](../CONTRIBUTING.md) |
 | Find or claim work | [Work orders by role](contributors/work/README.md) |
 | See what comes next | [App and model roadmap](../apps/rusty-brick-chess/ROADMAP.md) |
-| Train or evaluate KnightLM | [Training quickstart](../model/README.md), [experiment plan](model/plan.md), [data and evidence contracts](model/contracts.md) |
+| Learn how KnightLM fits together | [Model docs index and reading order](model/README.md), [glossary](model/training-glossary.md) |
+| Train, evaluate or serve KnightLM | [Model tooling commands](../model/README.md), [training gate](model/training-gate.md), [scorecard](model/scorecard.md) |
 
 ## App reference
 
@@ -26,7 +29,7 @@ RustyBrickChess (RBC) is the app. KnightLM is the chess model being trained for 
 
 | Path | Contents |
 | --- | --- |
-| `tickets/` | Current and completed work, including contributor Orders and their journals |
+| `work/` and `tickets/` | Tickets and Orders, open and done, with their journals (`work/<id>/`; a few Orders sit in `tickets/`) |
 | `warrants/` | Directory Warrants, deliverable digests, journals, and evidence |
 | `sas/` and `adr/` | Architecture revisions and decision records |
 | `authority/` and `gates/` | Authority records and registered checks |

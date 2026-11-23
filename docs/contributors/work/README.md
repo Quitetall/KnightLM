@@ -1,5 +1,9 @@
 # Contributor work orders
 
+This list is the current set of open starter tickets (the [strength protocol](../../work/t-e135/t-e135-research-contributor-define-a-knightlm-strength.md)
+starter is done). The same open tickets are mirrored to
+[GitHub Issues](https://github.com/Quitetall/KnightLM/issues) by `scripts/sync_issues.py`, which maintainers run;
+the ticket file is the record and `war view prime` is the live list. This page is maintained by hand.
 Pick a contribution that fits the time and equipment you have. The estimates
 are active work, and setup or a first build can take longer. Each starter
 ticket gives you a first step, something concrete to bring to review, and a
@@ -8,15 +12,15 @@ to finish a starter.
 
 | Starter | Time | What you need | What to share |
 | --- | --- | --- | --- |
-| [Docs · Update the RBC roadmap](../../tickets/t-389d.md) | 30–45 min | A checkout and a text editor | A small PR that distinguishes what ships, what was verified, and what's next |
-| [Playtest · Try a first KnightLM game](../../tickets/t-8021.md) | 30–45 min | KnightLM in a local build or a maintainer-led session | The steps you tried, what happened, and where you got stuck if applicable |
-| [Data · Inventory the Run 1 sources](../../tickets/t-a475.md) | 45–90 min | The pilot manifest or access to someone who has it | A source list, proposed cutoff, and any missing inputs |
-| [Research · Design the strength baseline](../../tickets/t-e135.md) | 60–90 min | The research plan and a way to review chess positions | A small evaluation protocol with an example of how to score a result |
-| [Windows · Try the source launcher](../../tickets/t-a226.md) | 45–90 min after setup | Native Windows, PowerShell, and MSVC | A launch report or the first reproducible blocker |
+| [Docs · Update the RBC roadmap](../../work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md) | 30–45 min | A checkout and a text editor | A small PR that distinguishes what ships, what was verified, and what's next |
+| [Playtest · Try a first KnightLM game](../../work/t-8021/t-8021-playtester-try-the-first-knightlm-game-in-rbc.md) | 30–45 min | KnightLM in a local build or a maintainer-led session | The steps you tried, what happened, and where you got stuck if applicable |
+| [Data · Inventory the Run 1 sources](../../work/t-a475/t-a475-data-engineer-inventory-sources-for-run-1.md) | 45–90 min | The pilot manifest or access to someone who has it | A source list, proposed cutoff, and any missing inputs |
+| [Evaluation · Agree the corpus-to-trainer contract](../../work/t-5cd8/t-5cd8-representation-evaluation-engineer-agree-on-the.md) | 60–90 min | The corpus manifest and `model/train/` | A small manifest plus a fixture both sides accept |
+| [Windows · Try the source launcher](../../work/t-a226/t-a226-windows-tester-try-the-rbc-source-launcher-on.md) | 45–90 min after setup | Native Windows, PowerShell, and MSVC | A launch report or the first reproducible blocker |
 
 ## This team's first picks
 
-Start with [Docs](../../tickets/t-389d.md) and [Data inventory](../../tickets/t-a475.md).
+Start with [Docs](../../work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md) and [Data inventory](../../work/t-a475/t-a475-data-engineer-inventory-sources-for-run-1.md).
 The [four-person training plan](training-loop.md) lists the follow-up work for
 Data, Representation/Evaluation, and MLOps/CV and how it comes together.
 
@@ -48,8 +52,8 @@ You can also contribute through an ordinary PR. See
 | Role | Existing order | Start with |
 | --- | --- | --- |
 | Data Engineer | [Build and audit the Run 1 corpus](../../tickets/t-3458.md) | Review the source inventory before generating full shards. |
-| QA Engineer | [Isolate the RBC browser release gate](../../tickets/t-5b6e.md) | Take this if you can work on the browser runner and its test environment. |
-| Frontend Engineer | [Make Stop responsive during a provider stall](../../tickets/t-c168.md) | Reproduce the silent-provider case from the order before changing the stream. |
-| Release Engineer | [Qualify RBC on native Windows](../../tickets/t-1ce9.md) | Use the source launch report, then verify the installer separately. |
+| QA Engineer | [Isolate the RBC browser release gate](../../work/t-5b6e/t-5b6e-qa-engineer-isolate-the-rbc-browser-release-gate.md) | Take this if you can work on the browser runner and its test environment. |
+| Frontend Engineer | [Make Stop responsive during a provider stall](../../work/t-c168/t-c168-frontend-engineer-make-stop-responsive-during-a.md) | Reproduce the silent-provider case from the order before changing the stream. |
+| Release Engineer | [Qualify RBC on native Windows](../../work/t-1ce9/t-1ce9-release-engineer-qualify-rbc-on-native-windows.md) | Use the source launch report, then verify the installer separately. |
 
 [App and model roadmap](../../../apps/rusty-brick-chess/ROADMAP.md)

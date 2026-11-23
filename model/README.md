@@ -1,5 +1,10 @@
 # KnightLM model tooling
 
+This file is the command reference for the model path. New here? Read the
+[model docs index](../docs/model/README.md) for the reading order and the
+[getting started guide](../docs/contributors/README.md) for environments, the fake-predictor server
+and the rule that GPU training needs the owner's go. Status: only Run 1 short has trained.
+
 Rust owns the chess state and packet compiler. Python and Mojo include bounded
 protocol parity checks. Python also hosts the Hugging Face pilot below.
 

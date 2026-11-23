@@ -9,7 +9,7 @@
 
 ## CONTRIBUTING.md
 > -
-- doc:CONTRIBUTING.md · document · - · Contributing to RustyBrickChess · CONTRIBUTING.md:1
+- doc:CONTRIBUTING.md · document · - · Contributing to RustyBrickChess and KnightLM · CONTRIBUTING.md:1
 
 ## README.md
 > -
@@ -59,7 +59,7 @@
 
 ## docs/contributors/README.md
 > -
-- doc:docs/contributors/README.md · document · - · Contributor onboarding · docs/contributors/README.md:1
+- doc:docs/contributors/README.md · document · - · Getting started · docs/contributors/README.md:1
 
 ## docs/contributors/secrets.md
 > -
@@ -76,6 +76,10 @@
 ## docs/contributors/work/training-loop.md
 > -
 - doc:docs/contributors/work/training-loop.md · document · - · Four-person training plan · docs/contributors/work/training-loop.md:1
+
+## docs/model/README.md
+> -
+- doc:docs/model/README.md · document · - · KnightLM model docs · docs/model/README.md:1
 
 ## docs/model/board-encoder.md
 > -
