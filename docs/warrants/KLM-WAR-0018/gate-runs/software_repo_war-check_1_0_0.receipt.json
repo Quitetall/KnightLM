@@ -5,7 +5,8 @@
   "subject_digests": [
     "contract:sha256:417eaa4b37442fa18e77a2fcd2dffd3eafd0d1cb6eafc645f12eaa7859bf9d05",
     "deliverables:sha256:e2e569de4721f51f6ebeaf73a87353b78ec5f55f0fef246a397b7618b6a539ec",
-    "tree:4e40e2a6027c90312b04c365b69372f6634f069a"
+    "tree:df4bb213393889233e9fb1d79298dbf3637e0083",
+    "worktree:dirty"
   ],
   "fixture_digests": [],
   "runner": "war gate --run",
@@ -15,9 +16,9 @@
     "check",
     "--generated"
   ],
-  "working_directory": "/mnt/4tb/tmp/knightlm-worktrees/eval-ci",
-  "started_at": "2026-11-21T01:31:29Z",
-  "completed_at": "2026-11-21T01:31:31Z",
+  "working_directory": "/mnt/4tb/tmp/knightlm-worktrees/pins",
+  "started_at": "2026-11-23T03:42:29Z",
+  "completed_at": "2026-11-23T03:42:31Z",
   "exit_result": "pass",
   "selected_test_count": 0,
   "selected_test_manifest": [],
@@ -26,5 +27,5 @@
   "stderr_ref": "docs/warrants/KLM-WAR-0018/gate-runs/software_repo_war-check_1_0_0.stderr.txt",
   "resource_usage": "wall-clock only; 3 argv item(s)",
   "verdict": "pass",
-  "receipt_digest": "sha256:9b5452c9bc0c40656c0bed7aae1209abd3be6fbc69353e8deb3abcee7e76272e"
+  "receipt_digest": "sha256:a8563a76ae953d552b9e12f829828cc0139388f770d758507e12726eaaa36e5a"
 }

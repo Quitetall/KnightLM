@@ -116,10 +116,10 @@ PASS obligations.valid                  KLM-WAR-0017: 2 obligation(s), each with
 PASS generated.drift                    KLM-WAR-0017: 2 generated view(s) match a fresh compilation
 PASS manifest.valid                     KLM-WAR-0018: manifest and composition are well-formed
 PASS deliverable.digests                KLM-WAR-0018: 5 content-addressed deliverable(s) match their bytes
-WARN evidence.reuse-unknown             KLM-WAR-0018: software.repo.war-check@1.0.0 · reuse UNKNOWN: the run started from tree:f8e9acd179a2c486d019144243a72f324cfce162 with uncommitted changes, and a dirty tree has no name. Not admissible and not a failure; `war evidence record` mints a receipt that names its source
+WARN evidence.not-a-pass                KLM-WAR-0018: software.repo.war-check@1.0.0 · the run is not a §44.5 required pass (askability askable, execution completed, verdict fail)
                                              → docs/warrants/KLM-WAR-0018/gate-runs/software_repo_war-check_1_0_0.run.toml
-                                             → info: war evidence record
-PASS journal.append-only                KLM-WAR-0018: 6 event(s), 0 backfilled, extends the committed journal
+                                             → auto: war evidence record KLM-WAR-0018
+PASS journal.append-only                KLM-WAR-0018: 9 event(s), 0 backfilled, extends the committed journal
 PASS gate.resolved                      KLM-WAR-0018: 1 cited gate(s) resolve to a bindable definition
 PASS milestones.valid                   KLM-WAR-0018: 2 milestone(s), 2 stage(s), acyclic with no dangling refs
 PASS obligations.valid                  KLM-WAR-0018: 7 obligation(s), each with a bounded scope and evidence
@@ -194,7 +194,7 @@ PASS context-index.drift                llms.txt matches a fresh compilation
 PASS generated.drift                    CURRENT.md matches a fresh compilation
 
 REMEDIES:
-  info  war evidence record   (×1)
+  auto  war evidence record KLM-WAR-0018   (×1)
   info  war sign sas status   (×1)
 
 184 pass · 4 warn · 0 unknown · 0 error   (worst: WARN)
