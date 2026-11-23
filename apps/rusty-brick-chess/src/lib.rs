@@ -305,6 +305,7 @@ pub fn router(state: api::AppState) -> Router {
             get(provider_api::list_providers).post(provider_api::add_provider),
         )
         .route("/api/providers/presets", get(provider_api::list_presets))
+        .route("/api/ai/test-bot", get(provider_api::test_bot_info))
         .route("/api/providers/probe", post(provider_api::probe_endpoint))
         .route(
             "/api/model-seats",

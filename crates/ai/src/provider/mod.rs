@@ -32,10 +32,14 @@ use crate::protocol::{ErrorInfo, ModelRef, ProviderKind, StopReason, ToolCall, T
 pub mod knightlm_serve;
 pub mod openai;
 pub mod sse;
+pub mod test_bot;
 
 pub use knightlm_serve::{KnightLmServeProvider, SERVE_MODEL, SERVE_PROVIDER};
 pub use openai::OpenAiProvider;
 pub use sse::{SseEvent, SseParser};
+pub use test_bot::{
+    TEST_BOT_LABEL, TEST_BOT_MODEL, TEST_BOT_PROVIDER, TestBotProvider, is_test_bot,
+};
 
 /// Stable error codes returned by providers.
 pub mod error_code {
