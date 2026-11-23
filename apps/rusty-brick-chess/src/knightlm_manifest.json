@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "base": {
+    "repo": "HuggingFaceTB/SmolVLM-500M-Instruct",
+    "revision": "a7da5b986cb59b408707209984f360a5f4ad7e47",
+    "license": "Apache-2.0",
+    "url_prefix": "https://huggingface.co/HuggingFaceTB/SmolVLM-500M-Instruct/resolve/a7da5b986cb59b408707209984f360a5f4ad7e47/",
+    "files": [
+      {"name": "model.safetensors", "size": 1015025832, "sha256": "d05b567eeaf534e83d375551f068ed57b5f52d37c657197f644af5ef9db091a2"},
+      {"name": "tokenizer.json", "size": 3548256, "sha256": "5ece781dc8d2b2f3e2f289ca0ae50b17cfc27dd27bfe7971bb8241e0b964331a"},
+      {"name": "config.json", "size": 7339, "sha256": "daacbbca6af3c34e50466c72aed2df4553a08084f6a0551d4ae420a241cb66c6"},
+      {"name": "generation_config.json", "size": 136, "sha256": "067a2a54e5f87162ecac6e0e911cc4665fc8f7f3324794ecbac0f76badb56636"},
+      {"name": "preprocessor_config.json", "size": 486, "sha256": "6cb6e36d6fcb88ca1502c4a26750715dc3e7dedddc9a8f17b27d8d167d1457e7"},
+      {"name": "processor_config.json", "size": 68, "sha256": "e7bff42da73ae9eec9042ef20e066e11f1ee20f025358ff79131e3c0fb549b46"},
+      {"name": "special_tokens_map.json", "size": 1069, "sha256": "aa0ff906077086dfa9734a7f97f68c825877a48f9468807be65504495cdeef09"},
+      {"name": "tokenizer_config.json", "size": 28249, "sha256": "36c6fd44d07d10fd8180ee6b46dcccf69fb7c06753968ff0d7e17b8bfe17b777"},
+      {"name": "chat_template.json", "size": 429, "sha256": "a68ad1a42681ae44eacd109ff8dd56a840f761c03d72f4ff4c515d092f882168"}
+    ]
+  },
+  "adapter": {
+    "url": "https://github.com/Quitetall/KnightLM/releases/download/model-run1-short-adapter-v1/knightlm-run1-short-adapter.tar.gz",
+    "sha256": "c67de2b96740b748ceddc3e9662789250e08f226a2a5d792c2dda8bf8452fed6",
+    "size": 3046435,
+    "dir": "knightlm-run1-short-adapter",
+    "files": [
+      {"name": "adapter_config.json", "size": 1293, "sha256": "ea03f59a23a361d5c8547a165049759bd5f5f930ae709865a261882866b67f0c"},
+      {"name": "adapter_model.safetensors", "size": 3294888, "sha256": "e22fb0baab53e07bfbd58841c92c461f8539bc15157ea1ec2364cbd0e4c187aa"},
+      {"name": "MODEL_CARD.md", "size": 1015, "sha256": "2d4686becc6d4411fd272ff89b56ca50b742895ff1415d9cbd0b1d4d101b362a"},
+      {"name": "train_summary.json", "size": 436, "sha256": "d0adcf9927e5111c2d680cfb21255f4036c6e386bc02eb0c5c87d7c6e82e60f3"}
+    ]
+  }
+}

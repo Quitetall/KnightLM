@@ -13,6 +13,7 @@ pub mod importer;
 mod lamu_runtime;
 pub mod launch_guard;
 mod mcp;
+pub mod model_runtime;
 pub mod pieces;
 mod provider_api;
 mod providers;
@@ -299,6 +300,16 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/engine/console/command", post(api::console_command))
         .route("/api/engine/console/stop", post(api::console_stop))
         .route("/api/engine/console/status", get(api::console_status))
+        .route("/api/knightlm/runtime", get(model_runtime::get_status))
+        .route(
+            "/api/knightlm/runtime/install",
+            post(model_runtime::post_install),
+        )
+        .route(
+            "/api/knightlm/runtime/start",
+            post(model_runtime::post_start),
+        )
+        .route("/api/knightlm/runtime/stop", post(model_runtime::post_stop))
         .route("/api/vision", get(api::get_vision))
         .route(
             "/api/providers",
@@ -509,7 +520,10 @@ pub async fn serve_listener(
 /// Serve using `RBC_ADDR` (default `127.0.0.1:8090`).
 pub async fn serve_from_env() -> anyhow::Result<()> {
     let addr = std::env::var("RBC_ADDR").unwrap_or_else(|_| "127.0.0.1:8090".into());
-    serve_on(&addr).await
+    let served = serve_on(&addr).await;
+    // A managed model server must not outlive the app.
+    model_runtime::shutdown_all();
+    served
 }
 
 /// Run the MCP stdio server against this database.
