@@ -15,6 +15,7 @@ Closed work orders.
 - `t-312c` Board and workspace repository API · Ticket · done · docs/work/t-312c/t-312c-board-and-workspace-repository-api.md
 - `t-3241` MCP docs and mock client tests · Ticket · done · docs/work/t-3241/t-3241-mcp-docs-and-mock-client-tests.md
 - `t-376e` Publish, versions, lineage, copy and lock · Ticket · done · docs/work/t-376e/t-376e-publish-versions-lineage-copy-and-lock.md
+- `t-389d` Docs Contributor — Bring the RBC roadmap up to date · Ticket · done · docs/work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md
 - `t-3a41` Tournament persistence, standings and combined PGN · Ticket · done · docs/work/t-3a41/t-3a41-tournament-persistence-standings-and-combined.md
 - `t-4158` Full Rust and CDP suite, warning-free builds · Ticket · done · docs/work/t-4158/t-4158-full-rust-and-cdp-suite-warning-free-builds.md
 - `t-41af` Compare workspace, selection and compact directory · Ticket · done · docs/work/t-41af/t-41af-compare-workspace-selection-and-compact.md

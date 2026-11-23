@@ -33,5 +33,5 @@ Keep the PR to the README and roadmap.
 ## Checklist
 
 
-- [ ] Update the README and roadmap to reflect shipped features and remaining work. (i-6baa)
-- [ ] Check changed links and label the scope of platform and strength evidence. (i-f3c4)
+- [x] Update the README and roadmap to reflect shipped features and remaining work. (i-6baa) — done by claude, 2026-11-23
+- [x] Check changed links and label the scope of platform and strength evidence. (i-f3c4) — done by claude, 2026-11-23

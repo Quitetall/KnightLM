@@ -332,7 +332,7 @@
 
 ## docs/work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md
 > Update the README and app roadmap so a new reader can tell what ships today and what is still planned.
-- t-389d · ticket · open · Docs Contributor — Bring the RBC roadmap up to date · docs/work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md:1
+- t-389d · ticket · done · Docs Contributor — Bring the RBC roadmap up to date · docs/work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md:1
 
 ## docs/work/t-3a41/t-3a41-tournament-persistence-standings-and-combined.md
 > Store tournaments and resume without replaying or losing games.
