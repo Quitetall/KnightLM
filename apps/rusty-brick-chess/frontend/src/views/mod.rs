@@ -7,6 +7,7 @@ pub mod database;
 pub mod home;
 pub mod opening;
 pub mod play;
+pub mod play_ai;
 pub mod practice;
 pub mod puzzle;
 pub mod settings;

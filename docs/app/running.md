@@ -18,6 +18,16 @@ The installer builds both parts, copies them to `~/.local`, and adds a
 location, `--no-desktop` to skip the launcher, or `--skip-build` for a checkout
 that already has the server and frontend built.
 
+### Play AI after installing
+
+The installer also copies the model server's Python code to
+`~/.local/share/rustybrickchess/model-runtime` (the list is
+`packaging/model-runtime.files`). Open the app and choose **Play AI**: the test bot
+needs nothing. For the KnightLM model press **Get the model** (about 1 GB, one time),
+which needs Python 3.10 or newer on the machine; if the Python packages are missing the
+app builds a private environment for them under its data directory, or tells you the one
+command to run. Details: [Play AI](models.md#play-ai-one-click-opponent).
+
 ## Desktop app (Tauri)
 
 A native window instead of a browser tab, with menus, drag-and-drop of PGN
@@ -34,7 +44,8 @@ The window talks to an in-process server on a random loopback port, protected
 by a per-launch token, so other local programs cannot call the API. Details,
 data locations and Stockfish discovery are in the
 [app README](../../apps/rusty-brick-chess/README.md#desktop-tauri). Only Linux
-is tested here; macOS and Windows bundles are built by the release workflow
+is tested here (the bundle carries the model server code as a `model-runtime`
+resource, so Play AI works from an installed app); macOS and Windows bundles are built by the release workflow
 and still need native QA.
 
 ## Windows from source

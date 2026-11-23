@@ -3699,7 +3699,7 @@ pub fn App() -> impl IntoView {
             <aside class="sidebar">
                 <div class="brand">"RustyBrickChess"</div>
                 <nav>
-                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Assistant, Tab::Play, Tab::Study, Tab::Compare, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
+                    {[Tab::Home, Tab::Database, Tab::Analysis, Tab::Assistant, Tab::Play, Tab::PlayAi, Tab::Study, Tab::Compare, Tab::Practice, Tab::Openings, Tab::Puzzles, Tab::Stats, Tab::Settings]
                         .into_iter()
                         .map(|t| {
                             let key = match t {
@@ -3708,6 +3708,7 @@ pub fn App() -> impl IntoView {
                                 Tab::Analysis => "nav.analysis",
                                 Tab::Assistant => "nav.assistant",
                                 Tab::Play => "nav.play",
+                                Tab::PlayAi => "nav.play_ai",
                                 Tab::Study => "nav.study",
                                 Tab::Compare => "nav.compare",
                                 Tab::Practice => "nav.practice",
@@ -3819,6 +3820,7 @@ pub fn App() -> impl IntoView {
                     Tab::Analysis => analysis_view().into_any(),
                     Tab::Assistant => assistant_view().into_any(),
                     Tab::Play => play_view().into_any(),
+                    Tab::PlayAi => views::play_ai::play_ai(app_ctx).into_any(),
                     Tab::Study => study_view().into_any(),
                     Tab::Compare => compare_view().into_any(),
                     Tab::Practice => practice_view().into_any(),

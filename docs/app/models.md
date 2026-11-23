@@ -76,8 +76,61 @@ arrows and marked squares from `tools.marks`, highlights the ply the coach point
 (`show_ply`) in the move list, and shows that position on a small read-only board.
 The UI interprets data and never parses model text.
 
+## Play AI (one-click opponent)
+
+The **Play AI** tab (`frontend/src/views/play_ai.rs`) is the short path to an opponent that
+talks. It offers two opponents and uses the ordinary match routes (`model-move` with chat on,
+`chat`), so everything above applies.
+
+- **Test bot** (`local:rbc-test-bot`, label "Test bot (random moves)"; `GET /api/ai/test-bot`).
+  Built into the app (`crates/ai/src/provider/test_bot.rs`): needs no Python, model, GPU or
+  network. It speaks the seam contract in process: seeded random legal moves (`RBC_TEST_BOT_SEED`
+  fixes the seed), and in chat a short canned reply that says it is a test bot with random moves,
+  a `Provisional:` line and one mark on the board. It is labelled as a test bot in the API
+  (`is_model: false`, `knightlm.manifest_hash: "rbc-test-bot"`) and in the UI, never as the model.
+- **KnightLM model**, managed by `apps/rusty-brick-chess/src/model_runtime.rs`:
+
+| Route | What it does |
+|---|---|
+| `GET /api/knightlm/runtime` | `phase.state` is `not_installed`, `downloading` (`bytes`, `total`, `file`), `verifying`, `setting_up`, `ready`, `starting`, `running` (`url`) or `error` (`code`, `message`); also `python`, `device_note` (GPU or CPU), `provider_id`, `mode` (`real` or `fake`) |
+| `POST .../install` | starts the download in the background and returns at once |
+| `POST .../start` | starts `python -m model.serve.server`, waits for `/v1/models`, registers or updates the `knightlm` provider row |
+| `POST .../stop` | stops it |
+
+What it fetches is pinned in `apps/rusty-brick-chess/src/knightlm_manifest.json`: the nine base
+files of `HuggingFaceTB/SmolVLM-500M-Instruct` at revision `a7da5b986cb59b408707209984f360a5f4ad7e47`
+(Apache-2.0, `model.safetensors` is about 1 GB), each with its size and sha256, from Hugging Face; and
+the adapter release asset `knightlm-run1-short-adapter.tar.gz` (sha256 `c67de2b9...`) from this
+repository's GitHub release. Only those URLs are used. Files are downloaded to a partial directory
+(resumed with a Range request after an interruption), hashed, moved into
+`<RBC_DATA>/knightlm/` and marked installed last, so a partial or corrupt download never shows
+as ready. The adapter archive is unpacked by hand and refused on `..`, absolute paths, links,
+unlisted names or wrong hashes.
+
+Python: a `python3` that already imports torch, transformers, peft, pillow, numpy, fastapi and
+uvicorn is used as it is (and the GPU too, if it has CUDA: the server runs with `--device cuda`
+only then, else `--device cpu`). Otherwise the app creates a venv under `<RBC_DATA>/knightlm/venv`
+from `model/serve/requirements.txt` (CPU torch wheel, about 200 MB, one time). If that cannot be
+done the error holds the one command to run. The CPU is slow; a reply can take tens of seconds.
+
+The server is a child of the app. It watches its stdin, which the app holds open, so it exits
+when the app does, however the app ends. Stop, and quitting the app, end it too. Its Python
+code is found at `RBC_MODEL_CODE`, `<exe>/../share/rustybrickchess/model-runtime` (the installers),
+the Tauri `model-runtime` resource, or the source tree. `packaging/model-runtime.files` lists the
+files and `scripts/check_model_runtime_files.py` fails CI if they stop covering what the server imports.
+
+Test and development switches, not for users: `RBC_KNIGHTLM_FAKE=1` (serve
+`model.serve.fake_server`, no weights or torch), `RBC_KNIGHTLM_MANIFEST` (another manifest, may use
+`file://` URLs), `RBC_KNIGHTLM_DEV_BASE_DIR` (copy the base files from a local directory instead of
+downloading; they are still hash-checked), `RBC_KNIGHTLM_PYTHON`.
+
 ## Tests
 
+- `apps/rusty-brick-chess/tests/test_bot.rs`, `knightlm_runtime.rs`: the test bot through the
+  routes, and the runtime offline (pinned manifest, corrupt and partial downloads, tarball
+  attacks, start and stop with the fake server, no orphan, routes).
+- `apps/rusty-brick-chess/frontend/tests/cdp/cdp_play_ai.js`: the Play AI tab in headless Chrome,
+  offline, with the test bot and the fake runtime.
 - `apps/rusty-brick-chess/tests/model_wiring.rs`: a scripted fake OpenAI server on a
   loopback port, driven through the real router: provider settings, typed errors,
   seats, coach turn versus play harness, marks, rolling chat.
