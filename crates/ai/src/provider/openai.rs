@@ -90,6 +90,9 @@ impl OpenAiProvider {
         if let Some(grammar) = &request.grammar {
             body["grammar"] = json!(grammar);
         }
+        if let Some(extension) = &request.knightlm {
+            body["knightlm"] = extension.clone();
+        }
         if !request.tools.is_empty() {
             let tools: Vec<Value> = request
                 .tools
@@ -195,6 +198,7 @@ impl OpenAiProvider {
 
         let mut accumulator = Accumulator {
             request_id: wire.id.clone(),
+            knightlm: wire.knightlm.clone(),
             ..Accumulator::default()
         };
 
@@ -330,6 +334,9 @@ impl OpenAiProvider {
         if chunk.id.is_some() {
             accumulator.request_id = chunk.id.clone();
         }
+        if chunk.knightlm.is_some() {
+            accumulator.knightlm = chunk.knightlm.clone();
+        }
         for choice in &chunk.choices {
             if let Some(text) = choice.delta.content.as_ref().filter(|t| !t.is_empty()) {
                 accumulator.apply(&ProviderEvent::ContentDelta(text.clone()), on_event);
@@ -433,6 +440,7 @@ struct Accumulator {
     usage: Usage,
     stop: Option<StopReason>,
     request_id: Option<String>,
+    knightlm: Option<Value>,
 }
 
 #[derive(Debug)]
@@ -545,6 +553,7 @@ impl Accumulator {
             usage,
             stop_reason,
             provider_request_id: self.request_id,
+            knightlm: self.knightlm,
         })
     }
 }
@@ -727,6 +736,9 @@ struct CompletionWire {
     reply: Option<String>,
     #[serde(default)]
     error: Option<WireError>,
+    /// The KnightLM server's extension object, kept as sent.
+    #[serde(default)]
+    knightlm: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -784,6 +796,8 @@ struct StreamChunk {
     usage: Option<WireUsage>,
     #[serde(default)]
     error: Option<WireError>,
+    #[serde(default)]
+    knightlm: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]

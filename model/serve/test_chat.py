@@ -16,6 +16,54 @@ def app_client(case, text, tmp, **kw):
     return ServerTests.client(case, text, tmp, **kw)
 
 
+class AppRequestTests(unittest.TestCase):
+    """The requests the RBC app sends a KnightLM server (crates/ai/src/play.rs `served_play` and
+    `served_coach`; crates/ai/tests/served_harness.rs pins the Rust side), against the real serving
+    app over the fake predictor (model.serve.fake_server)."""
+
+    def client(self, illegal=False):
+        try:
+            from fastapi.testclient import TestClient
+        except ImportError:
+            self.skipTest("fastapi/httpx not installed")
+        from model.serve.fake_server import build_app
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        app = build_app(tmp.name, illegal)
+        self.predictor = app.state.predictor
+        return TestClient(app)
+
+    def test_the_play_request_the_app_sends_gets_a_submit_move_call(self):
+        body = {"model": "knightlm", "messages": [{"role": "user", "content": play_text(PACKET)}],
+                "temperature": 0.0, "max_tokens": 600, "stream": False,
+                "knightlm": {"turn": "play", "mode": "raw"}}
+        r = self.client().post("/v1/chat/completions", json=body)
+        self.assertEqual(r.status_code, 200, r.text)
+        call = r.json()["choices"][0]["message"]["tool_calls"][0]["function"]
+        self.assertEqual(call["name"], "submit_move")
+        self.assertEqual(json.loads(call["arguments"])["move"], PACKET["legal_moves"][0])
+
+    def test_the_coach_request_the_app_sends_is_rendered_as_the_contract_coach_prompt(self):
+        from model.prompt import combined_text
+        recent = [{"role": "user", "text": "Why not Nf3?"}, {"role": "assistant", "text": "It blocks the f-pawn."}]
+        messages = [{"role": m["role"], "content": m["text"]} for m in recent]
+        messages.append({"role": "user", "content": json.dumps(PACKET)})
+        body = {"model": "knightlm", "messages": messages, "temperature": 0.0, "stream": False,
+                "knightlm": {"turn": "coach", "mode": "raw", "summary": "We discussed the Ruy Lopez."}}
+        client = self.client()
+        r = client.post("/v1/chat/completions", json=body)
+        self.assertEqual(r.status_code, 200, r.text)
+        shown = {k: v for k, v in PACKET.items() if k != "legal_moves"}
+        self.assertEqual(self.predictor.prompts,
+                         [combined_text(shown, "coach", "We discussed the Ruy Lopez.", recent)])
+        self.assertIn("Mode: coach", self.predictor.prompts[0])
+        self.assertNotIn('"legal_moves":', self.predictor.prompts[0])
+        message = r.json()["choices"][0]["message"]
+        self.assertEqual([c["function"]["name"] for c in message["tool_calls"]], ["mark_square"])
+        coach = r.json()["knightlm"]["coach"]
+        self.assertEqual((coach["move"], coach["fallback"]), (PACKET["legal_moves"][0], False))
+
+
 class ChatTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

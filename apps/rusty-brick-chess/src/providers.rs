@@ -151,6 +151,12 @@ pub fn models_url(base: &str) -> String {
 /// `RBC_KNIGHTLM_SERVE_URL` moves it (the same variable the move seat reads).
 pub const KNIGHTLM_PRESET_LABEL: &str = "KnightLM server";
 pub const KNIGHTLM_PRESET_MODEL: &str = "knightlm";
+/// The provider `kind` of a KnightLM server. Everything else is `openai_compatible`.
+/// A KnightLM provider is answered through the seam contract (docs/model/seam.md).
+pub const KNIGHTLM_KIND: &str = "knightlm";
+pub const OPENAI_KIND: &str = "openai_compatible";
+/// What a KnightLM server's `/v1/models` entries say in `owned_by`.
+pub const KNIGHTLM_OWNER: &str = "knightlm";
 
 pub fn knightlm_preset_base_url() -> String {
     let serve = knightlm_serve_url();
@@ -163,6 +169,8 @@ pub fn knightlm_preset_base_url() -> String {
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderPreset {
     pub id: &'static str,
+    /// The provider kind a row made from this preset gets.
+    pub kind: &'static str,
     pub label: String,
     pub base_url: String,
     pub model: String,
@@ -173,6 +181,7 @@ pub struct ProviderPreset {
 pub fn presets() -> Vec<ProviderPreset> {
     vec![ProviderPreset {
         id: "knightlm",
+        kind: KNIGHTLM_KIND,
         label: KNIGHTLM_PRESET_LABEL.into(),
         base_url: knightlm_preset_base_url(),
         model: KNIGHTLM_PRESET_MODEL.into(),
@@ -261,15 +270,23 @@ pub mod probe_code {
     pub const MODEL_MISSING: &str = "model_missing";
 }
 
+/// What a models probe found: the model ids, and whether the server says it is
+/// KnightLM (an entry with `owned_by: "knightlm"`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Probed {
+    pub ids: Vec<String>,
+    pub knightlm: bool,
+}
+
 /// Ask an endpoint for its model list, with typed failures.
 ///
 /// Blocking: call it from `spawn_blocking`. `key_ref` is resolved here and the
 /// value goes only into the request header.
-pub fn probe_models(
+pub fn probe_endpoint_models(
     base_url: &str,
     key_ref: Option<&str>,
     wanted_model: Option<&str>,
-) -> Result<Vec<String>, ProbeError> {
+) -> Result<Probed, ProbeError> {
     if !acceptable_base_url(base_url) {
         return Err(ProbeError::new(
             probe_code::INVALID_URL,
@@ -352,6 +369,9 @@ pub fn probe_models(
                 "the answer has no model list (expected data[] or models[])",
             )
         })?;
+    let knightlm = entries.iter().any(|entry| {
+        entry.get("owned_by").and_then(|owner| owner.as_str()) == Some(KNIGHTLM_OWNER)
+    });
     let ids: Vec<String> = entries
         .iter()
         .filter_map(|entry| {
@@ -372,7 +392,7 @@ pub fn probe_models(
             format!("the endpoint answered but does not list the model `{model}`"),
         ));
     }
-    Ok(ids)
+    Ok(Probed { ids, knightlm })
 }
 
 #[cfg(test)]

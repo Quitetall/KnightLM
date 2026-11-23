@@ -269,6 +269,10 @@ pub struct CompletionRequest {
     /// Ask for a streamed response. A provider may still answer in one piece.
     #[serde(default)]
     pub stream: bool,
+    /// The namespaced `knightlm` request extension of the seam contract
+    /// (`{"turn": "coach", "summary": ...}`, docs/model/seam.md). Sent only to a KnightLM server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knightlm: Option<serde_json::Value>,
 }
 
 impl CompletionRequest {
@@ -282,6 +286,7 @@ impl CompletionRequest {
             max_tokens: None,
             grammar: None,
             stream: true,
+            knightlm: None,
         }
     }
 
@@ -300,6 +305,12 @@ impl CompletionRequest {
     /// Ask for at most this many completion tokens.
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = Some(max_tokens);
+        self
+    }
+
+    /// Attach the seam contract's `knightlm` request extension.
+    pub fn with_knightlm(mut self, extension: serde_json::Value) -> Self {
+        self.knightlm = Some(extension);
         self
     }
 
@@ -345,6 +356,10 @@ pub struct CompletionResponse {
     /// The provider's own id for this request, when it reports one.
     #[serde(default)]
     pub provider_request_id: Option<String>,
+    /// The seam contract's `knightlm` response extension (`path`, `legal`, `coach`, ...), when
+    /// the server sent one. Absent from every other provider.
+    #[serde(default)]
+    pub knightlm: Option<serde_json::Value>,
 }
 
 /// A model endpoint this build can talk to.

@@ -91,6 +91,7 @@ fn text(tokens_in: u32, tokens_out: u32, content: &str) -> Result<CompletionResp
         },
         stop_reason: StopReason::EndTurn,
         provider_request_id: None,
+        knightlm: None,
     })
 }
 
@@ -111,6 +112,7 @@ fn calls(
         },
         stop_reason: StopReason::ToolCalls,
         provider_request_id: None,
+        knightlm: None,
     })
 }
 

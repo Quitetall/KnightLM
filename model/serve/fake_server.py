@@ -12,7 +12,7 @@ from pathlib import Path
 
 from model.prompt import format_play_completion
 from model.serve import play
-from model.serve.inference import PlayPrediction, Prediction
+from model.serve.inference import CoachGeneration, PlayPrediction, Prediction
 
 
 class FirstLegalPredictor:
@@ -26,6 +26,8 @@ class FirstLegalPredictor:
 
     def __init__(self, illegal=False):
         self.illegal = illegal  # for the gate's refusal check: answer a move that is never legal
+        self.prompts = []  # the coach prompts rendered for this predictor, for the wire tests
+        self.legal = []  # the packet's legal moves, set by build_app for a coach turn (the prompt hides them)
 
     def predict(self, packet, mode):
         if self.illegal:
@@ -42,13 +44,32 @@ class FirstLegalPredictor:
         return PlayPrediction(raw_reply=reply, input_tokens=1, output_tokens=1 + extra, latency_ms=0.0, **fields)
 
 
+    def predict_coach(self, prompt_text):
+        """Coach mode (chat on): a `Provisional:` line for the first legal move, a reply and one board mark.
+        The coach prompt never shows the legal list, so build_app hands it over through `self.legal`."""
+        self.prompts.append(prompt_text)
+        move = "a1a1" if self.illegal else self.legal[0]
+        text = (f"Provisional: {move}\nFake coach: the first legal move is {move}.\n"
+                '<tool_call>{"name": "mark_square", "arguments": {"square": "e4", "color": "blue"}}</tool_call>')
+        return CoachGeneration(text, 1, 1)
+
+
 def build_app(workdir, illegal=False):
     import model.serve.server as server
     (Path(workdir) / "tokenizer.json").write_text("{}")
     (Path(workdir) / "chat_template.json").write_text("{}")
     predictor = FirstLegalPredictor(illegal)
     predictor.base_dir = Path(workdir)
-    return server.create_app(predictor, "raw")
+    play_coach_turn = server.coach_mode.play_coach_turn
+
+    def with_legal(predictor_, packet, *args, **kwargs):
+        predictor_.legal = packet["legal_moves"]
+        return play_coach_turn(predictor_, packet, *args, **kwargs)
+
+    server.coach_mode.play_coach_turn = with_legal
+    app = server.create_app(predictor, "raw")
+    app.state.predictor = predictor
+    return app
 
 
 def main():

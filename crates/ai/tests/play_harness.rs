@@ -51,6 +51,7 @@ fn response(content: String, stop_reason: StopReason) -> CompletionResponse {
         usage: Default::default(),
         stop_reason,
         provider_request_id: None,
+        knightlm: None,
     }
 }
 
