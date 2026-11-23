@@ -295,6 +295,72 @@ async fn a_server_added_without_the_preset_is_recognised_by_the_connection_test(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn free_chat_with_a_knightlm_server_goes_through_the_seam_contract() {
+    let Some(server) = fake_server(false) else {
+        return;
+    };
+    let state = state();
+    let id = register_knightlm(&state, &server.base).await;
+    let game = new_match(&state, &format!("provider:{id}")).await;
+    let before = plies(&state, &game).await;
+    let (status, chat) = call(
+        &state,
+        "POST",
+        &format!("/api/ai/matches/{game}/chat"),
+        Some(json!({"message": "What do you think of 1. e4?",
+            "history": [{"role": "user", "text": "Hi"}, {"role": "assistant", "text": "Hello."}],
+            "summary": "We said hello."})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{chat}");
+    // The fake coach's reply, with its `Provisional:` line removed: no move was played.
+    let reply = chat["reply"].as_str().unwrap();
+    assert!(reply.contains("Fake coach"), "{chat}");
+    assert!(!reply.contains("Provisional"), "{chat}");
+    assert_eq!(
+        plies(&state, &game).await,
+        before,
+        "free chat plays no move"
+    );
+    assert_eq!(chat["chat"]["recent"].as_array().unwrap().len(), 4);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn watching_two_knightlm_seats_plays_through_the_seam_contract() {
+    let Some(server) = fake_server(false) else {
+        return;
+    };
+    let state = state();
+    let id = register_knightlm(&state, &server.base).await;
+    let seat = json!({"kind": "model", "provider": format!("provider:{id}"), "model": "knightlm"});
+    let (status, body) = call(
+        &state,
+        "POST",
+        "/api/ai/matches",
+        Some(json!({"config": {
+            "start_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "white": seat, "black": seat, "max_plies": 300, "rated": false
+        }})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let game = body["id"].as_str().unwrap().to_string();
+    let (status, run) = call(
+        &state,
+        "POST",
+        &format!("/api/ai/matches/{game}/watch/step"),
+        Some(json!({"plies": 4})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{run}");
+    assert_eq!(run["steps"].as_array().unwrap().len(), 4, "{run}");
+    assert_eq!(plies(&state, &game).await, 4);
+    // The fake server answers its first legal move; the seam's play reasoning comes back.
+    let note = run["steps"][0]["reasoning"].as_str().unwrap_or_default();
+    assert!(note.is_empty() || note.contains("Fake predictor"), "{run}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_illegal_answer_is_refused_and_the_match_is_untouched() {
     let Some(server) = fake_server(true) else {
         return;
@@ -352,6 +418,7 @@ async fn a_generic_openai_provider_keeps_the_generic_prompts() {
         replies: [
             play,
             "Provisional: e7e5\nI mirror the centre pawn.".to_string(),
+            "A generic chat reply.".to_string(),
         ]
         .into(),
         seen: Vec::new(),
@@ -389,8 +456,23 @@ async fn a_generic_openai_provider_keeps_the_generic_prompts() {
     assert_eq!(status, StatusCode::OK, "{turn}");
     assert_eq!(turn["tools"]["reply"], "I mirror the centre pawn.");
 
+    // Free chat with a generic provider is the generic prompt, unchanged.
+    let (status, chat) = call(
+        &state,
+        "POST",
+        &format!("/api/ai/matches/{on}/chat"),
+        Some(json!({"message": "Hello?"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{chat}");
+    assert_eq!(chat["reply"], "A generic chat reply.");
+
     let seen = shared.lock().unwrap().seen.clone();
-    assert_eq!(seen.len(), 2);
+    assert_eq!(seen.len(), 3);
+    assert_eq!(
+        seen[2]["messages"][0]["role"], "system",
+        "generic chat prompt"
+    );
     for body in &seen {
         assert!(
             body.get("knightlm").is_none(),

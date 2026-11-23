@@ -283,6 +283,19 @@ pub async fn list_presets() -> Json<Value> {
     Json(json!({ "presets": crate::providers::presets() }))
 }
 
+/// The built-in test bot: the seat to give a match, and what it is. Always available; it
+/// needs no Python, no model, no GPU and no network, and it is not a model.
+pub async fn test_bot_info() -> Json<Value> {
+    Json(json!({
+        "provider": rbc_ai::provider::TEST_BOT_PROVIDER,
+        "model": rbc_ai::provider::TEST_BOT_MODEL,
+        "label": rbc_ai::provider::TEST_BOT_LABEL,
+        "is_model": false,
+        "available": true,
+        "note": "A test bot: it plays random legal moves and its chat is a canned reply. It is not the KnightLM model.",
+    }))
+}
+
 /// What is running on this machine right now.
 pub async fn scan_local(_state: State<AppState>) -> Json<Value> {
     let mut found = Vec::new();

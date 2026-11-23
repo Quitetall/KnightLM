@@ -119,6 +119,19 @@ pub const LOCAL_CANDIDATES: &[(&str, &str)] = &[
     ("Jan", "http://127.0.0.1:1337/v1"),
 ];
 
+/// The seed of the built-in test bot's random moves. `RBC_TEST_BOT_SEED` fixes it (tests);
+/// otherwise it follows the clock, so two games differ.
+pub fn test_bot_seed() -> u64 {
+    std::env::var("RBC_TEST_BOT_SEED")
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_nanos() as u64)
+        })
+}
+
 /// Where the served KnightLM checkpoint's move endpoint is
 /// (`python -m model.serve.server`, `POST /v1/move`). A URL, never a secret:
 /// `RBC_KNIGHTLM_SERVE_URL` overrides the loopback default.

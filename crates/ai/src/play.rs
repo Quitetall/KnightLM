@@ -501,6 +501,19 @@ pub fn watch_step(
     seats: &WatchSeats,
     cancel: &Cancellation,
 ) -> Result<WatchStep, ErrorInfo> {
+    watch_step_with(game, provider, seats, false, cancel)
+}
+
+/// [`watch_step`], where `served` says the side to move is a KnightLM server: its move is
+/// then asked through the seam contract ([`MoveHarness::ServedPlay`]) instead of the generic
+/// prompt. Every other seat is unchanged.
+pub fn watch_step_with(
+    game: &mut Match,
+    provider: &dyn Provider,
+    seats: &WatchSeats,
+    served: bool,
+    cancel: &Cancellation,
+) -> Result<WatchStep, ErrorInfo> {
     if game.is_paused() {
         return Err(error(error_code::UNSUPPORTED, "the game is paused", false));
     }
@@ -524,7 +537,11 @@ pub fn watch_step(
         allow_engine: false,
         allow_takeback: false,
     };
-    let played = request_move(game, provider, model, &policy, cancel)?;
+    let played = if served {
+        served_play(game, provider, model, &policy, cancel)?.played
+    } else {
+        request_move(game, provider, model, &policy, cancel)?
+    };
     let annotated = match played.reasoning.as_deref() {
         Some(reasoning) if !reasoning.trim().is_empty() => {
             game.annotate_ply(played.mv.ply, reasoning)
@@ -982,6 +999,56 @@ fn served_play(
         repaired.tool_calls[0].arguments.to_string(),
     )?;
     Ok(served_move(played, 1, true))
+}
+
+/// Free chat with a KnightLM server (chat on, no move): a coach request whose last chat
+/// message is `message`, the packet last. Nothing is played: the reply is the text with its
+/// `Provisional:` lines removed, and any coach tool calls are ignored (the caller shows words).
+pub fn served_chat(
+    game: &Match,
+    provider: &dyn Provider,
+    model: &ModelRef,
+    policy: &PlayPolicy,
+    context: &CoachContext,
+    message: &str,
+    cancel: &Cancellation,
+) -> Result<String, ErrorInfo> {
+    if let Some(refusal) = policy.check(PlayAction::Chat) {
+        return Err(refusal);
+    }
+    let (_, packet, _) = served_packet(game)?;
+    let mut recent = context.recent.clone();
+    recent.push(ChatLine {
+        role: "user".into(),
+        text: message.to_owned(),
+    });
+    chat_context(context.summary.as_deref(), &recent).map_err(protocol_error)?;
+    let mut messages: Vec<ChatMessage> = recent
+        .iter()
+        .map(|line| {
+            if line.role == "assistant" {
+                ChatMessage::assistant(line.text.clone())
+            } else {
+                ChatMessage::user(line.text.clone())
+            }
+        })
+        .collect();
+    messages.push(ChatMessage::user(packet.to_string()));
+    let mut extension = json!({"turn": "coach", "mode": "raw"});
+    if let Some(summary) = context.summary.as_deref().filter(|text| !text.is_empty()) {
+        extension["summary"] = json!(summary);
+    }
+    let request = CompletionRequest::new(model.model.clone(), messages)
+        .with_temperature(0.0)
+        .with_max_tokens(COACH_MAX_TOKENS)
+        .with_stream(false)
+        .with_knightlm(extension);
+    let response = provider.complete(&request, cancel, &mut |_| {})?;
+    let reply = strip_provisional_lines(&response.content);
+    if reply.is_empty() {
+        return Err(protocol_error("the model sent no reply"));
+    }
+    Ok(reply)
 }
 
 fn served_move(played: ModelMove, rejected: u32, fallback: bool) -> HarnessMove {
