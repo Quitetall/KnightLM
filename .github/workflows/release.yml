@@ -68,9 +68,25 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "RustyBrickChess ${{ github.ref_name }}"
           releaseBody: |
-            Desktop builds for Linux, macOS and Windows.
+            RustyBrickChess desktop builds for Linux, macOS and Windows. A tag with a
+            `-` in it (for example `v0.1.0-prealpha.1`) is published as a pre-release.
 
-            The browser/server build is the same code: run
-            `rustybrickchess --open` from the app package.
+            **Install**
+            - Windows: run the `.exe` (or the `.msi`).
+            - Linux: `chmod +x` the `.AppImage` and run it, or install the `.deb`.
+            - macOS: open the `.dmg`.
+
+            Then open the app, choose **Play AI**, pick a colour and press **Start**.
+            The built-in test bot (random moves, no model) works immediately.
+
+            **Honest limits**
+            - These installers are **not code-signed**. Windows SmartScreen and macOS
+              Gatekeeper will warn; choose "More info > Run anyway" / right-click > Open.
+            - Only Linux has been tested by hand. Windows and macOS builds come from CI and
+              have not been installed by a person yet (RBCUI-LIB-09 is still open).
+            - Playing the real KnightLM model needs a one-time download of about 1 GB
+              (checksum-verified) and Python 3.10+. The model plays at about random
+              strength and does not chat yet; the test bot does.
+            - Pre-alpha: expect rough edges. Nothing here is a strength claim.
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
