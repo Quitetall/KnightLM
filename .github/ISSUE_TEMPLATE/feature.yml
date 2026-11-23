@@ -1,0 +1,22 @@
+name: Feature request
+description: Propose a change to RBC or KnightLM
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [RBC app, KnightLM model path, The contract between them, Docs or tooling]
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you change?
+      description: A new training run needs the owner's go; say so rather than assume it.

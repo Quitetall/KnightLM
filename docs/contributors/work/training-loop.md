@@ -1,16 +1,16 @@
 # Four-person training plan
 
-Start with the [Docs update](../../tickets/t-389d.md) and
-[Data inventory](../../tickets/t-a475.md). Contributors can claim those
+Start with the [Docs update](../../work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md) and
+[Data inventory](../../work/t-a475/t-a475-data-engineer-inventory-sources-for-run-1.md). Contributors can claim those
 tickets themselves. This plan names the roles that can pick up the
 follow-ups and the evidence they hand to the next person.
 
 | Role | Responsibility | Tracked work |
 | --- | --- | --- |
-| Project lead | Review the Docs update, settle the first sources and split, and decide when to schedule the full run | [Docs](../../tickets/t-389d.md), [full Run 1 corpus](../../tickets/t-3458.md) |
-| Data Engineer | Inventory sources, build repeatable ingestion and publish the audited snapshot | [Inventory](../../tickets/t-a475.md), [ETL loop](../../tickets/t-f724.md) |
-| Representation/Evaluation Engineer | Own the data format and fixture, then define and score the strength comparison | [Corpus contract](../../tickets/t-5cd8.md), [strength protocol](../../tickets/t-e135.md), [scorecard](../../tickets/t-c199.md) |
-| MLOps/CV Engineer | Own the training command, fixture tests, bounded GPU run, and checkpoint reload | [Training entry point](../../tickets/t-ea98.md), [joined loop smoke test](../../tickets/t-ab7d.md) |
+| Project lead | Review the Docs update, settle the first sources and split, and decide when to schedule the full run | [Docs](../../work/t-389d/t-389d-docs-contributor-bring-the-rbc-roadmap-up-to.md), [full Run 1 corpus](../../tickets/t-3458.md) |
+| Data Engineer | Inventory sources, build repeatable ingestion and publish the audited snapshot | [Inventory](../../work/t-a475/t-a475-data-engineer-inventory-sources-for-run-1.md), [ETL loop](../../work/t-f724/t-f724-data-engineer-build-a-repeatable-chess-etl-loop.md) |
+| Representation/Evaluation Engineer | Own the data format and fixture, then define and score the strength comparison | [Corpus contract](../../work/t-5cd8/t-5cd8-representation-evaluation-engineer-agree-on-the.md), [strength protocol](../../work/t-e135/t-e135-research-contributor-define-a-knightlm-strength.md), [scorecard](../../work/t-c199/t-c199-representation-evaluation-engineer-implement-the.md) |
+| MLOps/CV Engineer | Own the training command, fixture tests, bounded GPU run, and checkpoint reload | [Training entry point](../../work/t-ea98/t-ea98-mlops-cv-engineer-make-the-trainer-runnable-from.md), [joined loop smoke test](../../work/t-ab7d/t-ab7d-mlops-cv-engineer-test-the-joined-source-to.md) |
 
 ## Handoffs
 

@@ -23,6 +23,8 @@ check:
 	python3 scripts/check_pins.py
 	python3 scripts/test_check_layers.py
 	python3 scripts/check_layers.py
+	python3 scripts/test_docs_tools.py
+	python3 scripts/check_doc_links.py
 
 # The torch-dependent model tests, with the dependencies installed: a skip here is a failure.
 # CI (job `model-torch`) installs model/ci-requirements.txt in a venv first; locally, run this

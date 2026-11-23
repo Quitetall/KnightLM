@@ -1,0 +1,29 @@
+name: Bug report
+description: Something in RBC or KnightLM does not work as documented
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [RBC app, RBC desktop shell, KnightLM corpus or training, KnightLM evaluation, KnightLM serving, Docs, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Commands or clicks, from a fresh clone if you can. Keep secrets out.
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Version and environment
+      description: Commit or release, OS, browser or Python version. GPU only if it matters.

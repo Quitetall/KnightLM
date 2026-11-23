@@ -10,7 +10,9 @@ import argparse
 import tempfile
 from pathlib import Path
 
-from model.serve.inference import Prediction
+from model.prompt import format_play_completion
+from model.serve import play
+from model.serve.inference import PlayPrediction, Prediction
 
 
 class FirstLegalPredictor:
@@ -30,6 +32,14 @@ class FirstLegalPredictor:
             return Prediction("a1a1", "a1a1", False, 1, 1, 0.0)
         move = packet["legal_moves"][0]
         return Prediction(move, move, True, 1, 1, 0.0)
+
+
+    def predict_play(self, packet, mode):
+        """Play mode (what /v1/chat/completions and /v1/play call): a well-formed call for the first legal move."""
+        move = "a1a1" if self.illegal else packet["legal_moves"][0]
+        reply = format_play_completion(f"Fake predictor: the first legal move is {move}.", move)
+        fields, extra = play.resolve(reply, packet["legal_moves"], mode, lambda prefix, suffix: (move, 1))
+        return PlayPrediction(raw_reply=reply, input_tokens=1, output_tokens=1 + extra, latency_ms=0.0, **fields)
 
 
 def build_app(workdir, illegal=False):
