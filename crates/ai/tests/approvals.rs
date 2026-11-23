@@ -448,6 +448,7 @@ fn tool_response(calls: Vec<ToolCall>) -> Result<CompletionResponse, ErrorInfo> 
         usage: Usage::default(),
         stop_reason: StopReason::ToolCalls,
         provider_request_id: None,
+        knightlm: None,
     })
 }
 
@@ -459,6 +460,7 @@ fn text_response(text: &str) -> Result<CompletionResponse, ErrorInfo> {
         usage: Usage::default(),
         stop_reason: StopReason::EndTurn,
         provider_request_id: None,
+        knightlm: None,
     })
 }
 

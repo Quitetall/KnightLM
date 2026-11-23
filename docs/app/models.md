@@ -21,7 +21,11 @@ A provider is a row in Settings > Providers (`/api/providers`): a label, a base 
   `KnightLM server` and the local base URL (`http://127.0.0.1:8000/v1`, or what
   `RBC_KNIGHTLM_SERVE_URL` points at), so chat goes to
   `http://127.0.0.1:8000/v1/chat/completions`, with model name `knightlm`. It is an
-  ordinary row; edit or delete it like any other. `GET /api/providers/presets` lists presets.
+  row you can edit or delete like any other, but its `kind` is `knightlm` (others are
+  `openai_compatible`), which makes RBC speak the seam contract to it (next section).
+  `GET /api/providers/presets` lists presets. A server added by hand is recognised the
+  first time its connection test (or model refresh) sees `owned_by: "knightlm"` in
+  `/v1/models`; the test answer carries `knightlm: true` and the row's kind is stored.
 - **Connection test**: `POST /api/providers/{id}/test` (optional body `{"model": "..."}`)
   or, before saving, `POST /api/providers/probe {"base_url", "key_ref", "model"}`. The
   answer is `{ok, error, models, model_ids, latency_ms}`; on failure `error` is
@@ -46,6 +50,17 @@ The chat toggle sits with the play controls on the Play tab.
 |---|---|---|
 | on | a **coach turn**: the position, a rolling summary of the chat and the recent messages, the coach tools | the move (the last legal `Provisional:` line), a reply for the chat, and marks for the board |
 | off | the **competition (play) harness**: the position and the play tools, `submit_move` | the move only |
+
+For a `knightlm` provider the table holds, but the wire is the seam contract
+([docs/model/seam.md](../model/seam.md)), not the generic prompts: chat off sends the
+play prompt with the packet **including `legal_moves`**, raw decoding, and reads the
+`submit_move` call; chat on sends the earlier chat as messages, the packet as the last
+user message and `knightlm: {turn: "coach", summary}`, and the server renders the coach
+prompt and reads the `Provisional:` lines. Either way the move goes through the commit
+gate here. An illegal or missing move is not trusted: one more request asks for
+`constrained` decoding and the result says `tools.fallback: true` (a coach fallback
+shows no reply and draws nothing). The server's decoding is fixed, so there is no
+feedback loop of retries. Every other provider keeps the generic prompts and text tool calls.
 
 A rated game never chats, whatever the toggle says (`chat_on` in the answer says what
 happened). The client keeps the chat and sends `summary` and `history` with

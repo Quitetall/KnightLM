@@ -85,6 +85,7 @@ impl Provider for Script {
                 usage: Default::default(),
                 stop_reason: StopReason::EndTurn,
                 provider_request_id: None,
+                knightlm: None,
             }),
             Scripted::Fail(error) => Err(error),
         }

@@ -21,7 +21,18 @@ jobs:
           STOCKFISH_PATH: /usr/games/stockfish
       # `make check` never sees `apps/`: the server and wasm frontend crates are
       # excluded from the workspace, so their lints and tests need this step.
+      # The app's seam test (apps/rusty-brick-chess/tests/knightlm_seam.rs) drives the real routes
+      # against the real serving app over a fake predictor (python -m model.serve.fake_server):
+      # fastapi, uvicorn and httpx only, no torch. In CI a missing server is a failure, not a skip.
+      - name: Python for the fake KnightLM server
+        run: |
+          python3 -m venv "$RUNNER_TEMP/seam-venv"
+          timeout 600 "$RUNNER_TEMP/seam-venv/bin/pip" install --no-cache-dir \
+            fastapi==0.115.12 uvicorn==0.34.2 httpx==0.28.1
       - run: make check-apps
+        env:
+          KNIGHTLM_FAKE_SERVER_PYTHON: ${{ runner.temp }}/seam-venv/bin/python
+          RBC_REQUIRE_FAKE_SERVER: "1"
   # The torch-dependent model tests skip when torch is missing, which `make check` only
   # lists. Here CPU-only torch (official PyTorch CPU wheel index), pillow, transformers
   # and peft are installed from pinned versions, so a skip for a missing dependency

@@ -1996,6 +1996,18 @@ impl Db {
         Ok(())
     }
 
+    /// Record what kind of server a provider is (`openai_compatible`, `knightlm`).
+    /// `kind` is free text in the table, so a new kind needs no migration.
+    pub fn set_provider_kind(&self, id: &str, kind: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("db lock");
+        conn.execute(
+            "UPDATE providers SET kind = ?2,
+                    updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?1",
+            rusqlite::params![id, kind],
+        )?;
+        Ok(())
+    }
+
     pub fn delete_provider(&self, id: &str) -> Result<bool> {
         let conn = self.conn.lock().expect("db lock");
         Ok(conn.execute("DELETE FROM providers WHERE id = ?1", [id])? > 0)

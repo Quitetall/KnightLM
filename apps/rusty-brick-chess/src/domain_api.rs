@@ -1502,6 +1502,16 @@ fn registered_seat(
     Ok(Some((format!("{base}/chat/completions"), key)))
 }
 
+/// Whether a seat names a registered provider that is a KnightLM server. Such a seat is
+/// answered through the seam contract (`MoveHarness::Served*`); every other seat keeps the
+/// generic prompts.
+fn is_knightlm_provider(state: &AppState, seat: &rbc_ai::protocol::ModelRef) -> bool {
+    seat.provider
+        .strip_prefix(crate::provider_api::REGISTERED_PREFIX)
+        .and_then(|id| state.db.provider(id).ok().flatten())
+        .is_some_and(|row| row.kind == crate::providers::KNIGHTLM_KIND)
+}
+
 /// `POST /api/ai/matches/{id}/model-move`
 ///
 /// Asks the seat a model holds for one move. The move is validated against the
@@ -1578,6 +1588,7 @@ pub async fn model_match_move(
             None,
         ),
     };
+    let served = is_knightlm_provider(&state, &answering);
     let playing = tokio::task::spawn_blocking(move || {
         let provider = provider_for(&url, &answering, true, native_thinking, key.as_deref())?;
         let cancel = rbc_ai::provider::Cancellation::new();
@@ -1605,7 +1616,14 @@ pub async fn model_match_move(
             // The harness follows the chat toggle: coach with chat on, play tools
             // with it off. A seat that never asked for tools (and no env flag)
             // keeps the existing path.
-            let harness = if !tools_harness {
+            let harness = if served {
+                // A KnightLM server speaks the seam contract, chat on or off.
+                if chat_on {
+                    rbc_ai::play::MoveHarness::ServedCoach(context)
+                } else {
+                    rbc_ai::play::MoveHarness::ServedPlay
+                }
+            } else if !tools_harness {
                 rbc_ai::play::MoveHarness::Default
             } else if chat_on {
                 rbc_ai::play::MoveHarness::Coach(context)
