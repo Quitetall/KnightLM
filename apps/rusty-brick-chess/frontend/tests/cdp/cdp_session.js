@@ -2,7 +2,7 @@
 // localStorage is cleared, because the client id is also kept in a cookie.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9538;
+const PORT = Number(process.env.RBC_CDP_PORT || 9538);
 function getJson(port, path) {
   return new Promise((res, rej) => {
     http.get({ host: "127.0.0.1", port, path }, (r) => {
@@ -12,15 +12,31 @@ function getJson(port, path) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-session-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1400,900", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-session-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1400,900", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let t; for (let i = 0; i < 40; i++) { await sleep(300); try { t = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(t.find((x) => x.type === "page").webSocketDebuggerUrl);
-  let id = 0; const pend = new Map();
+  let id = 0; let loads = 0; const pend = new Map();
   const send = (m, p = {}) => new Promise((r) => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method: m, params: p })); });
-  ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m.result); pend.delete(m.id); } };
+  ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.method === "Page.loadEventFired") loads++; if (m.id && pend.has(m.id)) { pend.get(m.id)(m.result); pend.delete(m.id); } };
   await new Promise((r) => (ws.onopen = r));
   await send("Runtime.enable"); await send("Page.enable"); await sleep(2800);
   const ev = async (x) => (await send("Runtime.evaluate", { expression: x, returnByValue: true, awaitPromise: true })).result?.value;
+  const reload = async () => {
+    const before = loads;
+    await send("Page.reload", {});
+    const deadline = Date.now() + 14000;
+    while (loads === before && Date.now() < deadline) await sleep(100);
+    if (loads === before) throw new Error("Page reload did not finish");
+  };
+  const waitForTabs = async (count) => {
+    const deadline = Date.now() + 14000;
+    do {
+      const ready = await ev(`document.querySelectorAll(".ws-tab").length === ${count}
+        && Boolean(localStorage.getItem("rbc.client"))`);
+      if (ready) return;
+      await sleep(200);
+    } while (Date.now() < deadline);
+  };
   const tabs = async () => await ev(`document.querySelectorAll(".ws-tab").length`);
 
   // Open two workspace tabs through the strip, so there is session state that
@@ -50,7 +66,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   }))()`);
 
   // A plain reload keeps the session.
-  await send("Page.reload", {}); await sleep(3200);
+  await reload(); await waitForTabs(before);
   const afterReload = await tabs();
   const titlesReload = await ev(`[...document.querySelectorAll(".ws-tab")].map(t=>t.textContent.trim())`);
 
@@ -63,10 +79,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // The reset notice is shown once per browser, then not again.
   await ev(`localStorage.removeItem('rbc.resetNotice.seen')`);
-  await send("Page.reload", {}); await sleep(3200);
-  const noticeFirst = await ev(`(()=>{const e=document.querySelector(".session-notice");return e?e.textContent.trim().slice(0,120):"";})()`);
-  await send("Page.reload", {}); await sleep(3200);
-  const noticeSecond = await ev(`(()=>{const e=document.querySelector(".session-notice");return e?e.textContent.trim().slice(0,120):"";})()`);
+  await reload();
+  const readNotice = () => ev(`document.querySelector(".session-notice")?.textContent.trim().slice(0,120) || ""`);
+  let noticeFirst = "";
+  const noticeDeadline = Date.now() + 14000;
+  while (!(noticeFirst = await readNotice()) && Date.now() < noticeDeadline) await sleep(100);
+  await reload();
+  await waitForTabs(before);
+  await sleep(500);
+  const noticeSecond = await readNotice();
 
   console.log(JSON.stringify({ created, ids, before, titlesBefore, afterReload, titlesReload, afterClear, titlesClear, restoredClient, noticeFirst, noticeSecond }));
   const ok = created && before === 2 && ids && ids.local && ids.cookie

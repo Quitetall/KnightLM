@@ -627,6 +627,7 @@ async fn the_routes_drive_the_whole_flow() {
     let dir = scratch("routes");
     install_runtime(&dir, config(&fx.manifest));
     let state = rusty_brick_chess::api::AppState {
+        tournament_actions: Default::default(),
         db: db(),
         db_dir: dir.clone(),
         data_dir: dir.clone(),

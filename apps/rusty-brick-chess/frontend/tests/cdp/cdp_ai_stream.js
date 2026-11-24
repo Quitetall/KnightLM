@@ -1,3 +1,4 @@
+const { openView } = require("./navigation");
 // Streaming, stop and tool cards — self-contained.
 //
 // This script serves its own OpenAI-compatible SSE provider, so the check does
@@ -5,8 +6,8 @@
 // pointed at it: MODEL_URL=http://127.0.0.1:8100/v1/chat.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9536;
-const PROVIDER = 8100;
+const PORT = Number(process.env.RBC_CDP_PORT || 9536);
+const PROVIDER = Number(process.env.RBC_CDP_PROVIDER_PORT || 8100);
 const CHUNK_DELAY_MS = 400;
 
 // --- a provider that streams slowly and can call a tool --------------------
@@ -45,6 +46,11 @@ function startProvider() {
         return;
       }
 
+      if (user === "stall please") {
+        chunk({content:"one chunk, then stalled"});
+        return;
+      }
+
       if (user === "stream please") {
         // Continue streaming until Stop so the browser has time to observe a
         // partial response. The provider checks cancellation between reads.
@@ -54,6 +60,7 @@ function startProvider() {
         return;
       }
 
+      chunk({reasoning_content:"Consider the legal alternatives."});
       const words = (sawTool ? "there are boards here" : "the position is equal and quiet").split(" ");
       let index = 0;
       const tick = () => {
@@ -84,7 +91,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
   const provider = startProvider();
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-stream2-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-stream2-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let target;
   for (let i = 0; i < 40; i++) { await sleep(300); try { target = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(target.find((x) => x.type === "page").webSocketDebuggerUrl);
@@ -100,7 +107,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const streamingText = async () => await ev(`(()=>{const b=document.querySelector(".chat-msg.streaming");return b?b.textContent.trim():"";})()`);
   const waitFor = async (read, ms = 8000) => { const start = Date.now(); while (Date.now() - start < ms) { const value = await read(); if (value) return value; await sleep(250); } return ""; };
 
-  await clickText(".nav", "Assistant");
+  await openView(ev, "workbench", "assistant");
   await sleep(900);
   await clickText("button", "New chat");
   await sleep(1500);
@@ -117,6 +124,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const errorText = await waitFor(async () => await ev(`(()=>{const e=document.querySelector(".chat-msg.error");return e?e.textContent.trim():"";})()`), 8000);
   const labelAfterStop = await ev(`document.querySelector(".chat-input button")?.textContent.trim()`);
 
+  await type("stall please");
+  await clickText(".chat-input button", "Send");
+  const stalledPartial = await waitFor(async () => String(await streamingText()).includes("one chunk, then stalled"), 8000);
+  if (!stalledPartial) throw new Error("stalled provider did not emit its first chunk");
+  await clickText(".chat-input button", "Stop");
+  const stalledStopped = await waitFor(() => ev('document.querySelector(".chat-input button")?.textContent.trim() === "Send"'), 8000);
+  if (!stalledStopped) throw new Error("Stop did not cancel a stalled provider stream within 8 seconds");
+
   // --- tool cards and usage: a stored turn with a tool result ------------
   await sleep(1000);
   await type("which boards do I have");
@@ -125,7 +140,54 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const cards = await waitFor(async () => await ev(`document.querySelectorAll(".tool-card").length`), 15000);
   const usage = await waitFor(async () => await ev(`[...document.querySelectorAll(".muted")].some(e=>/\\bin\\b/.test(e.textContent)&&/\\bout\\b/.test(e.textContent))`), 8000);
 
-  const out = { started, partial: String(partial).slice(0, 40), labelWhileSending, stopped, errorText, labelAfterStop, cards, usage };
+  await waitFor(() => ev('document.querySelector(".chat-input button")?.textContent.trim() === "Send"'), 10000);
+  const reasoning = await waitFor(() => ev('!!document.querySelector(".chat-reasoning")'), 8000);
+  await ev('document.querySelector(".chat-reasoning").open = true');
+  const reasoningText = await ev('document.querySelector(".chat-reasoning").textContent');
+  if (!String(reasoningText).includes("legal alternatives")) throw new Error("stored reasoning did not render");
+  const countReplies = () => ev('document.querySelectorAll(".chat-msg.assistant").length');
+  const beforeRegenerate = await countReplies();
+  if (!await clickText(".composer-controls button", "Regenerate")) throw new Error("Regenerate missing");
+  const regenerated = await waitFor(async () => await countReplies() === beforeRegenerate + 1
+    && await ev('document.querySelector(".composer-send")?.textContent.trim() === "Send"'), 12000);
+  await ev(`(() => {
+    window.sentStreamSettings = [];
+    const original = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const request = args[0] instanceof Request ? args[0].clone() : new Request(...args);
+      if (new URL(request.url).pathname.endsWith("/send")) window.sentStreamSettings.push(await request.json());
+      return original(...args);
+    };
+    const temperature=document.querySelector(".temperature");
+    temperature.value="0.7"; temperature.dispatchEvent(new Event("input",{bubbles:true}));
+    const model=document.querySelector(".model-override");
+    model.value="fixture-custom"; model.dispatchEvent(new Event("input",{bubbles:true}));
+  })()`);
+  await type("normal response");
+  await ev('document.querySelector(".composer").focus()');
+  await send("Input.dispatchKeyEvent",{type:"keyDown",key:"Enter",code:"Enter",text:"\r",windowsVirtualKeyCode:13,modifiers:8});
+  await send("Input.dispatchKeyEvent",{type:"keyUp",key:"Enter",code:"Enter",windowsVirtualKeyCode:13,modifiers:8});
+  const multiline = await ev('document.querySelector(".composer").value.includes("\\n")');
+  await send("Input.dispatchKeyEvent",{type:"keyDown",key:"Enter",code:"Enter",text:"\r",windowsVirtualKeyCode:13});
+  await send("Input.dispatchKeyEvent",{type:"keyUp",key:"Enter",code:"Enter",windowsVirtualKeyCode:13});
+  const keyboardSent = await waitFor(async () => await countReplies() === beforeRegenerate + 2
+    && await ev('document.querySelector(".composer-send")?.textContent.trim() === "Send"'), 12000);
+  const settings = await ev('window.sentStreamSettings[0]');
+  if (!settings || settings.model !== "fixture-custom" || settings.temperature !== 0.7) throw new Error("composer settings were not sent");
+  await ev('document.querySelector(".composer-knightlm").click()');
+  const shortcut = await ev('document.querySelector(".model-override").value === "knightlm-smolvlm-500m" && document.querySelector(".composer-knightlm").getAttribute("aria-pressed") === "true"');
+  const sessionId = await ev('localStorage.getItem("rbc.ai.session")');
+  const beforePlay = await countReplies();
+  await ev('document.querySelector(".composer-play").click()');
+  const openedPlay = await waitFor(() => ev('document.querySelector("main")?.dataset.view === "play"'), 8000);
+  await openView(ev,"workbench","assistant");
+  const conversationRestored = await waitFor(async () => await countReplies() === beforePlay
+    && await ev(`localStorage.getItem("rbc.ai.session") === ${JSON.stringify(sessionId)}`), 10000);
+  if (!reasoning || !regenerated || !multiline || !keyboardSent || !shortcut || !openedPlay || !conversationRestored) {
+    throw new Error(JSON.stringify({reasoning,regenerated,multiline,keyboardSent,shortcut,openedPlay,conversationRestored}));
+  }
+  const out = { started, partial: String(partial).slice(0, 40), labelWhileSending, stopped, errorText, labelAfterStop,
+    stalledStopped, cards, usage, reasoning, regenerated, multiline, keyboardSent, shortcut, openedPlay, conversationRestored };
   console.log(JSON.stringify(out));
   const ok = started && String(partial).length > 0 && labelWhileSending === "Stop"
     && stopped && /cancel/i.test(String(errorText)) && labelAfterStop === "Send"

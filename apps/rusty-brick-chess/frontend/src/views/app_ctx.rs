@@ -3,7 +3,7 @@ use leptos::prelude::*;
 
 use crate::api::*;
 use crate::board::Keybinds;
-use crate::model::{Tab, TreeItem, Workspace};
+use crate::model::{AnalysisPosition, Tab, TreeItem, Workspace};
 use brick_chess::Shape;
 
 /// Wrap a captured closure in an `UnsyncCallback` so it can live in the (Copy)
@@ -28,6 +28,7 @@ pub struct AppCtx {
     /// The board the assistant is writing to, when it is not the visible one.
     pub ai_target_board: RwSignal<Option<String>>,
     pub analysis: RwSignal<Option<Analysis>>,
+    pub analysis_position: Memo<AnalysisPosition>,
     pub analysis_rep: RwSignal<i64>,
     pub analyzing: RwSignal<bool>,
     pub animate_last_move: RwSignal<bool>,
@@ -77,6 +78,7 @@ pub struct AppCtx {
     pub event_filter: RwSignal<Option<String>>,
     pub events: RwSignal<Vec<EventRow>>,
     pub fen: RwSignal<String>,
+    pub board_variant: RwSignal<String>,
     pub filter_date_from: RwSignal<String>,
     pub filter_date_to: RwSignal<String>,
     pub filter_elo_max: RwSignal<String>,
@@ -196,6 +198,8 @@ pub struct AppCtx {
     pub sound_theme: RwSignal<String>,
     pub sound_volume: RwSignal<u32>,
     pub spar_color: RwSignal<String>,
+    pub spar_player: RwSignal<String>,
+    pub spar_finished: RwSignal<bool>,
     pub spar_fen: RwSignal<String>,
     pub spar_pgn: RwSignal<String>,
     pub spar_play: RwSignal<Option<(u32, String)>>,
@@ -287,6 +291,9 @@ pub struct AppCtx {
     pub on_spar_move: UnsyncCallback<(String, String, String), ()>,
     pub open_editor: UnsyncCallback<MouseEvent, ()>,
     pub open_game: UnsyncCallback<GameSummary, ()>,
+    pub open_game_at: UnsyncCallback<(GameSummary, usize), ()>,
+    pub play_match_id: RwSignal<Option<String>>,
+    pub detailed_workspaces: RwSignal<std::collections::BTreeSet<u32>>,
     pub pause_match: UnsyncCallback<MouseEvent, ()>,
     pub persist_settings: UnsyncCallback<(), ()>,
     pub probe_tablebase: UnsyncCallback<MouseEvent, ()>,

@@ -8,6 +8,46 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use wasm_bindgen::JsCast;
 
+fn preview_positions(fen: &str, variant: &str, moves: &[String]) -> Option<Vec<String>> {
+    use brick_chess::{Command, Event, Widget};
+    let mut board = Widget::new();
+    let mut valid = |command| {
+        !board
+            .apply(command)
+            .iter()
+            .any(|event| matches!(event, Event::Error { .. }))
+    };
+    if moves.is_empty()
+        || !valid(Command::SetVariant {
+            variant: variant.into(),
+        })
+        || !valid(Command::LoadFen { fen: fen.into() })
+    {
+        return None;
+    }
+    let mut positions = vec![board.fen()];
+    for uci in moves {
+        if !board
+            .apply(Command::Play {
+                uci: Some(uci.clone()),
+                san: None,
+            })
+            .iter()
+            .any(|event| matches!(event, Event::Move { .. }))
+        {
+            return None;
+        }
+        positions.push(board.fen());
+    }
+    Some(positions)
+}
+
+struct LinePreview {
+    position: AnalysisPosition,
+    moves: Vec<String>,
+    fens: Vec<String>,
+}
+
 pub fn analysis(ctx: AppCtx) -> impl IntoView {
     let AppCtx {
         add_collection,
@@ -29,6 +69,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
         clock_inc,
         clock_inc_input,
         cloud,
+        board_variant,
         collections,
         console_busy,
         console_cmd,
@@ -139,8 +180,63 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
             })
             .unwrap_or_else(|| "—".to_owned())
     };
+    let is_detailed = move || {
+        ctx.detailed_workspaces
+            .with(|set| set.contains(&ctx.active_ws.get()))
+    };
+    let select_mode = move |detailed| {
+        let active = ctx.active_ws.get_untracked();
+        ctx.detailed_workspaces.update(|set| {
+            if detailed {
+                set.insert(active);
+            } else {
+                set.remove(&active);
+            }
+        });
+    };
+    let preview = RwSignal::new(None::<LinePreview>);
+    let preview_ply = RwSignal::new(1usize);
+    let preview_active = move || {
+        is_detailed()
+            && preview.with(|line| {
+                line.as_ref()
+                    .is_some_and(|line| line.position == ctx.analysis_position.get())
+            })
+    };
+    Effect::new(move |_| {
+        ctx.analysis_position.track();
+        is_detailed();
+        preview.set(None);
+    });
+    let preview_button = move |moves: Vec<String>| {
+        let label = moves.join(" ");
+        let accessible_moves = label.clone();
+        let selected_moves = moves.clone();
+        view! {
+            <button class="preview-engine-line" type="button"
+                disabled=moves.is_empty()
+                aria-label=move || format!("{} — {accessible_moves}", i18n::t(&language.get(), "analysis.preview_line"))
+                aria-pressed=move || if preview_active() && preview.with(|line| line.as_ref().is_some_and(|line| line.moves == selected_moves)) { "true" } else { "false" }
+                on:click=move |_| {
+                    if preview_active() && preview.with_untracked(|line| line.as_ref().is_some_and(|line| line.moves == moves)) {
+                        preview.set(None);
+                        return;
+                    }
+                    let position = ctx.analysis_position.get_untracked();
+                    if let Some(fens) = preview_positions(&position.fen, &position.variant, &moves) {
+                        preview_ply.set(1);
+                        preview.set(Some(LinePreview { position, moves: moves.clone(), fens }));
+                    } else {
+                        preview.set(None);
+                        ctx.status.set(i18n::t(&language.get(), "analysis.preview_invalid").into());
+                    }
+                }>
+                <span class="pv">{label}</span>
+            </button>
+        }
+    };
     view! {
-        <section class="analysis">
+        <section class="analysis" data-analysis-mode=move || if is_detailed() { "detailed" } else { "simple" }>
             <div class="board-pane">
                 {move || {
                     clock
@@ -228,10 +324,12 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                             }
                         })
                 }}
+                <div class="recorded-board" hidden=preview_active>
                 <Board
                     pgn=selected_pgn
                     title=Signal::derive(move || selected_title.get())
                     on_position=Callback::new(move |f: String| fen.set(f))
+                    on_variant=Callback::new(move |variant: String| board_variant.set(variant))
                     on_ply=Callback::new(move |p: usize| tree_ply.set(p))
                     goto=Signal::derive(move || goto_sig.get())
                     play=Signal::derive(move || play_uci.get())
@@ -247,6 +345,11 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                         } else {
                             "white".to_string()
                         }
+                    })
+                    interaction_disabled=Signal::derive(move || {
+                        variant_only.get() || (vs_engine.get() && (thinking.get()
+                            || (fen.get().split_whitespace().nth(1) == Some("b"))
+                                != (play_as.get() == "black")))
                     })
                     shapes=Signal::derive(move || {
                         let mut list = shapes.get();
@@ -271,6 +374,49 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                         persist_settings();
                     })
                 />
+                </div>
+                <Show when=preview_active>
+                    <section class="engine-line-preview" aria-label=move || i18n::t(&language.get(), "analysis.preview_line")>
+                        <div class="row-btns">
+                            <button on:click=move |_| preview.set(None)>
+                                {move || i18n::t(&language.get(), "analysis.preview_return")}
+                            </button>
+                            <button disabled=move || preview_ply.get() == 0
+                                on:click=move |_| preview_ply.update(|ply| *ply = ply.saturating_sub(1))>
+                                {move || i18n::t(&language.get(), "board.previous")}
+                            </button>
+                            <button disabled=move || preview.with(|line| line.as_ref().is_none_or(|line| preview_ply.get() >= line.moves.len()))
+                                on:click=move |_| preview_ply.update(|ply| *ply += 1)>
+                                {move || i18n::t(&language.get(), "board.next")}
+                            </button>
+                        </div>
+                        <p role="status">{move || preview.with(|line| {
+                            line.as_ref().map_or_else(String::new, |line| {
+                                let ply = preview_ply.get();
+                                let move_text = ply.checked_sub(1).and_then(|index| line.moves.get(index)).cloned().unwrap_or_default();
+                                i18n::tf(&language.get(), "analysis.preview_ply", &[
+                                    ("ply", ply.to_string()), ("count", line.moves.len().to_string()), ("move", move_text)
+                                ])
+                            })
+                        })}</p>
+                        <Board
+                            pgn=Signal::derive(String::new)
+                            board_only=true
+                            read_only=true
+                            load_fen=Signal::derive(move || preview.with(|line| {
+                                let line = line.as_ref()?;
+                                let ply = preview_ply.get();
+                                Some((ply as u32, line.fens.get(ply)?.clone(), line.position.variant.clone()))
+                            }))
+                            theme=Signal::derive(move || settings_theme.get())
+                            pieces=Signal::derive(move || settings_pieces.get())
+                            light_color=Signal::derive(move || settings_light.get())
+                            dark_color=Signal::derive(move || settings_dark.get())
+                            coords=Signal::derive(move || settings_coords.get())
+                            lang=Signal::derive(move || language.get())
+                        />
+                    </section>
+                </Show>
                 <div class="eval-graph">
                     {move || {
                         let rows = evals.get();
@@ -358,12 +504,29 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                 </div>
             </div>
             <aside class="engine-pane">
+                <div class="row-btns analysis-mode" role="group" aria-label=move || i18n::t(&language.get(), "analysis.mode")>
+                    <button data-analysis-view="simple" aria-pressed=move || if is_detailed() { "false" } else { "true" }
+                        on:click=move |_| select_mode(false)>{move || i18n::t(&language.get(), "analysis.simple")}</button>
+                    <button data-analysis-view="detailed" aria-pressed=move || if is_detailed() { "true" } else { "false" }
+                        on:click=move |_| select_mode(true)>{move || i18n::t(&language.get(), "analysis.detailed")}</button>
+                </div>
+                <div class="simple-analysis" hidden=is_detailed>
+                    <div class="eval-score">{score}</div>
+                    {move || analysis.get().map(|result| view! {
+                        <p>{i18n::tf(&language.get(), "analysis.best_suggestion", &[("move", result.best_move)])}</p>
+                    })}
+                    <button on:click=run_analysis disabled=move || analyzing.get() || variant_only.get()>
+                        {move || i18n::t(&language.get(), if analyzing.get() { "analysis.analyzing" } else { "analysis.analyze" })}
+                    </button>
+                </div>
+                <div class="detailed-analysis" hidden=move || !is_detailed()>
                 <div class="panel-head"><h2>{move || i18n::t(&language.get(), "settings.engine")}</h2></div>
                 <div class="row-btns">
                     <label class="checkline">
                         <input
                             type="checkbox"
                             prop:checked=move || vs_engine.get()
+                            disabled=move || variant_only.get()
                             on:change=toggle_vs_engine
                         />
                         {move || i18n::t(&language.get(), "analysis.play_engine")}
@@ -428,7 +591,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                                             c.knodes.unwrap_or(0),
                                         )}
                                     </div>
-                                    <div class="pv">{c.pv.join(" ")}</div>
+                                    {preview_button(c.pv)}
                                 </div>
                             }
                                 .into_any()
@@ -444,6 +607,11 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                             }
                         }}
                     </button>
+                    <button on:click=move |_| {
+                        ctx.spar_fen.set(fen.get_untracked());
+                        ctx.practice_mode.set("spar".into());
+                        ctx.switch_tab.run(Tab::Practice);
+                    }>{move || i18n::t(&language.get(), "practice.spar_from_here")}</button>
                     <button on:click=fetch_lines disabled=move || variant_only.get()>
                         {move || i18n::t(&language.get(), "analysis.lines")}
                     </button>
@@ -453,6 +621,11 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                     <button on:click=fetch_cloud>
                         {move || i18n::t(&language.get(), "analysis.cloud_eval")}
                     </button>
+                    <button on:click=move |_| {
+                        ctx.opening_fen.set(fen.get_untracked());
+                        ctx.opening_mode.set("explorer".into());
+                        ctx.switch_tab.run(Tab::Openings);
+                    }>{move || i18n::t(&language.get(), "openings.explorer")}</button>
                 </div>
                 {move || {
                     let list = engine_results.get();
@@ -486,7 +659,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                                                             view! {
                                                                 <div class="line">
                                                                     <span class="line-score">{score}</span>
-                                                                    <span class="pv">{l.pv.join(" ")}</span>
+                                                                    {preview_button(l.pv)}
                                                                 </div>
                                                             }
                                                         })
@@ -520,7 +693,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                                     view! {
                                         <div class="line">
                                             <span class="line-score">{score}</span>
-                                            <span class="pv">{l.pv.join(" ")}</span>
+                                            {preview_button(l.pv)}
                                         </div>
                                     }
                                 })
@@ -535,7 +708,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                             view! {
                                 <div class="engine-body">
                                     <div class="best">{format!("Best: {}", a.best_move)}</div>
-                                    <div class="pv">{a.pv.join(" ")}</div>
+                                    {preview_button(a.pv)}
                                     <div class="muted">
                                         {a.nodes.map(|n| format!("{n} nodes")).unwrap_or_default()}
                                     </div>
@@ -692,16 +865,17 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                 <div class="panel-sub">{move || i18n::t(&language.get(), "analysis.tree")}</div>
                 {tree_nodes}
                 <div class="row-btns">
-                    <button on:click=delete_tree_from_here>
+                    <button on:click=delete_tree_from_here disabled=move || variant_only.get()>
                         {move || i18n::t(&language.get(), "analysis.delete_from")}
                     </button>
-                    <button on:click=promote_selected>
+                    <button on:click=promote_selected disabled=move || variant_only.get()>
                         {move || i18n::t(&language.get(), "analysis.promote")}
                     </button>
                     <label class="checkline">
                         <input
                             type="checkbox"
                             prop:checked=move || record_moves.get()
+                            disabled=move || variant_only.get()
                             on:change=move |ev| record_moves.set(event_target_checked(&ev))
                         />
                         {move || i18n::t(&language.get(), "analysis.record_moves")}
@@ -901,7 +1075,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                             i18n::t(&language.get(), "analysis.edit_moves")
                         }}
                     </button>
-                    <button on:click=truncate_moves>{move || i18n::t(&language.get(), "analysis.keep_up")}</button>
+                    <button on:click=truncate_moves disabled=move || variant_only.get()>{move || i18n::t(&language.get(), "analysis.keep_up")}</button>
                 </div>
                 {move || {
                     edit_moves_open
@@ -912,9 +1086,10 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                                     <textarea
                                         placeholder="1. e4 e5 2. Nf3 (2. Bc4 Nf6) …"
                                         prop:value=move || moves_text.get()
+                                        readonly=move || variant_only.get()
                                         on:input=move |ev| moves_text.set(event_target_value(&ev))
                                     ></textarea>
-                                    <button on:click=apply_moves>{move || i18n::t(&language.get(), "analysis.save_moves")}</button>
+                                    <button on:click=apply_moves disabled=move || variant_only.get()>{move || i18n::t(&language.get(), "analysis.save_moves")}</button>
                                 </div>
                             }
                         })
@@ -970,6 +1145,7 @@ pub fn analysis(ctx: AppCtx) -> impl IntoView {
                         <option value="6">"?!"</option>
                     </select>
                     <button on:click=save_annotation>{move || i18n::t(&language.get(), "common.save")}</button>
+                </div>
                 </div>
             </aside>
             {move || {

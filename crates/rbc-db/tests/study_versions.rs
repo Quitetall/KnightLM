@@ -28,16 +28,20 @@ fn publishing_freezes_the_content_it_published() {
     assert_eq!(bundle["schema"], serde_json::json!("rbc-study/1"));
     assert_eq!(bundle["chapters"].as_array().expect("chapters").len(), 1);
 
-    // Adding a chapter after publishing changes the study, not the snapshot.
-    db.add_chapter(&id, "Berlin", START, "").expect("chapter");
-    let again: serde_json::Value = serde_json::from_str(&frozen.bundle_json).expect("bundle");
+    let edit = db
+        .add_chapter(&id, "Berlin", START, "")
+        .expect_err("published study is read-only");
+    assert!(edit.to_string().contains("branch a draft"));
+    let stored_again = db.study_versions(&id).expect("versions").remove(0);
+    assert_eq!(stored_again.bundle_json, frozen.bundle_json);
+    let again: serde_json::Value = serde_json::from_str(&stored_again.bundle_json).expect("bundle");
     assert_eq!(
         again["chapters"].as_array().expect("chapters").len(),
         1,
         "the version still describes one chapter"
     );
     let now = db.study(&id).expect("study").expect("present");
-    assert_eq!(db.chapters(&id).expect("chapters").len(), 2);
+    assert_eq!(db.chapters(&id).expect("chapters").len(), 1);
     assert_eq!(
         now.current_version, version.version,
         "publishing is the only bump"

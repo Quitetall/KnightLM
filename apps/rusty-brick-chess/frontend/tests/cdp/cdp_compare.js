@@ -1,7 +1,8 @@
+const { openView } = require("./navigation");
 // Compare: pick two studies, see the scope chip, read the diff rows, clear it.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9552;
+const PORT = Number(process.env.RBC_CDP_PORT || 9552);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function getJson(port, path) {
   return new Promise((res, rej) => {
@@ -11,7 +12,7 @@ function getJson(port, path) {
   });
 }
 (async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-compare-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-compare-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let t; for (let i = 0; i < 40; i++) { await sleep(300); try { t = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(t.find((x) => x.type === "page").webSocketDebuggerUrl);
   let id = 0; const pend = new Map();
@@ -47,7 +48,7 @@ function getJson(port, path) {
     return true;
   })()`);
 
-  await ev(`[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Compare")?.click()`);
+  if (!await openView(ev, "workbench", "compare")) throw new Error("compare destination unavailable");
   await sleep(1400);
   const hasView = await ev(`Boolean(document.querySelector(".compare-view"))`);
   const rows = await ev(`document.querySelectorAll(".compare-row").length`);
@@ -105,6 +106,12 @@ function getJson(port, path) {
   // Export offers a file.
   const exportClicked = await ev(`(()=>{
     window.__downloaded = null;
+    window.__markdown = null;
+    const originalUrl = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = blob => {
+      window.__markdown = blob.text();
+      return originalUrl(blob);
+    };
     window.__restore = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function(){ window.__downloaded = this.download; };
     const b = document.querySelector(".compare-export");
@@ -115,6 +122,7 @@ function getJson(port, path) {
   await sleep(1600);
   const exported = await ev(`(()=>{ HTMLAnchorElement.prototype.click = window.__restore; return window.__downloaded; })()`);
 
+  const markdown = await ev("window.__markdown");
   // A completed chapter shows a badge: mark the right study's chapter done, then
   // re-run the comparison so the overlay is in the report.
   const markedDone = await ev(`(async () => {
@@ -135,17 +143,17 @@ function getJson(port, path) {
   // prefills the composer with a question naming both studies.
   const asked = await ev(`(()=>{const b=document.querySelector(".compare-ask");if(!b)return false;b.click();return true;})()`);
   await sleep(1200);
-  const onAssistant = await ev(`Boolean(document.querySelector(".assistant")) || document.body.innerText.includes("Assistant")`);
+  const onAssistant = await ev(`document.querySelector("main")?.dataset.view === "assistant"`);
   const draftAfter = await ev(`(()=>{const t=document.querySelector(".assistant textarea, textarea");return t?t.value:"";})()`);
 
-  await ev(`[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Compare")?.click()`);
+  if (!await openView(ev, "workbench", "compare")) throw new Error("compare destination unavailable");
   await sleep(1000);
   await ev(`document.querySelector(".scope-clear").click()`);
   await sleep(1400);
   const afterClear = await ev(`(async () => (await (await fetch("/api/compare/scope")).json()))()`);
   const chipGone = await ev(`!document.querySelector(".scope-chip")`);
 
-  console.log(JSON.stringify({ seeded, picked, hasView, rows, chip, diffRows, summary, changedCount, allCount, focused, clickedWithMoves, boards, plyLabel, advanced, plyAfter, plyTotal, markedDone, badges, asked, onAssistant, draftAfter, exportClicked, exported, stored, afterClear, chipGone }));
+  console.log(JSON.stringify({ seeded, picked, hasView, rows, chip, diffRows, summary, changedCount, allCount, focused, clickedWithMoves, boards, plyLabel, advanced, plyAfter, plyTotal, markedDone, badges, asked, onAssistant, draftAfter, exportClicked, exported, markdownLength: markdown?.length, stored, afterClear, chipGone }));
   const ok = seeded && picked && hasView && rows >= 2
     && Boolean(chip) && chip.includes(leftTitle) && chip.includes(rightTitle)
     && diffRows >= 1
@@ -153,8 +161,8 @@ function getJson(port, path) {
     && clickedWithMoves === true && boards === 2
     && Boolean(plyLabel) && plyAfter !== plyLabel
     && markedDone === true && badges >= 1
-    && asked === true && draftAfter.includes(leftTitle)
-    && exported === "diff.md"
+    && asked === true && onAssistant && draftAfter.includes(leftTitle) && draftAfter.includes(rightTitle)
+    && exported === "diff.md" && Boolean(markdown?.includes(leftTitle) && markdown?.includes(rightTitle))
     && stored.active === true
     && afterClear.active === false && chipGone === true;
   console.log(ok ? "AI_COMPARE_PASS" : "AI_COMPARE_FAIL");

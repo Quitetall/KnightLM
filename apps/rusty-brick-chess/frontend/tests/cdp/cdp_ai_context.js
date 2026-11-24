@@ -1,3 +1,4 @@
+const { openView } = require("./navigation");
 // Streaming, stop and tool cards — self-contained.
 //
 // This script serves its own OpenAI-compatible SSE provider, so the check does
@@ -5,8 +6,8 @@
 // pointed at it: MODEL_URL=http://127.0.0.1:8100/v1/chat.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9536;
-const PROVIDER = 8100;
+const PORT = Number(process.env.RBC_CDP_PORT || 9536);
+const PROVIDER = Number(process.env.RBC_CDP_PROVIDER_PORT || 8100);
 const CHUNK_DELAY_MS = 400;
 
 // --- a provider that streams slowly and can call a tool --------------------
@@ -21,6 +22,12 @@ function startProvider() {
       const messages = payload.messages || [];
       const sawTool = messages.some((message) => message.role === "tool");
       const user = ([...messages].reverse().find((message) => message.role === "user") || {}).content || "";
+      if (user === "oversize context fixture") {
+        const failure=JSON.stringify({error:{message:"maximum context length exceeded",code:"context_length_exceeded"}});
+        res.writeHead(400,{"content-type":"application/json","content-length":Buffer.byteLength(failure)});
+        res.end(failure);
+        return;
+      }
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
@@ -75,7 +82,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
   const provider = startProvider();
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-stream2-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-stream2-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let target;
   for (let i = 0; i < 40; i++) { await sleep(300); try { target = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(target.find((x) => x.type === "page").webSocketDebuggerUrl);
@@ -91,10 +98,27 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const streamingText = async () => await ev(`(()=>{const b=document.querySelector(".chat-msg.streaming");return b?b.textContent.trim():"";})()`);
   const waitFor = async (read, ms = 8000) => { const start = Date.now(); while (Date.now() - start < ms) { const value = await read(); if (value) return value; await sleep(250); } return ""; };
 
-  await clickText(".nav", "Assistant");
+  await openView(ev, "workbench", "analysis");
+  await waitFor(() => ev('document.querySelector("main")?.dataset.view === "analysis"'));
+  await ev('document.querySelector("[data-analysis-view=detailed]").click()');
+  const changePosition = async position => {
+    await ev(`(() => {
+      const input=document.querySelector(".recorded-board .load input");
+      input.value=${JSON.stringify(position)};
+      input.dispatchEvent(new Event("input",{bubbles:true}));
+      document.querySelector(".recorded-board .load button").click();
+    })()`);
+    const loaded=await waitFor(()=>ev(`document.querySelector(".recorded-board .fen-line code")?.textContent === ${JSON.stringify(position)}`));
+    if (!loaded) throw new Error("context position did not load");
+  };
+  await changePosition("8/8/8/8/8/2k5/5R2/7K w - - 0 1");
+  await openView(ev, "workbench", "assistant");
   await sleep(900);
   await clickText("button", "New chat");
   await sleep(1500);
+  await clickText("button", "Context");
+  const missingContext=await waitFor(()=>ev('document.querySelector(".context-inspector")?.textContent.includes("no context yet")'));
+  await clickText("button", "Context");
   await type("stream please");
   await sleep(200);
   await clickText(".chat-input button", "Send");
@@ -108,6 +132,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // The header is the sha/tokens row, not the mode hint next to the toggle.
   const header = await ev(`(()=>{const e=[...document.querySelectorAll(".context-inspector .muted")].find(x=>/tokens/.test(x.textContent));return e?e.textContent.trim():"";})()`);
   const hasCanonical = await ev(`!!document.querySelector(".context-inspector pre")`);
+
+  await openView(ev,"workbench","analysis");
+  await waitFor(()=>ev('document.querySelector("main")?.dataset.view === "analysis"'));
+  await ev('document.querySelector("[data-analysis-view=detailed]").click()');
+  await changePosition("8/8/8/8/8/2k5/6R1/7K w - - 0 1");
+  await openView(ev,"workbench","assistant");
+  await waitFor(()=>ev('document.querySelectorAll(".chat-msg.assistant").length > 0'));
+  await clickText("button","Context");
 
   // Switch to Live: the panel rebuilds the context for the current board.
   const liveClicked = await clickText("button", "Live");
@@ -123,17 +155,50 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const shaOf = (text) => ((text || "").match(/^[0-9a-f]{8}/) || [""])[0];
   const expectDrift = shaOf(liveHeader) !== shaOf(sentHeader) && shaOf(liveHeader) !== "" && shaOf(sentHeader) !== "";
 
+  await ev(`(() => {
+    const original=window.fetch.bind(window);
+    window.fetch=async (...args)=>{
+      const response=await original(...args);
+      if (new URL(args[0].url || args[0],location.href).pathname.includes("/replay/"))
+        window.replayReport=await response.clone().json();
+      return response;
+    };
+  })()`);
   const replayed = await clickText("button", "Replay");
   await sleep(1500);
   const replayText = await ev(`(()=>{const e=[...document.querySelectorAll(".context-inspector .muted")].find(x=>x.textContent.includes("replay"));return e?e.textContent.trim():"";})()`);
 
-  const out = { opened, sections, header, hasCanonical, liveClicked, liveHeader, sentClicked, sentHeader, drift, expectDrift, replayed, replayText };
+  const replayReport=await waitFor(()=>ev("window.replayReport"));
+  const replayMatchesBoard=String(replayReport?.rebuilt_sha256 || "").startsWith(shaOf(liveHeader))
+    && String(replayReport?.stored_sha256 || "").startsWith(shaOf(sentHeader));
+  await type("oversize context fixture");
+  await clickText(".chat-input button","Send");
+  const oversizeFeedback=await waitFor(()=>ev('/context|too long|shorten/i.test(document.querySelector(".chat-msg.error")?.textContent || "")'),12000);
+  const previousSession=await ev('localStorage.getItem("rbc.ai.session")');
+  await clickText("button","New chat");
+  await waitFor(()=>ev(`localStorage.getItem("rbc.ai.session") && localStorage.getItem("rbc.ai.session") !== ${JSON.stringify(previousSession)}`));
+  const legacySeeded=await ev(`(async () => {
+    const id=localStorage.getItem("rbc.ai.session");
+    const data=JSON.stringify({position:{fen:"8/8/8/8/8/2k5/5R2/7K w - - 0 1"}});
+    const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(data));
+    const sha=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+    const response=await fetch("/api/ai/sessions/"+id+"/turns", {method:"POST",
+      headers:{"content-type":"application/json"},body:JSON.stringify({
+        role:"assistant",content:"Older fixture",context_json:data,context_sha256:sha
+      })});
+    return response.ok;
+  })()`);
+  await send("Page.reload");
+  await waitFor(()=>ev('document.querySelector("main")?.dataset.view === "assistant" && document.querySelector(".chat-messages")?.textContent.includes("Older fixture")'));
+  await clickText("button","Context");
+  const legacyRestored=await waitFor(()=>ev('document.querySelector(".context-inspector")?.textContent.includes("older turn") && document.querySelector(".context-inspector pre")?.textContent.includes("5R2")'));
+  const out = { missingContext, oversizeFeedback, replayMatchesBoard, legacySeeded, legacyRestored, opened, sections, header, hasCanonical, liveClicked, liveHeader, sentClicked, sentHeader, drift, expectDrift, replayed, replayText };
   console.log(JSON.stringify(out));
   // The header is "<sha8> · <tokens> tokens · <n> sections".
   const headerOk = /^[0-9a-f]{8} /.test(header) && /\d+ tokens/.test(header) && /\d+ sections/.test(header);
   const bothResolve = /tokens/.test(liveHeader) && /tokens/.test(sentHeader);
   const ok = opened && sections > 0 && headerOk && hasCanonical && liveClicked && sentClicked
-    && bothResolve && drift === expectDrift && replayed && /identical|differs/.test(replayText);
+    && missingContext && oversizeFeedback && replayMatchesBoard && legacySeeded && legacyRestored && bothResolve && drift && expectDrift && replayed && /identical|differs/.test(replayText);
   console.log(ok ? "AI_CONTEXT_PASS" : "AI_CONTEXT_FAIL");
   ws.close();
   chrome.kill();

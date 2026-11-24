@@ -35,20 +35,28 @@ pub fn opening(ctx: AppCtx) -> impl IntoView {
         status,
         ..
     } = ctx;
-    let explore = move |_| {
-        let f = opening_fen.get();
-        if f.is_empty() {
+    let opening_request = RwSignal::new(0_u64);
+    let request_opening = move |f: String| {
+        if f.trim().is_empty() {
             return;
         }
+        let request = opening_request.get_untracked() + 1;
+        opening_request.set(request);
+        opening.set(None);
         let src = opening_source.get_untracked();
         let source = (src != "local").then_some(src);
         spawn_local(async move {
-            match api::explore(&f, source.as_deref()).await {
+            let result = api::explore(&f, source.as_deref()).await;
+            if opening_request.get_untracked() != request {
+                return;
+            }
+            match result {
                 Ok(e) => opening.set(Some(e)),
                 Err(e) => status.set(e),
             }
         });
     };
+    let explore = move |_| request_opening(opening_fen.get_untracked());
     let explorer = move || {
         view! {
             <div class="load">
@@ -64,15 +72,8 @@ pub fn opening(ctx: AppCtx) -> impl IntoView {
                     on:click=move |_| {
                         let current = fen.get();
                         if !current.is_empty() {
-                            opening_fen.set(current);
-                            let src = opening_source.get_untracked();
-                            let source = (src != "local").then_some(src);
-                            spawn_local(async move {
-                                match api::explore(&opening_fen.get_untracked(), source.as_deref()).await {
-                                    Ok(e) => opening.set(Some(e)),
-                                    Err(e) => status.set(e),
-                                }
-                            });
+                            opening_fen.set(current.clone());
+                            request_opening(current);
                         }
                     }
                 >
@@ -309,7 +310,11 @@ pub fn opening(ctx: AppCtx) -> impl IntoView {
                             <div class="load">
                                 <select
                                     prop:value=move || opening_source.get()
-                                    on:change=move |ev| opening_source.set(event_target_value(&ev))
+                                    on:change=move |ev| {
+                                        opening_source.set(event_target_value(&ev));
+                                        opening_request.update(|request| *request += 1);
+                                        opening.set(None);
+                                    }
                                 >
                                     <option value="local">{move || i18n::t(&language.get(), "openings.local")}</option>
                                     <option value="lichess">{move || i18n::t(&language.get(), "openings.lichess")}</option>

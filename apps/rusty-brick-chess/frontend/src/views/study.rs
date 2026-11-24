@@ -18,6 +18,7 @@ pub fn StudyView(
     language: RwSignal<String>,
     /// Reports a problem to the toast area.
     message: RwSignal<String>,
+    open_in_analysis: UnsyncCallback<(api::BoardInfo, Vec<String>, usize)>,
 ) -> impl IntoView {
     let studies = RwSignal::new(Vec::<StudyInfo>::new());
     let open_study = RwSignal::new(None::<StudyInfo>);
@@ -30,6 +31,7 @@ pub fn StudyView(
     let board = RwSignal::new(None::<api::BoardInfo>);
     let board_moves = RwSignal::new(Vec::<String>::new());
     let board_arrows = RwSignal::new(Vec::<brick_chess::Shape>::new());
+    let board_ply = RwSignal::new(0usize);
     let goto_ply = RwSignal::new(None::<(u32, usize)>);
     let annotations = RwSignal::new(Vec::<String>::new());
     // Bumped whenever the chapters reload. The board effect watches it as well as
@@ -106,7 +108,7 @@ pub fn StudyView(
         };
         spawn_local(async move {
             match api::get_board(&id).await {
-                Ok(loaded) => {
+                Ok(loaded) if active_board.get_untracked().as_deref() == Some(&id) => {
                     let content: serde_json::Value = serde_json::from_str(&loaded.content_json)
                         .unwrap_or(serde_json::Value::Null);
                     let moves: Vec<String> = content
@@ -139,7 +141,10 @@ pub fn StudyView(
                     annotations.set(notes);
                     board.set(Some(loaded));
                 }
-                Err(error) => message.set(error),
+                Err(error) if active_board.get_untracked().as_deref() == Some(&id) => {
+                    message.set(error)
+                }
+                _ => {}
             }
         });
     });
@@ -574,6 +579,7 @@ pub fn StudyView(
                                                 pgn=Signal::derive(move || pgn.clone())
                                                 title=Signal::derive(move || title.clone())
                                                 goto=Signal::derive(move || goto_ply.get())
+                                                on_ply=Callback::new(move |ply| board_ply.set(ply))
                                                 shapes=Signal::derive(move || board_arrows.get())
                                                 animate_last=Signal::derive(|| true)
                                                 animation_ms=Signal::derive(|| 120)
@@ -602,6 +608,7 @@ pub fn StudyView(
                                                     >{white}</button>
                                                     <button
                                                         class="move-san"
+                                                        disabled=pair.len() == 1
                                                         on:click=move |_| goto_ply.set(Some(black_ply))
                                                     >{black}</button>
                                                 </li>
@@ -614,12 +621,19 @@ pub fn StudyView(
                                         view! { <li class="annotation-row">{text}</li> }
                                     }).collect_view()}
                                 </ul>
-                                <a
+                                <button
                                     class="board-open"
-                                    href=move || format!("/#board={}", active_board.get().unwrap_or_default())
+                                    disabled=move || board.with(|loaded| loaded.as_ref().is_none_or(|loaded| active_board.get().as_deref() != Some(&loaded.id)))
+                                    on:click=move |_| {
+                                        if let Some(loaded) = board.get_untracked()
+                                            && active_board.get_untracked().as_deref() == Some(&loaded.id)
+                                        {
+                                            open_in_analysis.run((loaded, board_moves.get_untracked(), board_ply.get_untracked()));
+                                        }
+                                    }
                                 >
                                     {move || t("study.open_board")}
-                                </a>
+                                </button>
                             </div>
                         }.into_any()
                     }
@@ -775,7 +789,7 @@ pub fn StudyView(
 
 /// A ply index for the move at `index`, as the board's `goto` expects.
 fn idx_of(moves: &[String], index: usize) -> (u32, usize) {
-    (0, index.min(moves.len().saturating_sub(1)))
+    (0, index.saturating_add(1).min(moves.len()))
 }
 
 /// The boards a chapter lists, read out of its JSON column.

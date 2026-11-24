@@ -4,7 +4,7 @@
 //! published content returns `copy_required`; the caller must copy it.
 
 use anyhow::{Context, Result};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fmt;
@@ -215,6 +215,115 @@ pub struct SessionProfile<'a> {
     pub permissions_json: &'a str,
 }
 
+fn insert_board(
+    conn: &Connection,
+    parent_kind: &str,
+    parent_id: &str,
+    kind: &str,
+    title: &str,
+    start_fen: &str,
+    content_json: &str,
+) -> Result<Board> {
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        &format!(
+            "INSERT INTO boards
+                     (id, parent_kind, parent_id, kind, title, variant, start_fen,
+                      revision, mutability, lifecycle, content_json, metadata_json,
+                      created, updated)
+                     VALUES (?1, ?2, ?3, ?4, ?5, 'standard', ?6, 1, 'mutable', 'draft',
+                             ?7, '{{}}', {NOW}, {NOW})"
+        ),
+        params![
+            id,
+            parent_kind,
+            parent_id,
+            kind,
+            title,
+            start_fen,
+            content_json
+        ],
+    )?;
+    conn.query_row(
+        &format!("SELECT {BOARD_COLUMNS} FROM boards WHERE id = ?1"),
+        params![id],
+        board_row,
+    )
+    .context("board just inserted")
+}
+
+fn read_study(conn: &Connection, id: &str) -> Result<Option<Study>> {
+    Ok(conn
+        .query_row(
+            &format!("SELECT {STUDY_COLUMNS} FROM studies WHERE id = ?1"),
+            params![id],
+            study_row,
+        )
+        .optional()?)
+}
+
+fn read_chapters(conn: &Connection, study_id: &str) -> Result<Vec<Chapter>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {CHAPTER_COLUMNS} FROM study_chapters
+             WHERE study_id = ?1 ORDER BY ordinal, rowid"
+    ))?;
+    Ok(stmt
+        .query_map(params![study_id], chapter_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+fn read_boards(conn: &Connection, parent_kind: &str, parent_id: &str) -> Result<Vec<Board>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {BOARD_COLUMNS} FROM boards
+             WHERE parent_kind = ?1 AND parent_id = ?2 ORDER BY created, rowid"
+    ))?;
+    let rows = stmt
+        .query_map(params![parent_kind, parent_id], board_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+fn editable_study(conn: &Connection, id: &str) -> Result<Study> {
+    let study = read_study(conn, id)?.with_context(|| format!("study {id} not found"))?;
+    anyhow::ensure!(
+        study.lifecycle != "published",
+        "published study is read-only; branch a draft to edit it"
+    );
+    Ok(study)
+}
+
+fn published_chapter(
+    conn: &Connection,
+    parent_kind: &str,
+    parent_id: &str,
+) -> rusqlite::Result<bool> {
+    if parent_kind != "study_chapter" {
+        return Ok(false);
+    }
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM study_chapters c JOIN studies s ON s.id = c.study_id
+         WHERE c.id = ?1 AND s.lifecycle = 'published')",
+        params![parent_id],
+        |row| row.get(0),
+    )
+}
+
+fn ensure_board_parent_editable(conn: &Connection, id: &str) -> Result<()> {
+    let parent: Option<(String, String)> = conn
+        .query_row(
+            "SELECT parent_kind, parent_id FROM boards WHERE id = ?1",
+            params![id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((kind, parent)) = parent
+        && published_chapter(conn, &kind, &parent)?
+    {
+        anyhow::bail!("published study is read-only; copy the board to edit it");
+    }
+    Ok(())
+}
+
 impl Db {
     // ------------------------------------------------------------------
     // Workspaces
@@ -319,30 +428,20 @@ impl Db {
         start_fen: &str,
         content_json: &str,
     ) -> Result<Board> {
-        let id = Uuid::new_v4().to_string();
-        {
-            let conn = self.conn.lock().expect("db lock");
-            conn.execute(
-                &format!(
-                    "INSERT INTO boards
-                     (id, parent_kind, parent_id, kind, title, variant, start_fen,
-                      revision, mutability, lifecycle, content_json, metadata_json,
-                      created, updated)
-                     VALUES (?1, ?2, ?3, ?4, ?5, 'standard', ?6, 1, 'mutable', 'draft',
-                             ?7, '{{}}', {NOW}, {NOW})"
-                ),
-                params![
-                    id,
-                    parent_kind,
-                    parent_id,
-                    kind,
-                    title,
-                    start_fen,
-                    content_json
-                ],
-            )?;
-        }
-        self.board(&id)?.context("board just inserted")
+        let conn = self.conn.lock().expect("db lock");
+        anyhow::ensure!(
+            !published_chapter(&conn, parent_kind, parent_id)?,
+            "published study is read-only"
+        );
+        insert_board(
+            &conn,
+            parent_kind,
+            parent_id,
+            kind,
+            title,
+            start_fen,
+            content_json,
+        )
     }
 
     pub fn board(&self, id: &str) -> Result<Option<Board>> {
@@ -358,14 +457,7 @@ impl Db {
 
     pub fn boards(&self, parent_kind: &str, parent_id: &str) -> Result<Vec<Board>> {
         let conn = self.conn.lock().expect("db lock");
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {BOARD_COLUMNS} FROM boards
-             WHERE parent_kind = ?1 AND parent_id = ?2 ORDER BY created, rowid"
-        ))?;
-        let rows = stmt
-            .query_map(params![parent_kind, parent_id], board_row)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(rows)
+        read_boards(&conn, parent_kind, parent_id)
     }
 
     pub fn update_board_content(
@@ -386,7 +478,10 @@ impl Db {
                 )
                 .optional()?
                 .ok_or_else(|| BoardWriteError::NotFound(id.to_owned()))?;
-            if board.mutability == "locked" || board.lifecycle == "published" {
+            if board.mutability == "locked"
+                || board.lifecycle == "published"
+                || published_chapter(&conn, &board.parent_kind, &board.parent_id)?
+            {
                 return Err(BoardWriteError::CopyRequired);
             }
             if board.revision != expected_revision {
@@ -433,6 +528,10 @@ impl Db {
         let title = title.unwrap_or(&board.title);
         {
             let conn = self.conn.lock().expect("db lock");
+            anyhow::ensure!(
+                !published_chapter(&conn, parent_kind, parent_id)?,
+                "published study is read-only; copy to a draft workspace"
+            );
             conn.execute(
                 &format!(
                     "INSERT INTO boards
@@ -464,6 +563,7 @@ impl Db {
         }
         {
             let conn = self.conn.lock().expect("db lock");
+            ensure_board_parent_editable(&conn, id)?;
             conn.execute(
                 "UPDATE boards SET mutability = ?1,
                  updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?2",
@@ -480,6 +580,7 @@ impl Db {
         }
         {
             let conn = self.conn.lock().expect("db lock");
+            ensure_board_parent_editable(&conn, id)?;
             conn.execute(
                 "UPDATE boards SET lifecycle = ?1,
                  updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?2",
@@ -492,6 +593,7 @@ impl Db {
 
     pub fn archive_board(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().expect("db lock");
+        ensure_board_parent_editable(&conn, id)?;
         conn.execute(
             "UPDATE boards SET lifecycle = 'archived',
              updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?1",
@@ -504,6 +606,7 @@ impl Db {
     /// the chapter must be removed or repointed first.
     pub fn delete_board(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().expect("db lock");
+        ensure_board_parent_editable(&conn, id)?;
         let primary: i64 = conn.query_row(
             "SELECT COUNT(*) FROM study_chapters WHERE primary_board_id = ?1",
             params![id],
@@ -537,7 +640,11 @@ impl Db {
                 )
                 .optional()?
                 .ok_or_else(|| BoardWriteError::NotFound(id.to_owned()))?;
-            if board.mutability == "locked" || board.lifecycle == "published" {
+            if board.mutability == "locked"
+                || board.lifecycle == "published"
+                || published_chapter(&conn, &board.parent_kind, &board.parent_id)?
+                || published_chapter(&conn, parent_kind, parent_id)?
+            {
                 return Err(BoardWriteError::CopyRequired);
             }
             if board.revision != expected_revision {
@@ -579,13 +686,7 @@ impl Db {
 
     pub fn study(&self, id: &str) -> Result<Option<Study>> {
         let conn = self.conn.lock().expect("db lock");
-        Ok(conn
-            .query_row(
-                &format!("SELECT {STUDY_COLUMNS} FROM studies WHERE id = ?1"),
-                params![id],
-                study_row,
-            )
-            .optional()?)
+        read_study(&conn, id)
     }
 
     pub fn studies(&self) -> Result<Vec<Study>> {
@@ -600,13 +701,7 @@ impl Db {
 
     pub fn chapters(&self, study_id: &str) -> Result<Vec<Chapter>> {
         let conn = self.conn.lock().expect("db lock");
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {CHAPTER_COLUMNS} FROM study_chapters
-             WHERE study_id = ?1 ORDER BY ordinal, rowid"
-        ))?;
-        Ok(stmt
-            .query_map(params![study_id], chapter_row)?
-            .collect::<rusqlite::Result<Vec<_>>>()?)
+        read_chapters(&conn, study_id)
     }
 
     pub fn add_chapter(
@@ -616,10 +711,12 @@ impl Db {
         start_fen: &str,
         notes_md: &str,
     ) -> Result<(Chapter, Board)> {
-        self.study(study_id)?
-            .with_context(|| format!("study {study_id} not found"))?;
+        let mut conn = self.conn.lock().expect("db lock");
+        let tx = conn.transaction()?;
+        editable_study(&tx, study_id)?;
         let chapter_id = Uuid::new_v4().to_string();
-        let board = self.create_board(
+        let board = insert_board(
+            &tx,
             "study_chapter",
             &chapter_id,
             "study_primary",
@@ -628,33 +725,30 @@ impl Db {
             "{}",
         )?;
         let board_ids = json!([board.id]).to_string();
-        {
-            let conn = self.conn.lock().expect("db lock");
-            let ordinal: i64 = conn.query_row(
-                "SELECT COALESCE(MAX(ordinal), 0) + 1 FROM study_chapters WHERE study_id = ?1",
-                params![study_id],
-                |row| row.get(0),
-            )?;
-            conn.execute(
-                "INSERT INTO study_chapters
+        let ordinal: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(ordinal), 0) + 1 FROM study_chapters WHERE study_id = ?1",
+            params![study_id],
+            |row| row.get(0),
+        )?;
+        tx.execute(
+            "INSERT INTO study_chapters
                  (id, study_id, ordinal, title, primary_board_id, board_ids_json,
                   notes_md, metadata_json)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '{}')",
-                params![
-                    chapter_id, study_id, ordinal, title, board.id, board_ids, notes_md
-                ],
-            )?;
-            conn.execute(
-                "UPDATE studies SET updated = CAST(strftime('%s','now') AS INTEGER)
+            params![
+                chapter_id, study_id, ordinal, title, board.id, board_ids, notes_md
+            ],
+        )?;
+        tx.execute(
+            "UPDATE studies SET updated = CAST(strftime('%s','now') AS INTEGER)
                  WHERE id = ?1",
-                params![study_id],
-            )?;
-        }
-        let chapter = self
-            .chapters(study_id)?
+            params![study_id],
+        )?;
+        let chapter = read_chapters(&tx, study_id)?
             .into_iter()
             .find(|chapter| chapter.id == chapter_id)
             .context("chapter just inserted")?;
+        tx.commit()?;
         Ok((chapter, board))
     }
 
@@ -666,12 +760,15 @@ impl Db {
         start_fen: &str,
         content_json: &str,
     ) -> Result<Board> {
-        let chapter = self
-            .chapters(study_id)?
+        let mut conn = self.conn.lock().expect("db lock");
+        let tx = conn.transaction()?;
+        editable_study(&tx, study_id)?;
+        let chapter = read_chapters(&tx, study_id)?
             .into_iter()
             .find(|chapter| chapter.id == chapter_id)
             .with_context(|| format!("chapter {chapter_id} not found in study {study_id}"))?;
-        let board = self.create_board(
+        let board = insert_board(
+            &tx,
             "study_chapter",
             chapter_id,
             "study_additional",
@@ -682,16 +779,17 @@ impl Db {
         let mut ids: Vec<String> =
             serde_json::from_str(&chapter.board_ids_json).unwrap_or_default();
         ids.push(board.id.clone());
-        let conn = self.conn.lock().expect("db lock");
-        conn.execute(
+        tx.execute(
             "UPDATE study_chapters SET board_ids_json = ?1 WHERE id = ?2",
             params![json!(ids).to_string(), chapter_id],
         )?;
+        tx.commit()?;
         Ok(board)
     }
 
     pub fn reorder_chapters(&self, study_id: &str, chapter_ids: &[String]) -> Result<()> {
         let mut conn = self.conn.lock().expect("db lock");
+        editable_study(&conn, study_id)?;
         let tx = conn.transaction()?;
         for (index, id) in chapter_ids.iter().enumerate() {
             let changed = tx.execute(
@@ -718,9 +816,8 @@ impl Db {
         tags: Option<&[String]>,
         lifecycle: Option<&str>,
     ) -> Result<Study> {
-        let mut study = self
-            .study(id)?
-            .with_context(|| format!("study {id} not found"))?;
+        let conn = self.conn.lock().expect("db lock");
+        let mut study = editable_study(&conn, id)?;
         if let Some(title) = title {
             study.title = title.to_string();
         }
@@ -733,7 +830,6 @@ impl Db {
         if let Some(lifecycle) = lifecycle {
             study.lifecycle = lifecycle.to_string();
         }
-        let conn = self.conn.lock().expect("db lock");
         conn.execute(
             "UPDATE studies SET title = ?1, description_md = ?2, tags_json = ?3,
              lifecycle = ?4, updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?5",
@@ -865,6 +961,7 @@ impl Db {
         notes_md: Option<&str>,
     ) -> Result<Chapter> {
         let conn = self.conn.lock().expect("db lock");
+        editable_study(&conn, study_id)?;
         if let Some(title) = title {
             conn.execute(
                 "UPDATE study_chapters SET title = ?1 WHERE id = ?2 AND study_id = ?3",
@@ -887,6 +984,7 @@ impl Db {
     /// Remove a chapter; its boards stay in the database.
     pub fn delete_chapter(&self, study_id: &str, chapter_id: &str) -> Result<bool> {
         let conn = self.conn.lock().expect("db lock");
+        editable_study(&conn, study_id)?;
         Ok(conn.execute(
             "DELETE FROM study_chapters WHERE id = ?1 AND study_id = ?2",
             params![chapter_id, study_id],
@@ -899,7 +997,10 @@ impl Db {
     /// "show me this again", and two chapters pointing at one board is how a
     /// person would expect an edit to either to be visible in both.
     pub fn duplicate_chapter(&self, study_id: &str, chapter_id: &str) -> Result<Chapter> {
-        let chapters = self.chapters(study_id)?;
+        let mut conn = self.conn.lock().expect("db lock");
+        let tx = conn.transaction()?;
+        editable_study(&tx, study_id)?;
+        let chapters = read_chapters(&tx, study_id)?;
         let original = chapters
             .iter()
             .find(|chapter| chapter.id == chapter_id)
@@ -907,19 +1008,14 @@ impl Db {
             .clone();
         let ordinal = original.ordinal + 1;
         // Make room: everything at or after the new ordinal shifts down.
-        {
-            let conn = self.conn.lock().expect("db lock");
-            conn.execute(
-                "UPDATE study_chapters SET ordinal = ordinal + 1
+        tx.execute(
+            "UPDATE study_chapters SET ordinal = ordinal + 1
                  WHERE study_id = ?1 AND ordinal >= ?2",
-                params![study_id, ordinal],
-            )?;
-        }
+            params![study_id, ordinal],
+        )?;
         let id = uuid::Uuid::new_v4().to_string();
         let board_ids_json = original.board_ids_json.clone();
-        {
-            let conn = self.conn.lock().expect("db lock");
-            conn.execute(
+        tx.execute(
                 "INSERT INTO study_chapters
                  (id, study_id, ordinal, title, primary_board_id, board_ids_json, notes_md, metadata_json)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -934,11 +1030,12 @@ impl Db {
                     "{}"
                 ],
             )?;
-        }
-        self.chapters(study_id)?
+        let chapter = read_chapters(&tx, study_id)?
             .into_iter()
             .find(|chapter| chapter.id == id)
-            .context("the duplicated chapter disappeared")
+            .context("the duplicated chapter disappeared")?;
+        tx.commit()?;
+        Ok(chapter)
     }
 
     /// Make one of a chapter's boards its primary.
@@ -960,6 +1057,7 @@ impl Db {
         }
         {
             let conn = self.conn.lock().expect("db lock");
+            editable_study(&conn, study_id)?;
             conn.execute(
                 "UPDATE study_chapters SET primary_board_id = ?1 WHERE id = ?2 AND study_id = ?3",
                 params![board_id, chapter_id, study_id],
@@ -982,9 +1080,8 @@ impl Db {
         chapter_id: Option<&str>,
         markdown: &str,
     ) -> Result<()> {
-        self.study(study_id)?
-            .with_context(|| format!("study {study_id} not found"))?;
         let conn = self.conn.lock().expect("db lock");
+        editable_study(&conn, study_id)?;
         match chapter_id {
             Some(chapter_id) => {
                 let changed = conn.execute(
@@ -1007,16 +1104,16 @@ impl Db {
     }
 
     pub fn publish_study(&self, study_id: &str, expected_version: i64) -> Result<StudyVersion> {
-        let study = self
-            .study(study_id)?
-            .with_context(|| format!("study {study_id} not found"))?;
+        let mut conn = self.conn.lock().expect("db lock");
+        let tx = conn.transaction()?;
+        let study = editable_study(&tx, study_id)?;
         if study.current_version != expected_version {
             anyhow::bail!("study version conflict (current {})", study.current_version);
         }
-        let chapters = self.chapters(study_id)?;
+        let chapters = read_chapters(&tx, study_id)?;
         let mut chapter_values = Vec::new();
         for chapter in &chapters {
-            let boards = self.boards("study_chapter", &chapter.id)?;
+            let boards = read_boards(&tx, "study_chapter", &chapter.id)?;
             chapter_values.push(json!({"chapter": chapter, "boards": boards}));
         }
         let bundle = json!({
@@ -1026,24 +1123,20 @@ impl Db {
         });
         let version = study.current_version + 1;
         let id = Uuid::new_v4().to_string();
-        {
-            let conn = self.conn.lock().expect("db lock");
-            conn.execute(
-                &format!(
-                    "INSERT INTO study_versions
+        tx.execute(
+            &format!(
+                "INSERT INTO study_versions
                      (id, study_id, version, bundle_json, provenance, created, published)
                      VALUES (?1, ?2, ?3, ?4, NULL, {NOW}, {NOW})"
-                ),
-                params![id, study_id, version, bundle.to_string()],
-            )?;
-            conn.execute(
-                "UPDATE studies SET lifecycle = 'published', current_version = ?1,
+            ),
+            params![id, study_id, version, bundle.to_string()],
+        )?;
+        tx.execute(
+            "UPDATE studies SET lifecycle = 'published', current_version = ?1,
                  updated = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?2",
-                params![version, study_id],
-            )?;
-        }
-        let conn = self.conn.lock().expect("db lock");
-        Ok(conn.query_row(
+            params![version, study_id],
+        )?;
+        let published = tx.query_row(
             "SELECT id, study_id, version, bundle_json, provenance, created, published
              FROM study_versions WHERE id = ?1",
             params![id],
@@ -1058,7 +1151,9 @@ impl Db {
                     published: row.get(6)?,
                 })
             },
-        )?)
+        )?;
+        tx.commit()?;
+        Ok(published)
     }
 
     pub fn study_versions(&self, study_id: &str) -> Result<Vec<StudyVersion>> {
@@ -1833,6 +1928,29 @@ impl Db {
         self.ai_match(&id)?.context("AI match just inserted")
     }
 
+    /// Store an initialized match for a tournament board. The stable ID makes
+    /// retries safe even if a request stops after creating only part of a batch.
+    pub fn ensure_tournament_match(
+        &self,
+        id: &str,
+        white_json: &str,
+        black_json: &str,
+        config_json: &str,
+        state_json: &str,
+        pgn: &str,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().expect("db lock");
+        let inserted = conn.execute(
+            &format!(
+                "INSERT INTO ai_matches
+                 (id, white_json, black_json, config_json, state_json, pgn, created)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, {NOW}) ON CONFLICT(id) DO NOTHING"
+            ),
+            params![id, white_json, black_json, config_json, state_json, pgn],
+        )?;
+        Ok(inserted != 0)
+    }
+
     /// Recent matches, newest first. A match list is what the Play tab shows,
     /// so it comes from the database rather than from whatever this browser
     /// happens to remember.
@@ -1873,7 +1991,7 @@ impl Db {
                 &format!(
                     "UPDATE ai_matches SET state_json = ?1, pgn = ?2, result_json = ?3,
                      termination = ?4,
-                     ended = CASE WHEN ?5 THEN {NOW} ELSE ended END
+                     ended = CASE WHEN ?5 THEN COALESCE(ended, {NOW}) ELSE NULL END
                      WHERE id = ?6"
                 ),
                 params![state_json, pgn, result_json, termination, ended as i64, id],

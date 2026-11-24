@@ -9,6 +9,7 @@ use tower::ServiceExt;
 
 fn state() -> rusty_brick_chess::api::AppState {
     rusty_brick_chess::api::AppState {
+        tournament_actions: Default::default(),
         db: rbc_db::Db::open_memory().expect("memory database"),
         db_dir: std::env::temp_dir(),
         data_dir: std::env::temp_dir(),

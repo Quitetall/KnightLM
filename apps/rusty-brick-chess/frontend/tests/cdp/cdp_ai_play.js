@@ -5,7 +5,7 @@
 // page's own origin, which is what the UI will call.
 const { spawn } = require("child_process");
 const http = require("http");
-const PORT = 9537;
+const PORT = Number(process.env.RBC_CDP_PORT || 9537);
 function getJson(port, path) {
   return new Promise((res, rej) => {
     http.get({ host: "127.0.0.1", port, path }, (r) => {
@@ -15,7 +15,7 @@ function getJson(port, path) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/chrome-play-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", "http://127.0.0.1:8090/"], { stdio: ["ignore", "ignore", "ignore"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--disable-gpu", "--no-sandbox", `--remote-debugging-port=${PORT}`, `--user-data-dir=${process.env.TMPDIR || "/tmp"}/chrome-play-${Date.now()}`, "--remote-allow-origins=*", "--window-size=1500,1000", (process.env.RBC_CDP_URL || "http://127.0.0.1:8090/")], { stdio: ["ignore", "ignore", "ignore"] });
   let t; for (let i = 0; i < 40; i++) { await sleep(300); try { t = await getJson(PORT, "/json/list"); break; } catch {} }
   const ws = new WebSocket(t.find((x) => x.type === "page").webSocketDebuggerUrl);
   let id = 0; const pend = new Map();
