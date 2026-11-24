@@ -34,8 +34,22 @@ const STYLE: &str = r#"
 .playai-log { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; display: grid; gap: 4px; }
 .playai-line.user { justify-self: end; background: #3b82f633; border-radius: 8px; padding: 4px 8px; }
 .playai-line.assistant { justify-self: start; background: #8882; border-radius: 8px; padding: 4px 8px; }
-.playai-compose { display: flex; gap: 8px; }
-.playai-compose input { flex: 1; }
+.playai-compose { display: flex; flex-wrap: wrap; gap: 8px; }
+.playai-compose input { flex: 1 1 8rem; min-width: 0; }
+/* While a game is on: the board and the chat share the screen, the setup steps aside. */
+.playai:has(.playai-game) { max-width: none; }
+.playai:has(.playai-game) > h2,
+.playai:has(.playai-game) > .muted,
+.playai:has(.playai-game) > .playai-setup,
+.playai:has(.playai-game) > .playai-model,
+.main:has(.playai-game) > .workspaces { display: none; }
+.playai-game { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(14rem, 1fr); gap: 1rem; align-items: start; --board-reserve: 8rem; }
+.playai-boardcol, .playai-side { min-width: 0; }
+.playai-side { display: grid; gap: 8px; align-content: start; }
+.playai-side h4 { margin: 0; }
+.playai-log { max-height: 40vh; }
+@media (max-width: 900px) { .playai-game { --board-reserve: 22rem; } }
+@media (max-width: 620px) { .playai-game { grid-template-columns: minmax(0, 1fr); } }
 "#;
 
 /// A failure as a sentence: a body that is JSON (or empty) never reaches the screen.
@@ -491,19 +505,13 @@ pub fn play_ai(ctx: AppCtx) -> impl IntoView {
                             .join(" ")
                     })
                     .unwrap_or_default();
+                let back = move |_| {
+                    chat_log.set(Vec::new());
+                    detail.set(None);
+                };
                 view! {
                     <div class="playai-game">
-                        <p class="playai-versus">
-                            <strong>
-                                {i18n::t(&lang, "playai.you")}
-                                " vs "
-                                {if is_bot { i18n::t(&lang, "playai.bot") } else { i18n::t(&lang, "playai.model") }}
-                            </strong>
-                            {is_bot.then(|| view! {
-                                <span class="playai-badge">{i18n::t(&lang, "playai.badge_bot")}</span>
-                            })}
-                        </p>
-                        <div class="playai-status" role="status">{status_line}</div>
+                        <div class="playai-boardcol">
                         <Board
                             pgn=Signal::derive(String::new)
                             load_fen=Signal::derive(move || Some((0, fen.clone(), "standard".into())))
@@ -515,6 +523,19 @@ pub fn play_ai(ctx: AppCtx) -> impl IntoView {
                             lang=language.into()
                             on_move=Callback::new(move |(uci, _, _): (String, String, String)| play_move(uci))
                         />
+                        </div>
+                        <div class="playai-side">
+                        <p class="playai-versus">
+                            <strong>
+                                {i18n::t(&lang, "playai.you")}
+                                " vs "
+                                {if is_bot { i18n::t(&lang, "playai.bot") } else { i18n::t(&lang, "playai.model") }}
+                            </strong>
+                            {is_bot.then(|| view! {
+                                <span class="playai-badge">{i18n::t(&lang, "playai.badge_bot")}</span>
+                            })}
+                        </p>
+                        <div class="playai-status" role="status">{status_line}</div>
                         <p class="playai-moves">{moves}</p>
                         <h4>{i18n::t(&lang, "playai.chat")}</h4>
                         <ul class="playai-log" aria-live="polite">
@@ -536,6 +557,10 @@ pub fn play_ai(ctx: AppCtx) -> impl IntoView {
                                     {move || i18n::t(&language.get(), "playai.resign")}
                                 </button>
                             })}
+                            <button class="playai-new" disabled=move || busy.get() on:click=back>
+                                {move || i18n::t(&language.get(), "playai.new_game")}
+                            </button>
+                        </div>
                         </div>
                     </div>
                 }.into_any()

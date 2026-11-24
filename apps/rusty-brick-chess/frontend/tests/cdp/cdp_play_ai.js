@@ -101,7 +101,10 @@ function getJson(port, p) {
   check("chat reply echoes the question", await waitFor(`[...document.querySelectorAll(".playai-line.assistant")].some(e=>e.textContent.includes("Are you strong?"))`));
   check("a board mark came with the reply", await waitFor(`document.querySelectorAll(".playai-game svg rect, .playai-game svg circle, .playai-game svg path, .playai-game .shape").length > 0`, 4000) || true);
 
+  // A running game tucks the setup away; "New game" brings it back.
+  const backToSetup = async () => { await ev(`(()=>{const b=document.querySelector(".playai-new");if(b)b.click();return true})()`); await waitFor(`!!document.querySelector(".playai-setup") && document.querySelector(".playai-setup").offsetParent !== null`); };
   // 2. The model, through the managed runtime (fake mode).
+  await backToSetup();
   await click(".playai-knightlm");
   check("model panel offers a download", await waitFor(`!!document.querySelector(".playai-get")`));
   check("download size is stated", (await text(".playai-model")).includes("1.4 GB"));
@@ -117,7 +120,7 @@ function getJson(port, p) {
 
   // 3. A bad download is refused, said in words, and the way out is there.
   await send("Page.navigate", { url: "http://127.0.0.1:8192/" }); await sleep(3000);
-  await clickNav("Play AI"); await waitFor(`!!document.querySelector(".playai-knightlm")`);
+  await clickNav("Play AI"); await backToSetup(); await waitFor(`!!document.querySelector(".playai-knightlm")`);
   await click(".playai-knightlm");
   await waitFor(`!!document.querySelector(".playai-get")`);
   await click(".playai-get");
