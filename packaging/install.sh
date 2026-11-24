@@ -91,9 +91,11 @@ installed to $PREFIX
   assets:   $ASSETS
 
 Play AI:  open the app, choose "Play AI". The test bot works at once; "KnightLM model"
-          offers a one-click download (about 1 GB, checked) and needs Python 3.10 or newer.
+          offers a one-click download (about 1.4 GB, checked; it fetches its own Python
+          when no Python 3.10 to 3.13 is installed, so you do not need to install one).
 
 Optional at run time:
-  STOCKFISH_PATH  a UCI engine, for analysis
+  STOCKFISH_PATH  a UCI engine, for analysis (this source install does not ship one;
+                  the desktop installers bundle Stockfish)
   MODEL_URL       an OpenAI-compatible endpoint, for the Assistant tab
 DONE

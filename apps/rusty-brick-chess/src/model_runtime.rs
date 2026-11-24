@@ -139,7 +139,11 @@ impl Manifest {
         }
         ensure!(hex(&self.adapter.sha256), "bad adapter sha256");
         for build in &self.python {
-            ensure!(hex(&build.sha256), "bad sha256 for the {} Python", build.target);
+            ensure!(
+                hex(&build.sha256),
+                "bad sha256 for the {} Python",
+                build.target
+            );
             ensure!(build.size > 0, "bad size for the {} Python", build.target);
             ensure!(plain_name(&build.target), "unsafe Python target");
         }
@@ -636,7 +640,7 @@ impl Runtime {
         if self.config.fake {
             "import fastapi, uvicorn"
         } else {
-            "import torch, transformers, peft, PIL, numpy, fastapi, uvicorn"
+            "import torch, torchvision, transformers, peft, PIL, numpy, fastapi, uvicorn"
         }
     }
 
@@ -864,15 +868,28 @@ impl Runtime {
             text
         });
         if let Some(stdout) = child.stdout.take() {
-            for line in std::io::BufRead::lines(std::io::BufReader::new(stdout)).map_while(Result::ok) {
+            for line in
+                std::io::BufRead::lines(std::io::BufReader::new(stdout)).map_while(Result::ok)
+            {
                 let line = line.trim();
                 if let Some(what) = line
                     .strip_prefix("Collecting ")
                     .or_else(|| line.strip_prefix("Downloading "))
                 {
-                    let what: String = what.split_whitespace().next().unwrap_or("").chars().take(60).collect();
+                    // "torch-2.9.1%2Bcpu-cp312-..." and "x.whl.metadata" both read as "torch".
+                    let word = what.split_whitespace().next().unwrap_or("");
+                    let word = word.split(['=', '<', '>', '~', '!']).next().unwrap_or(word);
+                    let cut = word
+                        .char_indices()
+                        .find(|(i, c)| {
+                            *c == '-' && word[i + 1..].starts_with(|d: char| d.is_ascii_digit())
+                        })
+                        .map_or(word.len(), |(i, _)| i);
+                    let what: String = word[..cut].chars().take(40).collect();
                     self.set_phase(Phase::SettingUp {
-                        step: format!("Installing the Python packages (about 1 GB, a few minutes): {what}"),
+                        step: format!(
+                            "Installing the Python packages (about 1 GB, a few minutes): {what}"
+                        ),
                     });
                 }
             }

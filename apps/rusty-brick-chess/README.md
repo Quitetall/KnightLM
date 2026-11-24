@@ -279,9 +279,12 @@ server and frontend. It uses Tauri's own mechanisms:
   (`~/.local/share/org.knightlm.rustybrickchess/` on Linux), never the cwd. An
   existing browser-mode database at `~/.local/share/rustybrickchess/` is kept
   in use; `RBC_DB` overrides both.
-- **Stockfish** is not bundled. If `STOCKFISH_PATH` is unset the shell uses
-  `stockfish` from `PATH` (or `/usr/games`, `/usr/local/bin`,
-  `/opt/homebrew/bin`). **File -> Choose engine...** or Settings overrides it.
+- **Stockfish** is bundled in the release installers (official Stockfish 19, GPL-3.0; see
+  `docs/app/third-party.md`) as the `engine/` resource. Order: `STOCKFISH_PATH`, the bundled
+  binary, then `stockfish` from `PATH` (or `/usr/games`, `/usr/local/bin`,
+  `/opt/homebrew/bin`), else none ("No chess engine found" in Settings and on the engine
+  routes). **File -> Choose engine...** or Settings overrides it. A local `make rbc-desktop-bundle`
+  has no engine in it unless you run `scripts/fetch_bundled_stockfish.sh` first.
 - **Single instance.** A second launch focuses the running window and hands it
   any `.pgn` files from its arguments (`tauri-plugin-single-instance`).
 - **Window state.** Size, position and maximised state persist

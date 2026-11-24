@@ -104,7 +104,7 @@ function getJson(port, p) {
   // 2. The model, through the managed runtime (fake mode).
   await click(".playai-knightlm");
   check("model panel offers a download", await waitFor(`!!document.querySelector(".playai-get")`));
-  check("download size is stated", (await text(".playai-model")).includes("1 GB"));
+  check("download size is stated", (await text(".playai-model")).includes("1.4 GB"));
   check("start waits for the model", await ev(`document.querySelector(".playai-start").disabled`));
   await click(".playai-get");
   check("model becomes ready", await waitFor(`document.querySelector(".playai-model") && document.querySelector(".playai-model").textContent.includes("ready")`, 40000));

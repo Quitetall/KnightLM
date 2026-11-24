@@ -16,9 +16,9 @@ pub mod launch_guard;
 mod mcp;
 pub mod model_runtime;
 pub mod pieces;
-pub mod py_runtime;
 mod provider_api;
 mod providers;
+pub mod py_runtime;
 pub mod vision;
 
 use axum::{

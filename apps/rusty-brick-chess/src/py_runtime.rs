@@ -86,10 +86,7 @@ pub fn select(
 /// opens the Store), so it can never be selected.
 pub fn probe_version(path: &Path) -> Option<Version> {
     let mut child = Command::new(path)
-        .args([
-            "-c",
-            "import sys; print('%d.%d.%d' % sys.version_info[:3])",
-        ])
+        .args(["-c", "import sys; print('%d.%d.%d' % sys.version_info[:3])"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -119,10 +116,17 @@ pub fn probe_version(path: &Path) -> Option<Version> {
 /// [`windows_launcher_paths`]); a bare `python.exe` may be the Store stub, which [`probe_version`]
 /// rejects.
 pub fn system_names() -> Vec<PathBuf> {
-    ["python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"]
-        .into_iter()
-        .map(PathBuf::from)
-        .collect()
+    [
+        "python3.13",
+        "python3.12",
+        "python3.11",
+        "python3.10",
+        "python3",
+        "python",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .collect()
 }
 
 /// Ask the Windows `py` launcher where its 3.13 to 3.10 interpreters are (no-op elsewhere).
@@ -246,7 +250,9 @@ mod tests {
         assert_eq!(parse_version("3.9"), Some((3, 9, 0)));
         // The Store stub's hint, an empty answer and noise are not versions.
         assert_eq!(
-            parse_version("Python was not found; run without arguments to install from the Microsoft Store"),
+            parse_version(
+                "Python was not found; run without arguments to install from the Microsoft Store"
+            ),
             None
         );
         assert_eq!(parse_version(""), None);
@@ -282,7 +288,10 @@ mod tests {
         let no_override = |p: &Path| (p != Path::new("override")).then_some((3, 12, 1));
         assert_eq!(select(&list, &no_override).unwrap().0.kind, Kind::Private);
         let only_system = |p: &Path| (p == Path::new("sys-a")).then_some((3, 11, 0));
-        assert_eq!(select(&list, &only_system).unwrap().0.path, Path::new("sys-a"));
+        assert_eq!(
+            select(&list, &only_system).unwrap().0.path,
+            Path::new("sys-a")
+        );
         assert!(select(&list, &|_: &Path| None).is_none());
     }
 
@@ -335,8 +344,14 @@ mod tests {
         assert_eq!(probe_version(&good), Some((3, 12, 2)));
         assert_eq!(probe_version(&dir.join("missing")), None);
         let list = [
-            Candidate { path: stub, kind: Kind::System },
-            Candidate { path: good.clone(), kind: Kind::System },
+            Candidate {
+                path: stub,
+                kind: Kind::System,
+            },
+            Candidate {
+                path: good.clone(),
+                kind: Kind::System,
+            },
         ];
         assert_eq!(select(&list, &probe_version).unwrap().0.path, good);
         let _ = std::fs::remove_dir_all(&dir);
@@ -345,11 +360,17 @@ mod tests {
     #[test]
     fn layouts_follow_the_os() {
         let root = Path::new("/d/python");
-        assert_eq!(python_exe_in(root, false), Path::new("/d/python/bin/python3"));
+        assert_eq!(
+            python_exe_in(root, false),
+            Path::new("/d/python/bin/python3")
+        );
         assert_eq!(python_exe_in(root, true), Path::new("/d/python/python.exe"));
         let venv = Path::new("/d/venv");
         assert_eq!(venv_python(venv, false), Path::new("/d/venv/bin/python"));
-        assert_eq!(venv_python(venv, true), Path::new("/d/venv/Scripts/python.exe"));
+        assert_eq!(
+            venv_python(venv, true),
+            Path::new("/d/venv/Scripts/python.exe")
+        );
     }
 
     #[test]
@@ -387,21 +408,37 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         let good = dir.join("good.tgz");
-        std::fs::write(&good, tgz_of(&[("python/bin/python3", b"#!/bin/sh\n"), ("python/python.exe", b"MZ")])).unwrap();
+        std::fs::write(
+            &good,
+            tgz_of(&[
+                ("python/bin/python3", b"#!/bin/sh\n"),
+                ("python/python.exe", b"MZ"),
+            ]),
+        )
+        .unwrap();
         extract_python(&good, &dir.join("out")).unwrap();
         assert!(python_exe_in(&dir.join("out/python"), false).is_file());
         assert!(python_exe_in(&dir.join("out/python"), true).is_file());
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(dir.join("out/python/bin/python3")).unwrap().permissions().mode();
-            assert!(mode & 0o111 != 0, "the interpreter keeps its executable bit");
+            let mode = std::fs::metadata(dir.join("out/python/bin/python3"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert!(
+                mode & 0o111 != 0,
+                "the interpreter keeps its executable bit"
+            );
         }
 
         let stray = dir.join("stray.tgz");
         std::fs::write(&stray, tgz_of(&[("other/evil", b"x")])).unwrap();
         let error = extract_python(&stray, &dir.join("out2")).unwrap_err();
-        assert!(format!("{error:#}").contains("outside python/"), "{error:#}");
+        assert!(
+            format!("{error:#}").contains("outside python/"),
+            "{error:#}"
+        );
 
         let empty = dir.join("empty.tgz");
         std::fs::write(&empty, tgz_of(&[])).unwrap();

@@ -103,7 +103,7 @@ jobs:
             - Only Linux has been tested by hand. Windows and macOS builds come from CI and
               have not been installed by a person yet (RBCUI-LIB-09 is still open).
             - Playing the real KnightLM model is opt-in: "Get the model" downloads about
-              @@SIZE@@ once (a private Python, the Python packages and the model weights,
+              1.4 GB once (a private Python, the Python packages and the model weights,
               every piece checksum-verified). You do not need to install Python. The model
               plays at about random strength and does not chat yet; the test bot does.
             - Pre-alpha: expect rough edges. Nothing here is a strength claim.

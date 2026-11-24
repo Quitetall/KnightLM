@@ -34,8 +34,11 @@ cargo install cargo-leptos --version 0.3.11 --locked
 **Play an AI that talks to you, in three steps:** (1) install as above, (2) open RBC,
 (3) choose **Play AI**, pick your colour and press **Start**. The built-in *test bot*
 (random moves, canned chat, clearly labelled) works at once. To play the KnightLM model,
-choose it there and press **Get the model**: a one-time download of about 1 GB, checked
-against a fixed checksum, which needs Python 3.10 or newer. See
+choose it there and press **Get the model**: a one-time download of about 1.4 GB (about
+2.4 GB on disk), every piece checked against a fixed checksum. It includes its own Python,
+so you install nothing; the model is opt-in and nothing is downloaded until you press the
+button. The desktop installers also ship Stockfish 19 (GPL-3.0, see
+[third-party software](docs/app/third-party.md)). See
 [Play AI](docs/app/models.md#play-ai-one-click-opponent).
 
 When RBC is running, open [localhost:8090](http://127.0.0.1:8090/). Go to

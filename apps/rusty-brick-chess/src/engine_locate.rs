@@ -46,7 +46,11 @@ pub struct Engine {
 }
 
 pub fn binary_name(windows: bool) -> &'static str {
-    if windows { "stockfish.exe" } else { "stockfish" }
+    if windows {
+        "stockfish.exe"
+    } else {
+        "stockfish"
+    }
 }
 
 /// Directories that may hold the bundled engine, best first. `resource_dir` is Tauri's
@@ -148,7 +152,10 @@ mod tests {
     #[test]
     fn no_variable_and_no_bundle_is_none_not_an_error() {
         let root = tree("none");
-        assert_eq!(resolve(None, &bundled_dirs(Some(&root), Some(&root)), false), None);
+        assert_eq!(
+            resolve(None, &bundled_dirs(Some(&root), Some(&root)), false),
+            None
+        );
         assert_eq!(resolve(None, &[], true), None);
         // A directory with the right name is not a binary.
         std::fs::create_dir_all(root.join("engine/stockfish")).unwrap();
@@ -173,7 +180,13 @@ mod tests {
         let dirs = bundled_dirs(Some(&root.join("usr/bin")), None);
         let found = resolve(None, &dirs, false).unwrap();
         assert_eq!(found.source, Source::Bundled);
-        assert!(found.path.ends_with("usr/lib/RustyBrickChess/engine/stockfish"), "{:?}", found.path);
+        assert!(
+            found
+                .path
+                .ends_with("usr/lib/RustyBrickChess/engine/stockfish"),
+            "{:?}",
+            found.path
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -196,11 +209,23 @@ mod tests {
         touch(&root.join("res/engine/stockfish"));
         touch(&root.join("app/Contents/Resources/engine/stockfish"));
         std::fs::create_dir_all(root.join("app/Contents/MacOS")).unwrap();
-        let dirs = bundled_dirs(Some(&root.join("app/Contents/MacOS")), Some(&root.join("res")));
+        let dirs = bundled_dirs(
+            Some(&root.join("app/Contents/MacOS")),
+            Some(&root.join("res")),
+        );
         let found = resolve(None, &dirs, false).unwrap();
-        assert!(found.path.ends_with("res/engine/stockfish"), "{:?}", found.path);
+        assert!(
+            found.path.ends_with("res/engine/stockfish"),
+            "{:?}",
+            found.path
+        );
         let mac = bundled_dirs(Some(&root.join("app/Contents/MacOS")), None);
-        assert!(resolve(None, &mac, false).unwrap().path.ends_with("Resources/engine/stockfish"));
+        assert!(
+            resolve(None, &mac, false)
+                .unwrap()
+                .path
+                .ends_with("Resources/engine/stockfish")
+        );
 
         touch(&root.join("prefix/share/rustybrickchess/engine/stockfish"));
         std::fs::create_dir_all(root.join("prefix/bin")).unwrap();

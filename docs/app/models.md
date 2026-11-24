@@ -92,7 +92,7 @@ talks. It offers two opponents and uses the ordinary match routes (`model-move` 
 
 | Route | What it does |
 |---|---|
-| `GET /api/knightlm/runtime` | `phase.state` is `not_installed`, `downloading` (`bytes`, `total`, `file`), `verifying`, `setting_up`, `ready`, `starting`, `running` (`url`) or `error` (`code`, `message`); also `python`, `device_note` (GPU or CPU), `provider_id`, `mode` (`real` or `fake`) |
+| `GET /api/knightlm/runtime` | `phase.state` is `not_installed`, `downloading` (`bytes`, `total`, `file`), `verifying`, `setting_up` (`step`), `ready`, `starting`, `running` (`url`) or `error` (`code`, `message`); also `python`, `python_download_bytes` (what a private Python would add, 0 if a usable one exists), `python_downloadable`, `device_note` (GPU or CPU), `provider_id`, `mode` (`real` or `fake`) |
 | `POST .../install` | starts the download in the background and returns at once |
 | `POST .../start` | starts `python -m model.serve.server`, waits for `/v1/models`, registers or updates the `knightlm` provider row |
 | `POST .../stop` | stops it |
@@ -107,11 +107,39 @@ repository's GitHub release. Only those URLs are used. Files are downloaded to a
 as ready. The adapter archive is unpacked by hand and refused on `..`, absolute paths, links,
 unlisted names or wrong hashes.
 
-Python: a `python3` that already imports torch, transformers, peft, pillow, numpy, fastapi and
-uvicorn is used as it is (and the GPU too, if it has CUDA: the server runs with `--device cuda`
-only then, else `--device cpu`). Otherwise the app creates a venv under `<RBC_DATA>/knightlm/venv`
-from `model/serve/requirements.txt` (CPU torch wheel, about 200 MB, one time). If that cannot be
-done the error holds the one command to run. The CPU is slow; a reply can take tens of seconds.
+Python (`src/py_runtime.rs`). The model needs no Python on your machine. The interpreter that
+builds the environment is chosen in this order, and the first one that qualifies wins:
+
+1. `RBC_KNIGHTLM_PYTHON`, if set: used as is (any CPython 3.10 or newer); nothing is downloaded.
+2. The app's **private Python** under `<RBC_DATA>/knightlm/python/`, if it is already there.
+3. A **system Python 3.10 to 3.13** (`python3.13` ... `python3`, `python`, and on Windows the `py`
+   launcher). A candidate counts only after it prints its own version, so the Windows Store
+   `python.exe` stub (which opens the Store or exits 9009), a 3.9 and a 3.14 (no torch wheels yet)
+   are skipped.
+4. Otherwise **Get the model** downloads a pinned python-build-standalone CPython (3.12.16,
+   `install_only` tarball from the `astral-sh/python-build-standalone` release `20261123`) for this
+   OS and CPU, checks its sha256 from `knightlm_manifest.json`, unpacks it under
+   `<RBC_DATA>/knightlm/python/` and uses that. It is also the fallback when a system Python cannot
+   create a venv (Debian without `python3-venv`). Pinned: Linux x86_64 (glibc), Windows x86_64,
+   macOS arm64 and x86_64. Other platforms (Linux arm64, musl) need their own Python 3.10 to 3.13.
+
+Why private before system, and system before downloading: the private copy is the same build on
+every machine and is never touched by OS updates, but it costs a download, so an existing suitable
+Python is used rather than fetching a second one. A `python3` that already imports torch,
+torchvision, transformers, peft, pillow, numpy, fastapi and uvicorn is used as it is (and the GPU too, if it
+has CUDA: the server runs with `--device cuda` only then, else `--device cpu`). Otherwise the app
+creates a venv under `<RBC_DATA>/knightlm/venv` and runs `pip install -r
+model/serve/requirements.txt` (CPU torch wheel). Layout: `python/bin/python3` (Windows
+`python/python.exe`), venv `bin/python` (Windows `Scripts/python.exe`). The order of work is Python,
+then packages, then the weights, so the likelier failures cost the least to retry. The UI shows
+`downloading` with byte counts for the Python and the weights, and `setting_up` with the step
+(unpacking, creating the environment, the package being installed). If setup fails the error holds
+the one command to run. The CPU is slow; a reply can take tens of seconds.
+
+Size, measured on Linux x86_64 (the Play AI tab says "about 1.4 GB" before you press): Python
+68 MB download (229 MB unpacked), packages 235 MB download (1.2 GB installed with torchvision, torch is 725 MB of it),
+weights and adapter 1.09 GB download (972 MB on disk); about 1.4 GB downloaded and 2.4 GB on disk
+in all. Windows and macOS packages differ (not measured).
 
 The server is a child of the app. It watches its stdin, which the app holds open, so it exits
 when the app does, however the app ends. Stop, and quitting the app, end it too. Its Python
@@ -129,6 +157,12 @@ downloading; they are still hash-checked), `RBC_KNIGHTLM_PYTHON`.
 - `apps/rusty-brick-chess/tests/test_bot.rs`, `knightlm_runtime.rs`: the test bot through the
   routes, and the runtime offline (pinned manifest, corrupt and partial downloads, tarball
   attacks, start and stop with the fake server, no orphan, routes).
+- `apps/rusty-brick-chess/src/py_runtime.rs` and `src/engine_locate.rs` (unit tests): Python
+  selection with a fake Windows Store stub, 3.9 and 3.14, layouts per OS, the archive unpacker;
+  engine resolution order and the deb, rpm, AppImage, macOS and install.sh layouts as fixtures.
+  `knightlm_runtime.rs` also covers the pinned Python entries and a fixture Python download.
+- `apps/rusty-brick-chess/tests/knightlm_ondemand_real.rs` (ignored; real network, run by hand, see
+  its header): the whole install with no system Python visible, optionally starting the real server.
 - `apps/rusty-brick-chess/frontend/tests/cdp/cdp_play_ai.js`: the Play AI tab in headless Chrome,
   offline, with the test bot and the fake runtime.
 - `apps/rusty-brick-chess/tests/model_wiring.rs`: a scripted fake OpenAI server on a

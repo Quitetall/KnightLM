@@ -3,6 +3,9 @@
 #   pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 # (CPU torch wheel). Versions match model/ci-requirements.txt, which CI exercises.
 torch==2.9.1
+# transformers 5 builds the SmolVLM image processor on torchvision; without it the server
+# dies at start with "Unrecognized image processor" (found by the real on-demand install).
+torchvision==0.24.1
 numpy==2.3.5
 pillow==11.3.0
 transformers==5.5.3
