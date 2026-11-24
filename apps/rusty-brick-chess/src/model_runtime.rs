@@ -5,7 +5,8 @@
 //! 1. **install** downloads the pinned base weights and the adapter (only from the URLs in
 //!    `knightlm_manifest.json`), verifies every sha256, and moves the verified files into
 //!    `<RBC_DATA>/knightlm/` atomically. A partial or corrupt download is never visible as
-//!    installed. It also finds a suitable Python, or builds a venv for it.
+//!    installed. It also builds the venv: from the app's private Python (downloaded on demand,
+//!    pinned like everything else), or a suitable system Python; see [`crate::py_runtime`].
 //! 2. **start** runs `python -m model.serve.server` on a free loopback port, waits for
 //!    `/v1/models`, and registers (or updates) the `knightlm` provider row to that URL.
 //! 3. **stop**, or the app exiting, ends the child. The child also watches its stdin, which
@@ -18,6 +19,7 @@
 //! Dev-only overrides (not for users): `RBC_KNIGHTLM_MANIFEST` (a manifest file, `file://`
 //! URLs allowed), `RBC_KNIGHTLM_DEV_BASE_DIR` (copy the base files from a local directory
 //! instead of downloading; they are still hash-checked against the pinned manifest).
+//! `RBC_KNIGHTLM_PYTHON` (a Python to use as is, never downloaded over) is a user setting.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -34,11 +36,15 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::api::{ApiError, AppState};
+use crate::py_runtime::{self, Candidate, Kind};
 
 const EMBEDDED_MANIFEST: &str = include_str!("knightlm_manifest.json");
 /// The only places the real runtime downloads from.
 const PINNED_BASE_PREFIX: &str = "https://huggingface.co/HuggingFaceTB/SmolVLM-500M-Instruct/resolve/a7da5b986cb59b408707209984f360a5f4ad7e47/";
 const PINNED_ADAPTER_URL: &str = "https://github.com/Quitetall/KnightLM/releases/download/model-run1-short-adapter-v1/knightlm-run1-short-adapter.tar.gz";
+/// The only place the private Python is downloaded from.
+const PINNED_PYTHON_PREFIX: &str =
+    "https://github.com/astral-sh/python-build-standalone/releases/download/20261123/";
 const MAX_ADAPTER_FILE: u64 = 64 * 1024 * 1024;
 const PROVIDER_LABEL: &str = "KnightLM server";
 
@@ -69,11 +75,24 @@ pub struct AdapterSet {
     pub files: Vec<FileSpec>,
 }
 
+/// One pinned python-build-standalone `install_only` tarball for an OS and CPU
+/// (`target` is `linux-x86_64`, `windows-x86_64`, `macos-aarch64`, `macos-x86_64`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct PythonBuild {
+    pub target: String,
+    pub version: String,
+    pub url: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Manifest {
     pub schema: u32,
     pub base: BaseSet,
     pub adapter: AdapterSet,
+    #[serde(default)]
+    pub python: Vec<PythonBuild>,
 }
 
 impl Manifest {
@@ -93,7 +112,22 @@ impl Manifest {
             self.adapter.url == PINNED_ADAPTER_URL,
             "the adapter is not at the pinned release URL"
         );
+        for build in &self.python {
+            ensure!(
+                build.url.starts_with(PINNED_PYTHON_PREFIX)
+                    && build.url.ends_with("-install_only.tar.gz")
+                    && !build.url[PINNED_PYTHON_PREFIX.len()..].contains('/'),
+                "the Python download for {} is not at the pinned release",
+                build.target
+            );
+        }
         self.check_shape()
+    }
+
+    /// The private Python for this OS and CPU, if one is pinned.
+    pub fn python_for(&self, target: Option<&str>) -> Option<&PythonBuild> {
+        let target = target?;
+        self.python.iter().find(|build| build.target == target)
     }
 
     /// Names are plain file names and hashes are 64 hex digits.
@@ -104,6 +138,15 @@ impl Manifest {
             ensure!(hex(&file.sha256), "bad sha256 for {}", file.name);
         }
         ensure!(hex(&self.adapter.sha256), "bad adapter sha256");
+        for build in &self.python {
+            ensure!(
+                hex(&build.sha256),
+                "bad sha256 for the {} Python",
+                build.target
+            );
+            ensure!(build.size > 0, "bad size for the {} Python", build.target);
+            ensure!(plain_name(&build.target), "unsafe Python target");
+        }
         ensure!(plain_name(&self.adapter.dir), "unsafe adapter directory");
         Ok(())
     }
@@ -483,6 +526,10 @@ impl Runtime {
     fn venv_dir(&self) -> PathBuf {
         self.root().join("venv")
     }
+    /// The private Python: an unpacked python-build-standalone tree.
+    fn private_python_dir(&self) -> PathBuf {
+        self.root().join("python")
+    }
 
     /// Whether the verified files are in place. The marker is written last, after every hash
     /// has matched and both directories are renamed in; a partial download has no marker.
@@ -546,21 +593,46 @@ impl Runtime {
 
     // --- python ---
 
-    fn candidates(&self) -> Vec<PathBuf> {
+    fn windows() -> bool {
+        cfg!(windows)
+    }
+
+    /// The private Python's interpreter, whether or not it is there yet.
+    fn private_python_exe(&self) -> PathBuf {
+        py_runtime::python_exe_in(&self.private_python_dir(), Self::windows())
+    }
+
+    /// Every Python worth asking, best first: the override, our venv, the private Python, then
+    /// the system's (Windows: the `py` launcher's answers before bare names).
+    fn candidates(&self) -> Vec<Candidate> {
         let mut list = Vec::new();
         if let Some(python) = &self.config.python {
-            list.push(python.clone());
+            list.push(Candidate {
+                path: python.clone(),
+                kind: Kind::Override,
+            });
         }
-        let venv = self.venv_dir();
-        for rel in ["bin/python", "Scripts/python.exe"] {
-            let path = venv.join(rel);
-            if path.is_file() {
-                list.push(path);
-            }
+        let venv = py_runtime::venv_python(&self.venv_dir(), Self::windows());
+        if venv.is_file() {
+            list.push(Candidate {
+                path: venv,
+                kind: Kind::Venv,
+            });
         }
-        for name in ["python3", "python"] {
-            list.push(PathBuf::from(name));
+        let private = self.private_python_exe();
+        if private.is_file() {
+            list.push(Candidate {
+                path: private,
+                kind: Kind::Private,
+            });
         }
+        let system = py_runtime::windows_launcher_paths()
+            .into_iter()
+            .chain(py_runtime::system_names());
+        list.extend(system.map(|path| Candidate {
+            path,
+            kind: Kind::System,
+        }));
         list
     }
 
@@ -568,7 +640,7 @@ impl Runtime {
         if self.config.fake {
             "import fastapi, uvicorn"
         } else {
-            "import torch, transformers, peft, PIL, numpy, fastapi, uvicorn"
+            "import torch, torchvision, transformers, peft, PIL, numpy, fastapi, uvicorn"
         }
     }
 
@@ -590,19 +662,21 @@ impl Runtime {
             cuda: false,
         };
         for candidate in self.candidates() {
-            let Ok(out) = Command::new(&candidate)
-                .args(["-c", "import sys; assert sys.version_info >= (3, 10)"])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-            else {
+            let Candidate {
+                path: candidate,
+                kind,
+            } = candidate;
+            // It must say its own version, and be one we can run the model on. A Windows Store
+            // stub, a Python 3.9 and a Python 3.14 are all skipped here.
+            let Some(version) = py_runtime::probe_version(&candidate) else {
                 continue;
             };
-            if !out.success() {
+            if !py_runtime::suitable(kind, version) {
                 continue;
             }
-            found.get_or_insert_with(|| candidate.clone());
+            if kind != Kind::Venv {
+                found.get_or_insert_with(|| candidate.clone());
+            }
             let ready = Command::new(&candidate)
                 .args(["-c", self.imports()])
                 .stdin(Stdio::null())
@@ -655,15 +729,181 @@ impl Runtime {
             .requirements_file()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| "model/serve/requirements.txt".into());
+        let (python, pip) = if cfg!(windows) {
+            ("py -3.12", format!("{}\\Scripts\\pip", venv.display()))
+        } else {
+            ("python3", format!("{}/bin/pip", venv.display()))
+        };
         format!(
-            "python3 -m venv \"{v}\" && \"{v}/bin/pip\" install --extra-index-url https://download.pytorch.org/whl/cpu -r \"{r}\"",
+            "{python} -m venv \"{v}\" && \"{pip}\" install --extra-index-url https://download.pytorch.org/whl/cpu -r \"{r}\"",
             v = venv.display(),
             r = requirements
         )
     }
 
+    /// The Python to build the venv from: override, private, then system, never our own venv.
+    fn base_python(&self) -> Option<Candidate> {
+        let list: Vec<Candidate> = self
+            .candidates()
+            .into_iter()
+            .filter(|c| c.kind != Kind::Venv)
+            .collect();
+        py_runtime::select(&list, &py_runtime::probe_version).map(|(candidate, _)| candidate)
+    }
+
+    /// Bytes the private Python would add to this install (0 when one is not needed).
+    fn python_download_bytes(&self, fresh: bool) -> u64 {
+        if self.config.fake || self.python_info(fresh).found {
+            return 0;
+        }
+        self.config
+            .manifest
+            .python_for(py_runtime::host_target())
+            .map_or(0, |build| build.size)
+    }
+
+    /// Download, verify and unpack the private Python (a no-op when it is already there and
+    /// works). `done_before` and `total` position the byte progress within the whole install.
+    pub fn ensure_private_python(&self, done_before: u64, total: u64) -> Result<PathBuf> {
+        let exe = self.private_python_exe();
+        if let Some(version) = py_runtime::probe_version(&exe)
+            && py_runtime::suitable(Kind::Private, version)
+        {
+            return Ok(exe);
+        }
+        let build = self
+            .config
+            .manifest
+            .python_for(py_runtime::host_target())
+            .ok_or_else(|| {
+                coded(
+                    "python_missing",
+                    "Python 3.10 to 3.13 was not found, and this computer has no built-in download of it. Install Python from python.org (or set RBC_KNIGHTLM_PYTHON), then press Get the model again.",
+                )
+            })?;
+        let parts = self.root().join("partial");
+        std::fs::create_dir_all(&parts)?;
+        let tgz = parts.join("python.tar.gz");
+        self.download_verified(
+            &build.url,
+            &parts.join("python.tar.gz.part"),
+            &tgz,
+            build.size,
+            &build.sha256,
+            done_before,
+            total,
+            "python",
+        )?;
+        self.set_phase(Phase::SettingUp {
+            step: "Unpacking Python".into(),
+        });
+        let staging = self.root().join("python.staging");
+        let _ = std::fs::remove_dir_all(&staging);
+        py_runtime::extract_python(&tgz, &staging).map_err(|e| {
+            coded(
+                "python_setup_failed",
+                format!("The downloaded Python could not be unpacked: {e:#}"),
+            )
+        })?;
+        let live = self.private_python_dir();
+        let _ = std::fs::remove_dir_all(&live);
+        std::fs::rename(staging.join("python"), &live)?;
+        let _ = std::fs::remove_dir_all(&staging);
+        let _ = std::fs::remove_file(&tgz);
+        match py_runtime::probe_version(&exe) {
+            Some(version) if py_runtime::suitable(Kind::Private, version) => Ok(exe),
+            _ => Err(coded(
+                "python_setup_failed",
+                "The downloaded Python does not run on this computer. Install Python 3.10 to 3.13 from python.org, then press Get the model again.",
+            )),
+        }
+    }
+
+    fn make_venv(&self, base: &Path) -> Result<()> {
+        let venv = self.venv_dir();
+        let _ = std::fs::remove_dir_all(&venv);
+        let out = Command::new(base)
+            .args(["-m", "venv"])
+            .arg(&venv)
+            .stdin(Stdio::null())
+            .output()
+            .context("could not run Python")?;
+        ensure!(
+            out.status.success(),
+            "venv failed: {}",
+            tail_text(&out.stderr, 3)
+        );
+        Ok(())
+    }
+
+    /// `pip install -r requirements.txt` into the venv, reporting the package being fetched.
+    fn run_pip(&self, python: &Path, requirements: &Path) -> Result<()> {
+        let cache = self.root().join("pip-cache");
+        let mut child = Command::new(python)
+            .args([
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--no-input",
+                "--progress-bar",
+                "off",
+                "--extra-index-url",
+                "https://download.pytorch.org/whl/cpu",
+                "-r",
+            ])
+            .arg(requirements)
+            .env("PIP_CACHE_DIR", &cache)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("could not run pip")?;
+        let stderr = child.stderr.take();
+        let errors = std::thread::spawn(move || {
+            let mut text = Vec::new();
+            if let Some(mut stderr) = stderr {
+                let _ = stderr.read_to_end(&mut text);
+            }
+            text
+        });
+        if let Some(stdout) = child.stdout.take() {
+            for line in
+                std::io::BufRead::lines(std::io::BufReader::new(stdout)).map_while(Result::ok)
+            {
+                let line = line.trim();
+                if let Some(what) = line
+                    .strip_prefix("Collecting ")
+                    .or_else(|| line.strip_prefix("Downloading "))
+                {
+                    // "torch-2.9.1%2Bcpu-cp312-..." and "x.whl.metadata" both read as "torch".
+                    let word = what.split_whitespace().next().unwrap_or("");
+                    let word = word.split(['=', '<', '>', '~', '!']).next().unwrap_or(word);
+                    let cut = word
+                        .char_indices()
+                        .find(|(i, c)| {
+                            *c == '-' && word[i + 1..].starts_with(|d: char| d.is_ascii_digit())
+                        })
+                        .map_or(word.len(), |(i, _)| i);
+                    let what: String = word[..cut].chars().take(40).collect();
+                    self.set_phase(Phase::SettingUp {
+                        step: format!(
+                            "Installing the Python packages (about 1 GB, a few minutes): {what}"
+                        ),
+                    });
+                }
+            }
+        }
+        let status = child.wait()?;
+        let stderr = errors.join().unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&cache);
+        ensure!(status.success(), "pip failed: {}", tail_text(&stderr, 4));
+        Ok(())
+    }
+
     /// Make sure a Python with the serving dependencies exists, building a venv if needed.
-    fn ensure_python(&self) -> Result<PythonInfo> {
+    /// `total` is the whole install's byte count (the private Python is its first part).
+    fn ensure_python(&self, total: u64) -> Result<PythonInfo> {
         let info = self.python_info(true);
         if info.ready {
             return Ok(info);
@@ -674,60 +914,58 @@ impl Runtime {
                 "The fake model server needs Python with fastapi and uvicorn.",
             ));
         }
-        let Some(base) = info.path.clone() else {
-            return Err(coded(
-                "python_missing",
-                "Python 3.10 or newer was not found. Install Python from python.org, then press Get the model again.",
-            ));
+        let requirements = self.requirements_file()?;
+        let mut base = match self.base_python() {
+            Some(base) => base,
+            None => Candidate {
+                path: self.ensure_private_python(0, total)?,
+                kind: Kind::Private,
+            },
         };
         self.set_phase(Phase::SettingUp {
-            step: "Setting up Python packages (a one-time download of about 200 MB)".into(),
+            step: "Creating the Python environment".into(),
         });
-        let requirements = self.requirements_file()?;
-        let venv = self.venv_dir();
-        let status = Command::new(&base)
-            .args(["-m", "venv"])
-            .arg(&venv)
-            .stdin(Stdio::null())
-            .output()
-            .context("could not run Python")?;
-        if !status.status.success() {
+        let mut made = self.make_venv(&base.path);
+        if made.is_err()
+            && base.kind == Kind::System
+            && self
+                .config
+                .manifest
+                .python_for(py_runtime::host_target())
+                .is_some()
+        {
+            // A system Python that cannot make a venv (Debian without python3-venv): use ours.
+            base = Candidate {
+                path: self.ensure_private_python(0, total)?,
+                kind: Kind::Private,
+            };
+            self.set_phase(Phase::SettingUp {
+                step: "Creating the Python environment".into(),
+            });
+            made = self.make_venv(&base.path);
+        }
+        if let Err(error) = made {
             return Err(coded(
                 "python_setup_failed",
                 format!(
-                    "Python could not create its environment. Run this once, then try again: {}",
+                    "Python could not create its environment ({error:#}). Run this once, then try again: {}",
                     self.manual_command()
                 ),
             ));
         }
-        let pip = [venv.join("bin/python"), venv.join("Scripts/python.exe")]
-            .into_iter()
-            .find(|p| p.is_file())
-            .ok_or_else(|| {
-                coded(
-                    "python_setup_failed",
-                    "the new Python environment has no python",
-                )
-            })?;
-        let out = Command::new(&pip)
-            .args([
-                "-m",
-                "pip",
-                "install",
-                "--disable-pip-version-check",
-                "--extra-index-url",
-                "https://download.pytorch.org/whl/cpu",
-                "-r",
-            ])
-            .arg(&requirements)
-            .stdin(Stdio::null())
-            .output()
-            .context("could not run pip")?;
-        if !out.status.success() {
+        let venv_python = py_runtime::venv_python(&self.venv_dir(), Self::windows());
+        ensure!(
+            venv_python.is_file(),
+            "the new Python environment has no python"
+        );
+        self.set_phase(Phase::SettingUp {
+            step: "Installing the Python packages (about 1 GB, a few minutes)".into(),
+        });
+        if let Err(error) = self.run_pip(&venv_python, &requirements) {
             return Err(coded(
                 "python_setup_failed",
                 format!(
-                    "Installing the Python packages failed (is the network up?). Run this once, then try again: {}",
+                    "Installing the Python packages failed (is the network up? {error:#}). Run this once, then try again: {}",
                     self.manual_command()
                 ),
             ));
@@ -813,12 +1051,18 @@ impl Runtime {
         }
         std::fs::create_dir_all(self.root())?;
         let _ = std::fs::remove_file(self.marker());
-        // Fail early, before a gigabyte, when Python cannot be had at all.
-        if !self.config.fake && !self.python_info(true).found {
-            return Err(coded(
-                "python_missing",
-                "Python 3.10 or newer was not found. Install Python from python.org, then press Get the model again.",
-            ));
+        // Python first, before the big weights: the private Python download (about 50 MB) and
+        // the pip install are the likelier failures, and they are cheap to retry. A system
+        // Python that is new enough is used as is; otherwise the pinned standalone one is fetched.
+        let python_bytes = self.python_download_bytes(true);
+        let total = manifest.total_bytes() + python_bytes;
+        if !self.config.fake {
+            self.set_phase(Phase::Downloading {
+                bytes: 0,
+                total,
+                file: "python".into(),
+            });
+            self.ensure_python(total)?;
         }
         // Staging: nothing here is ever seen as installed.
         let staging = self.root().join("staging");
@@ -826,8 +1070,7 @@ impl Runtime {
         let _ = std::fs::remove_dir_all(&staging);
         std::fs::create_dir_all(staging.join("base"))?;
         std::fs::create_dir_all(&parts)?;
-        let total = manifest.total_bytes();
-        let mut finished = 0u64;
+        let mut finished = python_bytes;
         let set_progress = |this: &Self, bytes: u64, file: &str| {
             this.set_phase(Phase::Downloading {
                 bytes,
@@ -880,11 +1123,6 @@ impl Runtime {
                 format!("The adapter archive was refused: {e:#}"),
             )
         })?;
-
-        // Python (may take a while the first time).
-        if !self.config.fake {
-            self.ensure_python()?;
-        }
 
         // Atomic move into place, marker last.
         self.set_phase(Phase::Verifying);
@@ -1151,6 +1389,10 @@ runpy.run_module(m,run_name='__main__',alter_sys=True)\n";
             "mode": if self.config.fake { "fake" } else { "real" },
             "installed": self.files_installed(),
             "download_bytes": self.config.manifest.total_bytes(),
+            // What a private Python would add (0 when one is already usable), and whether this
+            // computer has a pinned one to download at all.
+            "python_download_bytes": self.python_download_bytes(false),
+            "python_downloadable": self.config.manifest.python_for(py_runtime::host_target()).is_some(),
             "python": python,
             "device_note": note,
             "dev_source": self.config.dev_base_dir.is_some(),
@@ -1169,6 +1411,16 @@ impl Drop for Runtime {
             let _ = running.child.wait();
         }
     }
+}
+
+/// The last `lines` non-empty lines of some output, for an error a person can read.
+fn tail_text(bytes: &[u8], lines: usize) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let mut last: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let start = last.len().saturating_sub(lines);
+    last.drain(..start);
+    let joined = last.join(" / ");
+    joined.chars().take(400).collect()
 }
 
 fn http_ok(url: &str) -> bool {

@@ -60,6 +60,23 @@ jobs:
           cd apps/rusty-brick-chess/frontend
           ./deploy.sh
 
+      # The official Stockfish build for this OS, checked against a pinned sha256 and smoke-tested
+      # (it must answer `uci`), placed in src-tauri/bundled-engine/ which Tauri bundles as
+      # engine/. "universal" = one binary that picks the best CPU instruction set at start, so
+      # it runs on every x86-64 CPU. See scripts/fetch_bundled_stockfish.sh.
+      - name: Bundle Stockfish
+        shell: bash
+        run: |
+          case "${{ matrix.platform }}" in
+            ubuntu-*) os=linux ;;
+            macos-*) os=macos ;;
+            windows-*) os=windows ;;
+          esac
+          scripts/fetch_bundled_stockfish.sh "$os"
+          engine=apps/rusty-brick-chess/src-tauri/bundled-engine/stockfish
+          [ "$os" = windows ] && engine="$engine.exe"
+          printf 'uci\nquit\n' | timeout 60 "$engine" | tee /dev/stderr | grep -q '^uciok'
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -77,16 +94,18 @@ jobs:
             - macOS: open the `.dmg`.
 
             Then open the app, choose **Play AI**, pick a colour and press **Start**.
-            The built-in test bot (random moves, no model) works immediately.
+            The built-in test bot (random moves, no model) works immediately. The installers
+            include the official Stockfish 19 (GPL-3.0) for analysis; no setup is needed.
 
             **Honest limits**
             - These installers are **not code-signed**. Windows SmartScreen and macOS
               Gatekeeper will warn; choose "More info > Run anyway" / right-click > Open.
             - Only Linux has been tested by hand. Windows and macOS builds come from CI and
               have not been installed by a person yet (RBCUI-LIB-09 is still open).
-            - Playing the real KnightLM model needs a one-time download of about 1 GB
-              (checksum-verified) and Python 3.10+. The model plays at about random
-              strength and does not chat yet; the test bot does.
+            - Playing the real KnightLM model is opt-in: "Get the model" downloads about
+              1.4 GB once (a private Python, the Python packages and the model weights,
+              every piece checksum-verified). You do not need to install Python. The model
+              plays at about random strength and does not chat yet; the test bot does.
             - Pre-alpha: expect rough edges. Nothing here is a strength claim.
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}

@@ -337,7 +337,10 @@ pub fn play_ai(ctx: AppCtx) -> impl IntoView {
             "not_installed" => {
                 lines.push(i18n::t(&lang, "playai.get_size").to_string());
                 can_get = true;
-                if s["python"]["found"] == false && s["mode"] == "real" {
+                if s["python"]["found"] == false
+                    && s["python_downloadable"] == false
+                    && s["mode"] == "real"
+                {
                     lines.push(i18n::t(&lang, "playai.no_python").to_string());
                 }
             }
@@ -352,7 +355,13 @@ pub fn play_ai(ctx: AppCtx) -> impl IntoView {
                 ));
             }
             "verifying" => lines.push(i18n::t(&lang, "playai.verifying").to_string()),
-            "setting_up" => lines.push(i18n::t(&lang, "playai.setting_up").to_string()),
+            "setting_up" => {
+                lines.push(i18n::t(&lang, "playai.setting_up").to_string());
+                // The step the server is on (it names the package being installed).
+                if let Some(step) = phase["step"].as_str().filter(|s| !s.is_empty()) {
+                    lines.push(step.to_string());
+                }
+            }
             "ready" => lines.push(i18n::t(&lang, "playai.ready").to_string()),
             "starting" => lines.push(i18n::t(&lang, "playai.starting").to_string()),
             "running" => lines.push(i18n::t(&lang, "playai.running").to_string()),

@@ -25,6 +25,7 @@
     ],
     "resources": {
       "../frontend/public/": "frontend/",
+      "bundled-engine/": "engine/",
       "../../../crates/contract/schemas/model_tools.json": "model-runtime/crates/contract/schemas/model_tools.json",
       "../../../model/configs/models/smolvlm-500m.json": "model-runtime/model/configs/models/smolvlm-500m.json",
       "../../../model/corpus/pipeline.py": "model-runtime/model/corpus/pipeline.py",

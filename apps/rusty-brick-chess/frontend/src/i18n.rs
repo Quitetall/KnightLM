@@ -399,6 +399,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "Binario del motor (STOCKFISH_PATH)",
     ),
     (
+        "settings.no_engine",
+        "No chess engine found. The installer ships Stockfish; if it is missing, install Stockfish and set STOCKFISH_PATH, or type the path to an engine here.",
+        "No se encontró ningún motor de ajedrez. El instalador incluye Stockfish; si falta, instala Stockfish y define STOCKFISH_PATH, o escribe aquí la ruta de un motor.",
+    ),
+    (
         "settings.model_url",
         "Model URL (chat)",
         "URL del modelo (chat)",
@@ -1361,14 +1366,14 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     (
         "playai.get_size",
-        "The model is not on this computer yet. It is a download of about 1 GB, checked against a fixed checksum.",
-        "El modelo aún no está en este equipo. Es una descarga de aproximadamente 1 GB, comprobada con una suma de verificación fija.",
+        "The model is not on this computer yet. Getting it downloads about 1.4 GB once (about 2.4 GB on disk afterwards): Python (about 70 MB, skipped if you already have Python 3.10 to 3.13), the Python packages (about 240 MB) and the model (about 1.1 GB). Every piece is checked against a fixed checksum. You do not need to install anything yourself.",
+        "El modelo aún no está en este equipo. Obtenerlo descarga unos 1,4 GB una sola vez (unos 2,4 GB en disco después): Python (unos 70 MB, se omite si ya tienes Python 3.10 a 3.13), los paquetes de Python (unos 240 MB) y el modelo (unos 1,1 GB). Cada parte se comprueba con una suma de verificación fija. No necesitas instalar nada.",
     ),
     ("playai.get_model", "Get the model", "Obtener el modelo"),
     (
         "playai.no_python",
-        "Python 3.10 or newer was not found. Install it from python.org first, or play the test bot.",
-        "No se encontró Python 3.10 o superior. Instálalo desde python.org, o juega con el bot de prueba.",
+        "Python 3.10 to 3.13 was not found and this computer has no built-in download of it. Install it from python.org first, or play the test bot.",
+        "No se encontró Python 3.10 a 3.13 y este equipo no tiene una descarga integrada. Instálalo desde python.org, o juega con el bot de prueba.",
     ),
     (
         "playai.downloading",
@@ -1382,8 +1387,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     (
         "playai.setting_up",
-        "Setting up the Python packages the model needs (one time, about 200 MB)...",
-        "Preparando los paquetes de Python que necesita el modelo (una vez, unos 200 MB)...",
+        "Setting up Python and the packages the model needs (one time, a few minutes)...",
+        "Preparando Python y los paquetes que necesita el modelo (una vez, unos minutos)...",
     ),
     (
         "playai.ready",

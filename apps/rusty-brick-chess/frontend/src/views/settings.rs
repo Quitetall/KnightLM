@@ -121,6 +121,11 @@ pub fn settings(ctx: AppCtx) -> impl IntoView {
                         on:input=move |ev| settings_engine.set(event_target_value(&ev))
                     />
                 </label>
+                {move || settings_engine.get().trim().is_empty().then(|| view! {
+                    <p class="muted engine-missing" role="status">
+                        {i18n::t(&language.get(), "settings.no_engine")}
+                    </p>
+                })}
                 <label>
                     {move || i18n::t(&language.get(), "settings.model_url")}
                     <input

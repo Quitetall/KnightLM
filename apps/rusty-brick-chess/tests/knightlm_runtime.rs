@@ -16,7 +16,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use rusty_brick_chess::model_runtime::{
-    AdapterSet, BaseSet, Config, FileSpec, Manifest, Phase, Runtime, extract_adapter,
+    AdapterSet, BaseSet, Config, FileSpec, Manifest, Phase, PythonBuild, Runtime, extract_adapter,
     install_runtime, sha256_file, verify_file,
 };
 use sha2::{Digest, Sha256};
@@ -132,6 +132,7 @@ async fn fixture() -> Fixture {
             dir: ADAPTER_DIR.into(),
             files: ADAPTER_FILES.iter().map(|(n, b)| spec(n, b)).collect(),
         },
+        python: Vec::new(),
     };
     Fixture {
         base,
@@ -680,4 +681,136 @@ async fn the_routes_drive_the_whole_flow() {
     let (_, body) = call("POST", "/api/knightlm/runtime/stop").await;
     assert_eq!(body["phase"]["state"], "ready");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// --- the private Python ---------------------------------------------------------------------
+
+#[test]
+fn the_embedded_manifest_pins_a_python_for_each_platform_and_refuses_other_sources() {
+    let manifest = Manifest::pinned();
+    let targets: Vec<&str> = manifest.python.iter().map(|b| b.target.as_str()).collect();
+    for want in [
+        "linux-x86_64",
+        "windows-x86_64",
+        "macos-aarch64",
+        "macos-x86_64",
+    ] {
+        assert!(targets.contains(&want), "no pinned Python for {want}");
+    }
+    let linux = manifest.python_for(Some("linux-x86_64")).unwrap();
+    assert_eq!(
+        linux.sha256,
+        "386028a53cceb3be3c1ef8d8828f707d7d3aab67631049f9806e0fb3665a40c8"
+    );
+    assert!(
+        linux
+            .url
+            .starts_with("https://github.com/astral-sh/python-build-standalone/releases/download/")
+    );
+    assert!(manifest.python_for(Some("linux-riscv64")).is_none());
+    assert!(manifest.python_for(None).is_none());
+    let mut other = manifest.clone();
+    other.python[0].url = "https://example.com/python.tar.gz".into();
+    assert!(other.check_pinned().is_err(), "another host is refused");
+    let mut other = manifest.clone();
+    other.python[1].sha256 = "nothex".into();
+    assert!(other.check_shape().is_err());
+}
+
+/// A fake `install_only` tarball: `python/bin/python3` answers `3.12.1` like a Python would.
+#[cfg(unix)]
+fn fake_python_tgz() -> Vec<u8> {
+    let script = b"#!/bin/sh\necho 3.12.1\n";
+    let mut tar_bytes = Vec::new();
+    {
+        let mut builder = tar::Builder::new(&mut tar_bytes);
+        let mut header = tar::Header::new_gnu();
+        header.set_size(script.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "python/bin/python3", &script[..])
+            .unwrap();
+        builder.finish().unwrap();
+    }
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    gz.write_all(&tar_bytes).unwrap();
+    gz.finish().unwrap()
+}
+
+#[cfg(all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[test]
+fn the_private_python_is_downloaded_verified_unpacked_and_probed() {
+    let Some(target) = rusty_brick_chess::py_runtime::host_target() else {
+        return;
+    };
+    let dir = scratch("privpy");
+    let tgz = fake_python_tgz();
+    std::fs::write(dir.join("py.tar.gz"), &tgz).unwrap();
+    let build = |sha: String| PythonBuild {
+        target: target.into(),
+        version: "3.12.1".into(),
+        url: format!("file://{}", dir.join("py.tar.gz").display()),
+        size: tgz.len() as u64,
+        sha256: sha,
+    };
+    let mut manifest = tiny_manifest();
+    manifest.python = vec![build(sha(&tgz))];
+    let data = dir.join("data");
+    let rt = install_runtime(&data, config(&manifest));
+    let exe = rt.ensure_private_python(0, tgz.len() as u64).unwrap();
+    assert!(exe.ends_with("knightlm/python/bin/python3"), "{exe:?}");
+    assert!(
+        !data.join("knightlm/python.staging").exists(),
+        "no staging left"
+    );
+    // A second call finds it and downloads nothing (the source is gone).
+    std::fs::remove_file(dir.join("py.tar.gz")).unwrap();
+    assert_eq!(rt.ensure_private_python(0, 1).unwrap(), exe);
+
+    // A wrong pin is refused, discarded, and nothing is unpacked.
+    std::fs::write(dir.join("py.tar.gz"), &tgz).unwrap();
+    let mut bad = tiny_manifest();
+    bad.python = vec![build(sha(b"something else"))];
+    let data2 = dir.join("data2");
+    let rt2 = install_runtime(&data2, config(&bad));
+    let error = rt2.ensure_private_python(0, 1).unwrap_err();
+    assert!(format!("{error:#}").contains("checksum"), "{error:#}");
+    assert!(!data2.join("knightlm/python").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_computer_with_no_pinned_python_says_so_plainly() {
+    let dir = scratch("nopy");
+    let mut manifest = tiny_manifest();
+    manifest.python = Vec::new();
+    let rt = install_runtime(&dir.join("d"), config(&manifest));
+    let error = rt.ensure_private_python(0, 1).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("no built-in download"),
+        "{error:#}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn tiny_manifest() -> Manifest {
+    Manifest {
+        schema: 1,
+        base: BaseSet {
+            repo: "test/fake".into(),
+            revision: "0".into(),
+            license: "test".into(),
+            url_prefix: "http://127.0.0.1:1/".into(),
+            files: Vec::new(),
+        },
+        adapter: AdapterSet {
+            url: "http://127.0.0.1:1/a.tgz".into(),
+            sha256: sha(b"a"),
+            size: 1,
+            dir: ADAPTER_DIR.into(),
+            files: Vec::new(),
+        },
+        python: Vec::new(),
+    }
 }
