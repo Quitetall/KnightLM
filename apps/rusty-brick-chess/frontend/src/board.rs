@@ -1382,7 +1382,7 @@ pub fn Board(
                 <div
                     class="board-wrap"
                     style=move || {
-                        let viewport_limit = if board_only { "max(240px, 100dvh - 300px)" } else { "calc(100vh - 240px)" };
+                        let viewport_limit = if board_only { "max(240px, 100dvh - var(--board-reserve, 300px))" } else { "calc(100vh - 240px)" };
                         format!("width: min({}%, {viewport_limit}); margin-inline: auto;", board_pct.get())
                     }
                     tabindex="0"

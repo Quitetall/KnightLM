@@ -87,23 +87,23 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "RustyBrickChess ${{ github.ref_name }}"
           releaseBody: |
-            RustyBrickChess desktop builds for Linux, macOS and Windows. A tag with a
-            `-` in it (for example `v0.1.0-prealpha.1`) is published as a pre-release.
+            RustyBrickChess desktop pre-alpha for Linux and Windows (no macOS build yet:
+            GitHub has not assigned a macOS runner; build from source on a Mac). A tag with
+            a `-` in it (for example `v0.1.0-prealpha.1`) is published as a pre-release.
 
             **Install**
             - Windows: run the `.exe` (or the `.msi`).
-            - Linux: `chmod +x` the `.AppImage` and run it, or install the `.deb`.
-            - macOS: open the `.dmg`.
+            - Linux: `chmod +x` the `.AppImage` and run it, or install the `.deb` / `.rpm`.
 
             Then open the app, choose **Play AI**, pick a colour and press **Start**.
             The built-in test bot (random moves, no model) works immediately. The installers
             include the official Stockfish 19 (GPL-3.0) for analysis; no setup is needed.
 
             **Honest limits**
-            - These installers are **not code-signed**. Windows SmartScreen and macOS
-              Gatekeeper will warn; choose "More info > Run anyway" / right-click > Open.
-            - Only Linux has been tested by hand. Windows and macOS builds come from CI and
-              have not been installed by a person yet (RBCUI-LIB-09 is still open).
+            - These installers are **not code-signed**. Windows SmartScreen
+              will warn; choose "More info > Run anyway".
+            - Only Linux has been run by hand. The Windows installer comes from CI and has
+              not been installed by a person yet (RBCUI-LIB-09 is still open).
             - Playing the real KnightLM model is opt-in: "Get the model" downloads about
               1.4 GB once (a private Python, the Python packages and the model weights,
               every piece checksum-verified). You do not need to install Python. The model

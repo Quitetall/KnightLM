@@ -793,6 +793,21 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                 })}
                             </p>
 
+                            <div class="match-workspace">
+                            <Board
+                                pgn=Signal::derive(String::new)
+                                load_fen=Signal::derive(move || Some((0, fen.clone(), "standard".into())))
+                                orientation=Signal::derive(move || orientation.clone())
+                                board_only=true
+                                read_only=finished || !human_turn
+                                interaction_disabled=busy.into()
+                                shapes=Signal::derive(move || coach_marks.get())
+                                lang=language.into()
+                                on_move=Callback::new(move |(uci, _, _): (String, String, String)| {
+                                    act("move", serde_json::json!({"mv": uci}));
+                                })
+                            />
+                            <aside class="match-inspector">
                             <div class="match-status" role="status">
                                 {move || if let Some(result) = &result_for_line {
                                     result.clone()
@@ -816,19 +831,6 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                             })}
                             <p class="match-error" role="alert">{move || message.get()}</p>
 
-                            <Board
-                                pgn=Signal::derive(String::new)
-                                load_fen=Signal::derive(move || Some((0, fen.clone(), "standard".into())))
-                                orientation=Signal::derive(move || orientation.clone())
-                                board_only=true
-                                read_only=finished || !human_turn
-                                interaction_disabled=busy.into()
-                                shapes=Signal::derive(move || coach_marks.get())
-                                lang=language.into()
-                                on_move=Callback::new(move |(uci, _, _): (String, String, String)| {
-                                    act("move", serde_json::json!({"mv": uci}));
-                                })
-                            />
 
                             <ol class="match-moves">
                                 {moves.iter().enumerate().map(|(index, mv)| {
@@ -967,6 +969,8 @@ pub fn play(ctx: AppCtx) -> impl IntoView {
                                     {move || i18n::t(&language.get(), "play.export")}
                                 </button>
                                 <pre class="match-pgn">{pgn}</pre>
+                            </div>
+                            </aside>
                             </div>
                         }.into_any()
                     }}

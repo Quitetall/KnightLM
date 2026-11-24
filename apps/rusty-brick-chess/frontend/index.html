@@ -321,6 +321,18 @@
 
     /* ---- workspaces + home ---- */
     .workspaces { display: flex; align-items: center; gap: .35rem; flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; padding-bottom: .15rem; }
+
+    /* ---- Fit the playing view to the window ----
+       The board is sized by the window height as well as its column, and the setup
+       controls and tab bars get out of the way while a game is on. */
+    .match-workspace { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(12rem, 1fr); gap: 1rem; align-items: start; --board-reserve: 8rem; }
+    .match-inspector { min-width: 0; display: grid; gap: .55rem; align-content: start; }
+    .match-inspector .match-pgn { overflow: auto; }
+    @media (max-width: 900px) { .match-workspace { --board-reserve: 22rem; } }
+    @media (max-width: 620px) { .match-workspace { grid-template-columns: minmax(0, 1fr); } }
+    .main:has(.match-workspace) > .workspaces,
+    .play:has(.match-workspace) .play-head,
+    .play:has(.match-workspace) .play-more { display: none; }
     .ws-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .09em; color: #6f6f7a; margin-right: .2rem; }
     .ws-tab { display: flex; align-items: stretch; border: 1px solid #31313c; border-radius: 7px; background: #1c1c22; overflow: hidden; max-width: 260px; flex: 0 0 auto; }
     .ws-tab.active { border-color: #3f5f45; background: #24312a; }
