@@ -75,7 +75,9 @@ jobs:
           scripts/fetch_bundled_stockfish.sh "$os"
           engine=apps/rusty-brick-chess/src-tauri/bundled-engine/stockfish
           [ "$os" = windows ] && engine="$engine.exe"
-          printf 'uci\nquit\n' | timeout 60 "$engine" | tee /dev/stderr | grep -q '^uciok'
+          reply="$(printf 'uci\nquit\n' | timeout 60 "$engine")"
+          echo "$reply" | head -5
+          echo "$reply" | grep -q '^uciok'
 
       - uses: tauri-apps/tauri-action@v0
         env:
