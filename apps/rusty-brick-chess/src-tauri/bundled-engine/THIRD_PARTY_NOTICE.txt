@@ -1,0 +1,25 @@
+Third-party software shipped with RustyBrickChess
+=================================================
+
+Stockfish 19 (chess engine)
+---------------------------
+Files:    engine/stockfish (stockfish.exe on Windows)
+Licence:  GNU General Public License version 3 (GPL-3.0), full text in
+          COPYING-STOCKFISH-GPLv3.txt next to this file.
+Authors:  The Stockfish developers (see
+          https://github.com/official-stockfish/Stockfish/blob/sf_19/AUTHORS)
+Source:   https://github.com/official-stockfish/Stockfish/tree/sf_19
+          (the exact source of the shipped binary; tag sf_19)
+Binary:   the unmodified official release build "stockfish-<os>-universal" from
+          https://github.com/official-stockfish/Stockfish/releases/tag/sf_19
+          downloaded at build time and checked against a pinned SHA-256
+          (scripts/fetch_bundled_stockfish.sh in the RustyBrickChess source).
+
+RustyBrickChess starts Stockfish as a separate program and talks to it over the UCI
+protocol on its standard input and output. It is not linked into RustyBrickChess, which is
+AGPL-3.0-only. You may replace the bundled binary with any other build of Stockfish (or any
+UCI engine): set STOCKFISH_PATH, or choose an engine in Settings.
+
+Per GPL-3.0 section 6, the corresponding source for the Stockfish binary is available at the
+link above for as long as this release is offered. To receive a copy of it by other means,
+open an issue at https://github.com/Quitetall/KnightLM.

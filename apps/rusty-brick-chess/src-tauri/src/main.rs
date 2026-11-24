@@ -158,12 +158,15 @@ fn configure_environment(app: &AppHandle) {
             };
             std::env::set_var("RBC_DB", chosen);
         }
-        // Stockfish is not bundled: use the one on PATH unless told otherwise.
-        // A path chosen in Settings or the File menu still wins.
-        if std::env::var_os("STOCKFISH_PATH").is_none()
-            && let Some(engine) = find_engine()
-        {
-            std::env::set_var("STOCKFISH_PATH", engine);
+        // Engine order: STOCKFISH_PATH, the Stockfish this installer ships (resource dir),
+        // then a `stockfish` on PATH as a last resort, else none (the app says so).
+        // A path chosen in Settings or the File menu still wins at request time.
+        if std::env::var_os("STOCKFISH_PATH").is_none() {
+            let resource = app.path().resource_dir().ok();
+            let bundled = rusty_brick_chess::engine_locate::resolve_here(resource.as_deref());
+            if let Some(engine) = bundled.map(|e| e.path).or_else(find_engine) {
+                std::env::set_var("STOCKFISH_PATH", engine);
+            }
         }
     }
 }

@@ -132,6 +132,7 @@ async fn fixture() -> Fixture {
             dir: ADAPTER_DIR.into(),
             files: ADAPTER_FILES.iter().map(|(n, b)| spec(n, b)).collect(),
         },
+        python: Vec::new(),
     };
     Fixture {
         base,

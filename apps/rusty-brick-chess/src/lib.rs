@@ -9,12 +9,14 @@ pub mod api;
 pub mod archive;
 pub mod console;
 pub mod domain_api;
+pub mod engine_locate;
 pub mod importer;
 mod lamu_runtime;
 pub mod launch_guard;
 mod mcp;
 pub mod model_runtime;
 pub mod pieces;
+pub mod py_runtime;
 mod provider_api;
 mod providers;
 pub mod vision;
@@ -461,7 +463,8 @@ pub fn state_from_env() -> anyhow::Result<(api::AppState, String)> {
         db,
         db_dir,
         data_dir,
-        engine_path: std::env::var("STOCKFISH_PATH").ok(),
+        // STOCKFISH_PATH, else the Stockfish the installer ships, else none.
+        engine_path: engine_locate::resolve_here(None).map(|e| e.path.display().to_string()),
         model_url: std::env::var("MODEL_URL").ok(),
         default_depth: std::env::var("RBC_DEPTH")
             .ok()
@@ -503,10 +506,7 @@ pub async fn serve_listener(
         .map(|local| local.to_string())
         .unwrap_or_else(|_| "unknown".to_string());
     println!("RustyBrickChess on http://{bound}  (db: {db_path})");
-    println!(
-        "  STOCKFISH_PATH: {:?}",
-        std::env::var("STOCKFISH_PATH").ok()
-    );
+    println!("  engine: {:?}", engine_locate::resolve_here(None));
     println!("  MODEL_URL: {:?}", std::env::var("MODEL_URL").ok());
     axum::serve(
         listener,

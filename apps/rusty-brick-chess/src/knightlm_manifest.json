@@ -28,5 +28,11 @@
       {"name": "MODEL_CARD.md", "size": 1015, "sha256": "2d4686becc6d4411fd272ff89b56ca50b742895ff1415d9cbd0b1d4d101b362a"},
       {"name": "train_summary.json", "size": 436, "sha256": "d0adcf9927e5111c2d680cfb21255f4036c6e386bc02eb0c5c87d7c6e82e60f3"}
     ]
-  }
+  },
+  "python": [
+    {"target": "linux-x86_64", "version": "3.12.16", "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261123/cpython-3.12.16%2B20261123-x86_64-unknown-linux-gnu-install_only.tar.gz", "size": 68189277, "sha256": "386028a53cceb3be3c1ef8d8828f707d7d3aab67631049f9806e0fb3665a40c8"},
+    {"target": "windows-x86_64", "version": "3.12.16", "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261123/cpython-3.12.16%2B20261123-x86_64-pc-windows-msvc-install_only.tar.gz", "size": 47477423, "sha256": "93584a7bee14bf6b91a03efdbb128419147279a64934fbc95934c9f53e1191e5"},
+    {"target": "macos-aarch64", "version": "3.12.16", "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261123/cpython-3.12.16%2B20261123-aarch64-apple-darwin-install_only.tar.gz", "size": 25395250, "sha256": "4068a8a2355083e29f84138c1c6ce70654e5833424bbe79e63289031a11fd8b2"},
+    {"target": "macos-x86_64", "version": "3.12.16", "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261123/cpython-3.12.16%2B20261123-x86_64-apple-darwin-install_only.tar.gz", "size": 25110379, "sha256": "4d723f281a8f3e4fec0d1c3efb756986226d66d163c071f550bc65949101222f"}
+  ]
 }
