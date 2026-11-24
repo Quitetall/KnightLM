@@ -568,6 +568,10 @@
     .destination-grid button:hover { background: #314331; }
     .destination-grid button:focus-visible { outline: 2px solid #a4c491; outline-offset: 2px; }
     .main > .destination-hub { flex: 0 1 auto; }
+    .play-switch { display: inline-flex; gap: 2px; margin: 0 0 .75rem; padding: 2px; border: 1px solid #3a4a39; border-radius: 8px; background: #1f271f; }
+    .play-switch button { padding: .4rem .9rem; border: 0; border-radius: 6px; background: transparent; color: #cfd9c8; font: 600 .9rem system-ui, sans-serif; cursor: pointer; }
+    .play-switch button.active { background: #3d5a3a; color: #fff; }
+    .play-switch button:focus-visible { outline: 2px solid #a4c491; outline-offset: 2px; }
     .topbar:has(.status:empty):not(:has(input)) { display: none; }
     .main { min-width: 0; }
     @media (max-width: 1000px) {

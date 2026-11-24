@@ -266,6 +266,21 @@ fn provider_streams_content_in_order_and_reports_usage() {
 }
 
 #[test]
+fn provider_hands_back_the_knightlm_extension_and_sends_one() {
+    let body = r#"{"id":"chatcmpl-2","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"submit_move","arguments":"{\"reasoning\":\"r\",\"move\":\"e2e4\"}"}}]},"finish_reason":"tool_calls"}],"knightlm":{"path":"model","code":"ok","raw_code":"ok","legal":true,"manifest_hash":"h"}}"#;
+    let mock = Mock::start(vec![Reply::Json(body.to_string())]);
+    let provider = provider(&mock, RetryPolicy::none());
+    let request = ask(Vec::new())
+        .with_stream(false)
+        .with_knightlm(serde_json::json!({"turn": "play"}));
+    let (result, _) = run(&provider, &request, &Cancellation::new());
+    let response = result.expect("a response");
+    let extension = response.knightlm.expect("the extension is kept");
+    assert_eq!(extension["path"], "model");
+    assert_eq!(response.tool_calls[0].name, "submit_move");
+}
+
+#[test]
 fn provider_keeps_reasoning_deltas_out_of_the_answer() {
     let mock = Mock::start(vec![Reply::Sse(vec![
         sse(r#"{"choices":[{"index":0,"delta":{"reasoning_content":"because e4 "}}]}"#),

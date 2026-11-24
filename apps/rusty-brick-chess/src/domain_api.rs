@@ -1531,6 +1531,19 @@ fn registered_seat(
     Ok(Some((format!("{base}/chat/completions"), key)))
 }
 
+/// Whether a seat names a registered provider that is a KnightLM server. Such a seat is
+/// answered through the seam contract (`MoveHarness::Served*`); every other seat keeps the
+/// generic prompts.
+fn is_knightlm_provider(state: &AppState, seat: &rbc_ai::protocol::ModelRef) -> bool {
+    // The built-in test bot speaks the same contract (it is not a model).
+    rbc_ai::provider::is_test_bot(&seat.provider)
+        || seat
+            .provider
+            .strip_prefix(crate::provider_api::REGISTERED_PREFIX)
+            .and_then(|id| state.db.provider(id).ok().flatten())
+            .is_some_and(|row| row.kind == crate::providers::KNIGHTLM_KIND)
+}
+
 /// `POST /api/ai/matches/{id}/model-move`
 ///
 /// Asks the seat a model holds for one move. The move is validated against the
@@ -1607,6 +1620,7 @@ pub async fn model_match_move(
             None,
         ),
     };
+    let served = is_knightlm_provider(&state, &answering);
     let playing = tokio::task::spawn_blocking(move || {
         let provider = provider_for(&url, &answering, true, native_thinking, key.as_deref())?;
         let cancel = rbc_ai::provider::Cancellation::new();
@@ -1634,7 +1648,14 @@ pub async fn model_match_move(
             // The harness follows the chat toggle: coach with chat on, play tools
             // with it off. A seat that never asked for tools (and no env flag)
             // keeps the existing path.
-            let harness = if !tools_harness {
+            let harness = if served {
+                // A KnightLM server speaks the seam contract, chat on or off.
+                if chat_on {
+                    rbc_ai::play::MoveHarness::ServedCoach(context)
+                } else {
+                    rbc_ai::play::MoveHarness::ServedPlay
+                }
+            } else if !tools_harness {
                 rbc_ai::play::MoveHarness::Default
             } else if chat_on {
                 rbc_ai::play::MoveHarness::Coach(context)
@@ -1755,9 +1776,28 @@ pub async fn chat_match(
         .map_err(ApiError::BadRequest)?;
     let message = format!("{context}{}", body.message);
     let user_text = body.message;
+    let user_text_for_chat = user_text.clone();
+    let served = is_knightlm_provider(&state, &seat);
+    let coach_context = rbc_ai::play::CoachContext {
+        summary: summary.clone(),
+        recent: recent.clone(),
+    };
     let reply = tokio::task::spawn_blocking(move || {
         let provider = provider_for(&url, &seat, false, false, key.as_deref())?;
         let cancel = rbc_ai::provider::Cancellation::new();
+        if served {
+            // A KnightLM server (or the test bot) is asked through the seam contract.
+            return rbc_ai::play::served_chat(
+                &game,
+                &*provider,
+                &seat,
+                &policy,
+                &coach_context,
+                &user_text_for_chat,
+                &cancel,
+            )
+            .map_err(|error| error.message);
+        }
         rbc_ai::play::request_chat(&game, &*provider, &seat, &policy, &message, &cancel)
             .map_err(|error| error.message)
     })
@@ -1799,6 +1839,10 @@ fn match_endpoint(
     default: Option<&str>,
     seat: &rbc_ai::protocol::ModelRef,
 ) -> Result<String, ApiError> {
+    if rbc_ai::provider::is_test_bot(&seat.provider) {
+        // In process: there is no URL, and nothing to reach.
+        return Ok("rbc-test-bot://in-process".to_string());
+    }
     if seat.provider == rbc_ai::provider::SERVE_PROVIDER {
         return Ok(crate::providers::knightlm_serve_url());
     }
@@ -1838,6 +1882,11 @@ fn provider_for(
     thinking: bool,
     key: Option<&str>,
 ) -> Result<Box<dyn rbc_ai::provider::Provider>, String> {
+    if rbc_ai::provider::is_test_bot(&seat.provider) {
+        return Ok(Box::new(rbc_ai::provider::TestBotProvider::new(
+            crate::providers::test_bot_seed(),
+        )));
+    }
     if seat.provider == rbc_ai::provider::SERVE_PROVIDER {
         // The served checkpoint only plays moves; it has no chat endpoint.
         if !move_only {
@@ -1918,6 +1967,8 @@ async fn watch_match_steps(
             None,
         ),
     };
+    let white_served = is_knightlm_provider(state, &seats.white);
+    let black_served = is_knightlm_provider(state, &seats.black);
 
     tokio::task::spawn_blocking(move || {
         let cancel = rbc_ai::provider::Cancellation::new();
@@ -1927,13 +1978,13 @@ async fn watch_match_steps(
                 break;
             }
             // One provider per seat: the model name travels with the seat.
-            let (seat, (url, key)) = if game.turn() == shakmaty::Color::White {
-                (&seats.white, &white_target)
+            let (seat, (url, key), served) = if game.turn() == shakmaty::Color::White {
+                (&seats.white, &white_target, white_served)
             } else {
-                (&seats.black, &black_target)
+                (&seats.black, &black_target, black_served)
             };
             let provider = provider_for(url, seat, true, false, key.as_deref())?;
-            match rbc_ai::play::watch_step(&mut game, &*provider, &seats, &cancel) {
+            match rbc_ai::play::watch_step_with(&mut game, &*provider, &seats, served, &cancel) {
                 Ok(step) => steps.push(step),
                 // A model that cannot produce a legal move stops the run; the
                 // plies already played are kept.

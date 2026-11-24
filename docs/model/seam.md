@@ -67,7 +67,17 @@ conveniences for `knightlm-uci`, `knightlm-match` and the evaluator.
 
 RBC reaches this endpoint with its existing OpenAI-compatible provider
 (`crates/ai/src/provider/openai.rs`, `ProviderConfig::openai_compatible`); any other
-OpenAI-compatible server works the same. `provider/knightlm_serve.rs` still serves the
+OpenAI-compatible server works the same. A provider row of kind `knightlm` (the "KnightLM
+server" preset, or any row whose `/v1/models` says `owned_by: "knightlm"` when tested) is
+answered through this contract (`MoveHarness::ServedPlay` and `ServedCoach` in
+`crates/ai/src/play.rs`): the packet always carries `legal_moves`; a play request is
+`play_prompt(packet)` with `knightlm: {turn: "play", mode: "raw"}`; a coach request is the chat
+as `user`/`assistant` messages, the bare packet as the last user message and
+`knightlm: {turn: "coach", mode: "raw", summary}` (the server renders the coach prompt, so the app
+sends none of its text). The app gates the move itself; a refused or illegal move is followed by one
+`mode: "constrained"` request, whose move is labelled a fallback. The wire tests are
+`crates/ai/tests/served_harness.rs`, `model.serve.test_chat.AppRequestTests` and
+`apps/rusty-brick-chess/tests/knightlm_seam.rs` (the real routes against `model.serve.fake_server`). `provider/knightlm_serve.rs` still serves the
 `/v1/move` seat adapter.
 
 ## Versioning

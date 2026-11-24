@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::api::{ApiError, AppState};
 use crate::providers::{
     LOCAL_CANDIDATES, LocalEndpoint, ModelCard, ProbeError, acceptable_base_url, capabilities_of,
-    probe_models, resolve_secret, validate_key_ref,
+    probe_endpoint_models, resolve_secret, validate_key_ref,
 };
 
 #[derive(Deserialize)]
@@ -85,6 +85,7 @@ pub async fn add_provider(
     State(state): State<AppState>,
     Json(mut body): Json<NewProvider>,
 ) -> Result<Json<Value>, ApiError> {
+    let mut kind = crate::providers::OPENAI_KIND;
     if let Some(id) = body.preset.as_deref() {
         let preset = crate::providers::preset(id)
             .ok_or_else(|| ApiError::BadRequest(format!("unknown preset `{id}`")))?;
@@ -97,6 +98,8 @@ pub async fn add_provider(
         if body.key_ref.is_none() {
             body.key_ref = preset.key_ref;
         }
+        // A KnightLM preset stores the kind, so the app speaks the seam contract to it.
+        kind = preset.kind;
     }
     let label = body.label.trim();
     if label.is_empty() {
@@ -114,7 +117,7 @@ pub async fn add_provider(
         .db
         .add_provider(
             label,
-            "openai_compatible",
+            kind,
             body.base_url.trim(),
             body.key_ref
                 .as_deref()
@@ -193,8 +196,10 @@ pub async fn refresh_models(
         return Err(ApiError::NotFound);
     };
     let started = std::time::Instant::now();
-    let (models, detail) = fetch_models(&row.base_url, row.key_ref.as_deref()).await;
+    let (models, detail, knightlm) =
+        fetch_models_probed(&row.base_url, row.key_ref.as_deref()).await;
     let latency = started.elapsed().as_millis() as u64;
+    remember_knightlm(&state, &row, knightlm);
     let caps: Vec<ModelCard> = models.iter().map(|id| capabilities_of(id)).collect();
     state
         .db
@@ -229,7 +234,7 @@ pub struct ProbeBody {
 async fn run_probe(base_url: String, key_ref: Option<String>, model: Option<String>) -> Value {
     let started = std::time::Instant::now();
     let outcome = tokio::task::spawn_blocking(move || {
-        probe_models(&base_url, key_ref.as_deref(), model.as_deref())
+        probe_endpoint_models(&base_url, key_ref.as_deref(), model.as_deref())
     })
     .await
     .unwrap_or_else(|_| {
@@ -240,13 +245,15 @@ async fn run_probe(base_url: String, key_ref: Option<String>, model: Option<Stri
     });
     let latency = started.elapsed().as_millis() as u64;
     match outcome {
-        Ok(models) => json!({
+        Ok(probed) => json!({
             "ok": true, "error": null, "detail": "",
-            "models": models.len(), "model_ids": models, "latency_ms": latency,
+            "models": probed.ids.len(), "model_ids": probed.ids, "latency_ms": latency,
+            "knightlm": probed.knightlm,
         }),
         Err(error) => json!({
             "ok": false, "error": { "code": error.code, "message": error.message },
             "detail": error.message, "models": 0, "model_ids": [], "latency_ms": latency,
+            "knightlm": false,
         }),
     }
 }
@@ -261,7 +268,9 @@ pub async fn test_provider(
         return Err(ApiError::NotFound);
     };
     let model = body.and_then(|Json(body)| body.model);
-    Ok(Json(run_probe(row.base_url, row.key_ref, model).await))
+    let answer = run_probe(row.base_url.clone(), row.key_ref.clone(), model).await;
+    remember_knightlm(&state, &row, answer["knightlm"] == json!(true));
+    Ok(Json(answer))
 }
 
 /// Test an endpoint before saving it. Nothing is stored.
@@ -272,6 +281,19 @@ pub async fn probe_endpoint(Json(body): Json<ProbeBody>) -> Json<Value> {
 /// Presets a person can start a provider row from.
 pub async fn list_presets() -> Json<Value> {
     Json(json!({ "presets": crate::providers::presets() }))
+}
+
+/// The built-in test bot: the seat to give a match, and what it is. Always available; it
+/// needs no Python, no model, no GPU and no network, and it is not a model.
+pub async fn test_bot_info() -> Json<Value> {
+    Json(json!({
+        "provider": rbc_ai::provider::TEST_BOT_PROVIDER,
+        "model": rbc_ai::provider::TEST_BOT_MODEL,
+        "label": rbc_ai::provider::TEST_BOT_LABEL,
+        "is_model": false,
+        "available": true,
+        "note": "A test bot: it plays random legal moves and its chat is a canned reply. It is not the KnightLM model.",
+    }))
 }
 
 /// What is running on this machine right now.
@@ -329,13 +351,34 @@ pub async fn scan_local(_state: State<AppState>) -> Json<Value> {
 
 /// Fetch the model list from an endpoint. Returns ids and, when it failed, why.
 async fn fetch_models(base_url: &str, key_ref: Option<&str>) -> (Vec<String>, Option<String>) {
+    let (ids, detail, _) = fetch_models_probed(base_url, key_ref).await;
+    (ids, detail)
+}
+
+/// [`fetch_models`] that also says whether the server identified itself as KnightLM.
+async fn fetch_models_probed(
+    base_url: &str,
+    key_ref: Option<&str>,
+) -> (Vec<String>, Option<String>, bool) {
     let (base_url, key_ref) = (base_url.to_string(), key_ref.map(str::to_string));
-    match tokio::task::spawn_blocking(move || probe_models(&base_url, key_ref.as_deref(), None))
-        .await
+    match tokio::task::spawn_blocking(move || {
+        probe_endpoint_models(&base_url, key_ref.as_deref(), None)
+    })
+    .await
     {
-        Ok(Ok(ids)) => (ids, None),
-        Ok(Err(error)) => (Vec::new(), Some(error.message)),
-        Err(error) => (Vec::new(), Some(error.to_string())),
+        Ok(Ok(probed)) => (probed.ids, None, probed.knightlm),
+        Ok(Err(error)) => (Vec::new(), Some(error.message), false),
+        Err(error) => (Vec::new(), Some(error.to_string()), false),
+    }
+}
+
+/// A connection test that finds a KnightLM server (`owned_by: "knightlm"`) stores the kind,
+/// so a server added without the preset is still answered through the seam contract.
+fn remember_knightlm(state: &AppState, row: &rbc_db::ProviderRow, knightlm: bool) {
+    if knightlm && row.kind != crate::providers::KNIGHTLM_KIND {
+        let _ = state
+            .db
+            .set_provider_kind(&row.id, crate::providers::KNIGHTLM_KIND);
     }
 }
 

@@ -13,6 +13,7 @@
 //! a model that answers with an illegal move gets [`MatchConfig::max_retries`]
 //! chances, and the match never records a move the rules refuse.
 
+use knightlm_contract::openai::KnightlmExt;
 use knightlm_core::state::{GameRecord, GameState, PacketOptions, RuleSession, START_FEN};
 
 use crate::coach::{
@@ -20,15 +21,19 @@ use crate::coach::{
 };
 use crate::game::{Match, MatchConfig, MatchMove, Player};
 use crate::model_turn::{
-    ChatLine, ProvisionalTracker, READ_BUDGET, coach_prompt, execute_read, format_tool_result,
-    play_prompt, strip_provisional_lines,
+    ChatLine, ProvisionalTracker, READ_BUDGET, chat_context, coach_prompt, execute_read,
+    format_tool_result, play_prompt, strip_provisional_lines,
 };
 use crate::protocol::{ErrorInfo, ModelRef, StopReason};
 use crate::provider::{
-    Cancellation, ChatMessage, CompletionRequest, Provider, ProviderEvent, error, error_code,
+    Cancellation, ChatMessage, CompletionRequest, CompletionResponse, Provider, ProviderEvent,
+    error, error_code,
 };
+use serde_json::{Value, json};
+
 use crate::tools::{
-    ModelCallError, ModelMode, ModelToolbox, SubmitMoveGate, SubmitOutcome, parse_model_call,
+    ModelCall, ModelCallError, ModelMode, ModelToolbox, SubmitMoveGate, SubmitOutcome,
+    parse_model_call,
 };
 
 /// Which kind of game this is.
@@ -496,6 +501,19 @@ pub fn watch_step(
     seats: &WatchSeats,
     cancel: &Cancellation,
 ) -> Result<WatchStep, ErrorInfo> {
+    watch_step_with(game, provider, seats, false, cancel)
+}
+
+/// [`watch_step`], where `served` says the side to move is a KnightLM server: its move is
+/// then asked through the seam contract ([`MoveHarness::ServedPlay`]) instead of the generic
+/// prompt. Every other seat is unchanged.
+pub fn watch_step_with(
+    game: &mut Match,
+    provider: &dyn Provider,
+    seats: &WatchSeats,
+    served: bool,
+    cancel: &Cancellation,
+) -> Result<WatchStep, ErrorInfo> {
     if game.is_paused() {
         return Err(error(error_code::UNSUPPORTED, "the game is paused", false));
     }
@@ -519,7 +537,11 @@ pub fn watch_step(
         allow_engine: false,
         allow_takeback: false,
     };
-    let played = request_move(game, provider, model, &policy, cancel)?;
+    let played = if served {
+        served_play(game, provider, model, &policy, cancel)?.played
+    } else {
+        request_move(game, provider, model, &policy, cancel)?
+    };
     let annotated = match played.reasoning.as_deref() {
         Some(reasoning) if !reasoning.trim().is_empty() => {
             game.annotate_ply(played.mv.ply, reasoning)
@@ -550,6 +572,13 @@ pub enum MoveHarness {
     Play,
     /// Coach mode: the last legal `Provisional:` line is the move.
     Coach(CoachContext),
+    /// Play mode against a KnightLM server (docs/model/seam.md): the contract's play request
+    /// (the packet with `legal_moves`) and the `submit_move` call it answers with.
+    ServedPlay,
+    /// Coach mode against a KnightLM server: the contract's coach turn. The server renders the
+    /// coach prompt and reads the `Provisional:` lines; the app gates the move and runs the
+    /// coach tool calls it forwards.
+    ServedCoach(CoachContext),
 }
 
 /// Bounded chat context for a coach turn.
@@ -835,6 +864,321 @@ fn coach_with_provisional(
     }
 }
 
+// --- the seam contract: a KnightLM server (docs/model/seam.md) -----------------
+
+/// The packet a KnightLM server needs: with `legal_moves`, which the server keeps for its
+/// own commit gate and does not show the model in a coach turn.
+fn served_packet(game: &Match) -> Result<(GameState, Value, Vec<String>), ErrorInfo> {
+    let state = replayed_state(game).map_err(|e| protocol_error(e.to_string()))?;
+    let legal = game.legal_uci_moves();
+    if game.result().is_some() || legal.is_empty() {
+        return Err(protocol_error(
+            "the model has no legal move in this position",
+        ));
+    }
+    let packet = serde_json::to_value(state.compile(PacketOptions {
+        legal_choices: true,
+        derived_features: false,
+        ..PacketOptions::default()
+    }))
+    .map_err(|e| protocol_error(e.to_string()))?;
+    if packet.get("legal_moves").is_none() {
+        return Err(protocol_error("the position packet carries no legal_moves"));
+    }
+    Ok((state, packet, legal))
+}
+
+/// The `knightlm` response extension, when the server sent a well-formed one.
+fn served_extension(response: &CompletionResponse) -> Option<KnightlmExt> {
+    serde_json::from_value(response.knightlm.clone()?).ok()
+}
+
+/// The `(reasoning, move)` of a play completion's `submit_move` call.
+fn served_submission(response: &CompletionResponse) -> Option<(String, String)> {
+    let call = response.tool_calls.first()?;
+    if call.name != "submit_move" {
+        return None;
+    }
+    let mv = call.arguments.get("move")?.as_str()?.to_owned();
+    let reasoning = call
+        .arguments
+        .get("reasoning")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    Some((reasoning, mv))
+}
+
+fn served_request(
+    model: &ModelRef,
+    message: String,
+    extension: Value,
+    max_tokens: u32,
+) -> CompletionRequest {
+    CompletionRequest::new(model.model.clone(), vec![ChatMessage::user(message)])
+        .with_temperature(0.0)
+        .with_max_tokens(max_tokens)
+        .with_stream(false)
+        .with_knightlm(extension)
+}
+
+fn apply_served(
+    game: &mut Match,
+    uci: &str,
+    attempts: u32,
+    reasoning: Option<String>,
+    raw: String,
+) -> Result<ModelMove, ErrorInfo> {
+    let mut mv = game
+        .apply(uci)
+        .map_err(|failure| protocol_error(failure.to_string()))?;
+    game.note_attempts(mv.ply, attempts);
+    mv.attempts = attempts;
+    Ok(ModelMove {
+        mv,
+        reasoning,
+        raw,
+        attempts,
+    })
+}
+
+/// Ask a KnightLM server for its move in the contract's play mode (chat off).
+///
+/// The request is the contract's play prompt (`PACKET_MARKER` + the packet with `legal_moves`)
+/// with `knightlm.mode: "raw"`: the server never repairs a reply, so what comes back is the
+/// model's own. The `submit_move` move goes through the commit gate against the real position.
+/// An illegal or missing move is not trusted: one more request asks for `constrained` decoding,
+/// and a move from it is labelled `fallback` (an intervention, not unaided play). The server's
+/// decoding is fixed, so an identical retry would only repeat the refusal.
+fn served_play(
+    game: &mut Match,
+    provider: &dyn Provider,
+    model: &ModelRef,
+    policy: &PlayPolicy,
+    cancel: &Cancellation,
+) -> Result<HarnessMove, ErrorInfo> {
+    let (_, packet, legal) = served_packet(game)?;
+    let prompt = play_prompt(&packet.to_string());
+    let ask = |mode: &str| {
+        served_request(
+            model,
+            prompt.clone(),
+            json!({"turn": "play", "mode": mode}),
+            PLAY_MAX_TOKENS,
+        )
+    };
+    let mut gate = SubmitMoveGate::new(legal.clone(), 1);
+    let unaided = provider.complete(&ask("raw"), cancel, &mut |_| {})?;
+    if let Some((reasoning, mv)) = served_submission(&unaided)
+        && let SubmitOutcome::Accepted(uci) = gate.submit(&mv)
+    {
+        let played = apply_served(
+            game,
+            &uci,
+            1,
+            policy.keep_reasoning(Some(reasoning)),
+            unaided.tool_calls[0].arguments.to_string(),
+        )?;
+        return Ok(served_move(played, 0, false));
+    }
+    // Not trusted: the constrained path chooses, and says so.
+    let repaired = provider.complete(&ask("constrained"), cancel, &mut |_| {})?;
+    let (reasoning, mv) = served_submission(&repaired).ok_or_else(|| {
+        protocol_error("the KnightLM server's constrained reply has no submit_move call")
+    })?;
+    if !legal.contains(&mv) {
+        return Err(protocol_error(
+            "the KnightLM server's constrained move is outside the legal move list",
+        ));
+    }
+    let played = apply_served(
+        game,
+        &mv,
+        2,
+        policy.keep_reasoning(Some(reasoning)),
+        repaired.tool_calls[0].arguments.to_string(),
+    )?;
+    Ok(served_move(played, 1, true))
+}
+
+/// Free chat with a KnightLM server (chat on, no move): a coach request whose last chat
+/// message is `message`, the packet last. Nothing is played: the reply is the text with its
+/// `Provisional:` lines removed, and any coach tool calls are ignored (the caller shows words).
+pub fn served_chat(
+    game: &Match,
+    provider: &dyn Provider,
+    model: &ModelRef,
+    policy: &PlayPolicy,
+    context: &CoachContext,
+    message: &str,
+    cancel: &Cancellation,
+) -> Result<String, ErrorInfo> {
+    if let Some(refusal) = policy.check(PlayAction::Chat) {
+        return Err(refusal);
+    }
+    let (_, packet, _) = served_packet(game)?;
+    let mut recent = context.recent.clone();
+    recent.push(ChatLine {
+        role: "user".into(),
+        text: message.to_owned(),
+    });
+    chat_context(context.summary.as_deref(), &recent).map_err(protocol_error)?;
+    let mut messages: Vec<ChatMessage> = recent
+        .iter()
+        .map(|line| {
+            if line.role == "assistant" {
+                ChatMessage::assistant(line.text.clone())
+            } else {
+                ChatMessage::user(line.text.clone())
+            }
+        })
+        .collect();
+    messages.push(ChatMessage::user(packet.to_string()));
+    let mut extension = json!({"turn": "coach", "mode": "raw"});
+    if let Some(summary) = context.summary.as_deref().filter(|text| !text.is_empty()) {
+        extension["summary"] = json!(summary);
+    }
+    let request = CompletionRequest::new(model.model.clone(), messages)
+        .with_temperature(0.0)
+        .with_max_tokens(COACH_MAX_TOKENS)
+        .with_stream(false)
+        .with_knightlm(extension);
+    let response = provider.complete(&request, cancel, &mut |_| {})?;
+    let reply = strip_provisional_lines(&response.content);
+    if reply.is_empty() {
+        return Err(protocol_error("the model sent no reply"));
+    }
+    Ok(reply)
+}
+
+fn served_move(played: ModelMove, rejected: u32, fallback: bool) -> HarnessMove {
+    HarnessMove {
+        played,
+        rejected,
+        fallback,
+        read_calls: 0,
+        revisions: 0,
+        reply: None,
+        ui: Vec::new(),
+        marks: Vec::new(),
+        coach_calls: 0,
+    }
+}
+
+/// One coach turn against a KnightLM server (chat on).
+///
+/// The request is the chat so far (`context.recent` as `user`/`assistant` messages, the rolling
+/// summary in `knightlm.summary`) and the fresh packet, with `legal_moves`, as the last user
+/// message. The server renders the coach prompt (`Mode: coach`, both schemas, no legal list),
+/// reads the `Provisional:` lines and answers with the reply, the coach tool calls to run
+/// and its move in `knightlm.coach`. The move goes through the commit gate here; without a
+/// legal one a `constrained` request chooses and the result says `fallback` with no reply.
+fn served_coach(
+    game: &mut Match,
+    provider: &dyn Provider,
+    model: &ModelRef,
+    context: &CoachContext,
+    cancel: &Cancellation,
+) -> Result<HarnessMove, ErrorInfo> {
+    let (state, packet, legal) = served_packet(game)?;
+    let mut session =
+        CoachSession::new(state.record().clone()).map_err(|e| protocol_error(e.to_string()))?;
+    // Bounded here exactly as the server bounds it, so a refusal is ours and plain.
+    chat_context(context.summary.as_deref(), &context.recent).map_err(protocol_error)?;
+    let ask = |mode: &str| {
+        let mut messages: Vec<ChatMessage> = context
+            .recent
+            .iter()
+            .map(|line| {
+                if line.role == "assistant" {
+                    ChatMessage::assistant(line.text.clone())
+                } else {
+                    ChatMessage::user(line.text.clone())
+                }
+            })
+            .collect();
+        messages.push(ChatMessage::user(packet.to_string()));
+        let mut extension = json!({"turn": "coach", "mode": mode});
+        if let Some(summary) = context.summary.as_deref().filter(|text| !text.is_empty()) {
+            extension["summary"] = json!(summary);
+        }
+        CompletionRequest::new(model.model.clone(), messages)
+            .with_temperature(0.0)
+            .with_max_tokens(COACH_MAX_TOKENS)
+            .with_stream(false)
+            .with_knightlm(extension)
+    };
+    let unaided = provider.complete(&ask("raw"), cancel, &mut |_| {})?;
+    let decided = |response: &CompletionResponse| {
+        served_extension(response)
+            .and_then(|ext| ext.coach)
+            .ok_or_else(|| {
+                protocol_error("the KnightLM server's coach reply has no knightlm.coach object")
+            })
+    };
+    let coach = decided(&unaided)?;
+    let legal_unaided = coach
+        .mv
+        .clone()
+        .filter(|mv| !coach.fallback && legal.contains(mv));
+    let (response, uci, fallback, coach) = match legal_unaided {
+        Some(uci) => (unaided, uci, false, coach),
+        None => {
+            // No legal provisional line, or a move outside the legal list: the constrained
+            // path chooses, and the commentary stays withheld.
+            let repaired = provider.complete(&ask("constrained"), cancel, &mut |_| {})?;
+            let again = decided(&repaired)?;
+            let uci = again
+                .mv
+                .clone()
+                .filter(|mv| legal.contains(mv))
+                .ok_or_else(|| {
+                    protocol_error(
+                        "the KnightLM server's constrained move is outside the legal move list",
+                    )
+                })?;
+            (repaired, uci, true, again)
+        }
+    };
+    let rejected = coach.rejected + u32::from(fallback);
+    let revisions = (coach.provisional.len() as u32).saturating_sub(1);
+    let mut ui = Vec::new();
+    let mut reply = None;
+    if !fallback {
+        // Coach tool calls run against the scratch board and the marks, never the real game.
+        for call in &response.tool_calls {
+            let call = ModelCall {
+                name: call.name.clone(),
+                arguments: call.arguments.clone(),
+            };
+            if let Ok(done) = session.execute(&call)
+                && let Some(effect) = done.ui
+            {
+                ui.push(effect);
+            }
+        }
+        reply = Some(strip_provisional_lines(&response.content));
+    }
+    let raw = response.content.clone();
+    let attempts = 1 + u32::from(fallback);
+    let played = apply_served(game, &uci, attempts, None, raw)?;
+    Ok(HarnessMove {
+        played,
+        rejected,
+        fallback,
+        read_calls: 0,
+        revisions,
+        reply,
+        ui,
+        marks: if fallback {
+            Vec::new()
+        } else {
+            session.marks().to_vec()
+        },
+        coach_calls: if fallback { 0 } else { session.calls() },
+    })
+}
+
 /// Whether `model` is a KnightLM seat, the only model the tools harness is for.
 pub fn is_knightlm_seat(model: &ModelRef) -> bool {
     (model.provider == "local:LAMU" && model.model == "knightlm-smolvlm-500m")
@@ -899,5 +1243,7 @@ pub fn request_move_with_harness(
         MoveHarness::Coach(context) => {
             coach_with_provisional(game, provider, model, context, cancel)
         }
+        MoveHarness::ServedPlay => served_play(game, provider, model, policy, cancel),
+        MoveHarness::ServedCoach(context) => served_coach(game, provider, model, context, cancel),
     }
 }

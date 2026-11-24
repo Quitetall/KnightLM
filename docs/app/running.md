@@ -18,6 +18,16 @@ The installer builds both parts, copies them to `~/.local`, and adds a
 location, `--no-desktop` to skip the launcher, or `--skip-build` for a checkout
 that already has the server and frontend built.
 
+### Play AI after installing
+
+The installer also copies the model server's Python code to
+`~/.local/share/rustybrickchess/model-runtime` (the list is
+`packaging/model-runtime.files`). Open the app and choose **Play AI**: the test bot
+needs nothing. For the KnightLM model press **Get the model** (about 1.4 GB, one time):
+the app uses a Python 3.10 to 3.13 it finds, or downloads its own pinned Python, then builds
+a private environment for the packages under its data directory (or tells you the one command
+to run). No system Python is needed. Details: [Play AI](models.md#play-ai-one-click-opponent).
+
 ## Desktop app (Tauri)
 
 A native window instead of a browser tab, with menus, drag-and-drop of PGN
@@ -34,8 +44,22 @@ The window talks to an in-process server on a random loopback port, protected
 by a per-launch token, so other local programs cannot call the API. Details,
 data locations and Stockfish discovery are in the
 [app README](../../apps/rusty-brick-chess/README.md#desktop-tauri). Only Linux
-is tested here; macOS and Windows bundles are built by the release workflow
+is tested here (the bundle carries the model server code as a `model-runtime`
+resource, so Play AI works from an installed app); macOS and Windows bundles are built by the release workflow
 and still need native QA.
+
+**Stockfish is bundled.** The release workflow downloads the official Stockfish 19 build for
+each OS, checks a pinned sha256 (`scripts/fetch_bundled_stockfish.sh`) and Tauri ships it as the
+resource `engine/stockfish` (`stockfish.exe` on Windows). The engine is chosen in this order:
+`STOCKFISH_PATH`, the bundled binary, a `stockfish` on `PATH` (desktop shell only), else none.
+The bundled binary is looked up in the resource directory and around the executable, so the
+`.deb`/`.rpm` (`/usr/lib/RustyBrickChess/engine/`), the AppImage (`$APPDIR/usr/lib/RustyBrickChess/engine/`),
+macOS (`Contents/Resources/engine/`) and Windows (next to the exe) layouts all work
+(`src/engine_locate.rs`, tested with fixtures of each layout). With no engine the analysis
+routes answer 503 "No chess engine found..." and Settings shows the same sentence; nothing
+crashes. We build the "universal" asset: one binary (about 100 MB, networks inside) that picks
+AVX-512, AVX2 or SSE at start, so it runs on every x86-64 CPU; a fixed `x86-64-avx2` build
+would be smaller but fail on CPUs without AVX2. Licence and source: [third-party software](third-party.md).
 
 ## Windows from source
 
@@ -88,7 +112,8 @@ own will serve the API and no UI.
 
 | variable | effect when unset |
 |---|---|
-| `STOCKFISH_PATH` | analysis and engine features report unavailability; the rest of the app works |
+| `STOCKFISH_PATH` | the Stockfish bundled with the desktop installers (`engine/stockfish` in the app resources) is used; with neither, analysis and engine features answer "No chess engine found" and the rest of the app works. A path saved in Settings or chosen from the File menu overrides both. |
+| `RBC_KNIGHTLM_PYTHON` | the model's Python: this interpreter (3.10 or newer) is used as is and nothing is downloaded; unset, see [models](models.md#play-ai-one-click-opponent) |
 | `MODEL_URL` | optional default model endpoint. A provider configured in Settings can also supply the Assistant model. |
 | `RBC_ADDR` | binds `127.0.0.1:8090` |
 | `RBC_DB` | uses the per-user default above |

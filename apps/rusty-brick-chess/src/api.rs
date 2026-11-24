@@ -105,6 +105,7 @@ pub async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
         "app": "rusty-brick-chess",
         "games": state.db.count().unwrap_or(0),
         "engine": state.engine_path.is_some(),
+        "engine_note": if state.engine_path.is_some() { "" } else { crate::engine_locate::NO_ENGINE },
         "model": state.model_url.is_some(),
         "schema": state.db.schema_version().unwrap_or(0),
     }))
@@ -676,7 +677,7 @@ fn engine_for(
         settings
             .engine_path
             .clone()
-            .ok_or(ApiError::Unavailable("engine path is not set"))?
+            .ok_or(ApiError::Unavailable(crate::engine_locate::NO_ENGINE))?
     };
     let mut options = engine_options(settings, fen, &canonical);
     let entry = settings.engines.iter().find(|e| e.path == path);
@@ -1098,7 +1099,7 @@ pub async fn analyze_engines(
     let settings = effective(&state);
     let engines: Vec<EngineEntry> = settings.engines.iter().take(4).cloned().collect();
     if engines.is_empty() {
-        return Err(ApiError::Unavailable("no engines are configured"));
+        return Err(ApiError::Unavailable(crate::engine_locate::NO_ENGINE));
     }
     let depth = q.depth.unwrap_or(settings.depth).clamp(1, 30);
     let lines = q.lines.unwrap_or(3).clamp(1, 8);

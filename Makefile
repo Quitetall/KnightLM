@@ -22,6 +22,8 @@ check:
 	python3 scripts/test_check_pins.py
 	python3 scripts/check_pins.py
 	python3 scripts/test_check_layers.py
+	python3 scripts/test_check_model_runtime_files.py
+	python3 scripts/check_model_runtime_files.py
 	python3 scripts/check_layers.py
 	python3 scripts/test_docs_tools.py
 	python3 scripts/check_doc_links.py

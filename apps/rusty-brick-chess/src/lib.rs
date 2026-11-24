@@ -9,13 +9,16 @@ pub mod api;
 pub mod archive;
 pub mod console;
 pub mod domain_api;
+pub mod engine_locate;
 pub mod importer;
 mod lamu_runtime;
 pub mod launch_guard;
 mod mcp;
+pub mod model_runtime;
 pub mod pieces;
 mod provider_api;
 mod providers;
+pub mod py_runtime;
 pub mod vision;
 
 use axum::{
@@ -299,12 +302,23 @@ pub fn router(state: api::AppState) -> Router {
         .route("/api/engine/console/command", post(api::console_command))
         .route("/api/engine/console/stop", post(api::console_stop))
         .route("/api/engine/console/status", get(api::console_status))
+        .route("/api/knightlm/runtime", get(model_runtime::get_status))
+        .route(
+            "/api/knightlm/runtime/install",
+            post(model_runtime::post_install),
+        )
+        .route(
+            "/api/knightlm/runtime/start",
+            post(model_runtime::post_start),
+        )
+        .route("/api/knightlm/runtime/stop", post(model_runtime::post_stop))
         .route("/api/vision", get(api::get_vision))
         .route(
             "/api/providers",
             get(provider_api::list_providers).post(provider_api::add_provider),
         )
         .route("/api/providers/presets", get(provider_api::list_presets))
+        .route("/api/ai/test-bot", get(provider_api::test_bot_info))
         .route("/api/providers/probe", post(provider_api::probe_endpoint))
         .route(
             "/api/model-seats",
@@ -450,7 +464,8 @@ pub fn state_from_env() -> anyhow::Result<(api::AppState, String)> {
         db,
         db_dir,
         data_dir,
-        engine_path: std::env::var("STOCKFISH_PATH").ok(),
+        // STOCKFISH_PATH, else the Stockfish the installer ships, else none.
+        engine_path: engine_locate::resolve_here(None).map(|e| e.path.display().to_string()),
         model_url: std::env::var("MODEL_URL").ok(),
         default_depth: std::env::var("RBC_DEPTH")
             .ok()
@@ -493,10 +508,7 @@ pub async fn serve_listener(
         .map(|local| local.to_string())
         .unwrap_or_else(|_| "unknown".to_string());
     println!("RustyBrickChess on http://{bound}  (db: {db_path})");
-    println!(
-        "  STOCKFISH_PATH: {:?}",
-        std::env::var("STOCKFISH_PATH").ok()
-    );
+    println!("  engine: {:?}", engine_locate::resolve_here(None));
     println!("  MODEL_URL: {:?}", std::env::var("MODEL_URL").ok());
     axum::serve(
         listener,
@@ -510,7 +522,10 @@ pub async fn serve_listener(
 /// Serve using `RBC_ADDR` (default `127.0.0.1:8090`).
 pub async fn serve_from_env() -> anyhow::Result<()> {
     let addr = std::env::var("RBC_ADDR").unwrap_or_else(|_| "127.0.0.1:8090".into());
-    serve_on(&addr).await
+    let served = serve_on(&addr).await;
+    // A managed model server must not outlive the app.
+    model_runtime::shutdown_all();
+    served
 }
 
 /// Run the MCP stdio server against this database.

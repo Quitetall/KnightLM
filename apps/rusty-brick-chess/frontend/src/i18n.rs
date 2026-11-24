@@ -460,6 +460,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "Binario del motor (STOCKFISH_PATH)",
     ),
     (
+        "settings.no_engine",
+        "No chess engine found. The installer ships Stockfish; if it is missing, install Stockfish and set STOCKFISH_PATH, or type the path to an engine here.",
+        "No se encontró ningún motor de ajedrez. El instalador incluye Stockfish; si falta, instala Stockfish y define STOCKFISH_PATH, o escribe aquí la ruta de un motor.",
+    ),
+    (
         "settings.model_url",
         "Model URL (chat)",
         "URL del modelo (chat)",
@@ -1406,6 +1411,117 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("settings.no_key", "no key", "sin clave"),
     ("settings.multipv", "Lines to analyse", "Líneas a analizar"),
     ("assistant.composer", "Message", "Mensaje"),
+    ("nav.play_ai", "Play AI", "Jugar con IA"),
+    ("play.switch_board", "Board", "Tablero"),
+    ("playai.title", "Play AI", "Jugar con IA"),
+    (
+        "playai.intro",
+        "Play a game against an opponent that talks to you. Pick who to play, pick your colour, press Start.",
+        "Juega contra un oponente que te habla. Elige contra quién, tu color y pulsa Empezar.",
+    ),
+    ("playai.opponent", "Opponent", "Oponente"),
+    (
+        "playai.bot",
+        "Test bot (random moves)",
+        "Bot de prueba (jugadas al azar)",
+    ),
+    (
+        "playai.bot_note",
+        "Always available, nothing to install. It plays random legal moves and answers with a canned message. It is not the AI model.",
+        "Siempre disponible, sin instalar nada. Juega jugadas legales al azar y responde con un mensaje fijo. No es el modelo de IA.",
+    ),
+    (
+        "playai.badge_bot",
+        "Test bot, not the AI model",
+        "Bot de prueba, no el modelo de IA",
+    ),
+    ("playai.model", "KnightLM model", "Modelo KnightLM"),
+    (
+        "playai.model_note",
+        "A small chess model that runs on this computer. It is weak, but it talks about the game.",
+        "Un modelo de ajedrez pequeño que se ejecuta en este equipo. Es débil, pero habla de la partida.",
+    ),
+    (
+        "playai.get_size",
+        "The model is not on this computer yet. Getting it downloads about 1.4 GB once (about 2.4 GB on disk afterwards): Python (about 70 MB, skipped if you already have Python 3.10 to 3.13), the Python packages (about 240 MB) and the model (about 1.1 GB). Every piece is checked against a fixed checksum. You do not need to install anything yourself.",
+        "El modelo aún no está en este equipo. Obtenerlo descarga unos 1,4 GB una sola vez (unos 2,4 GB en disco después): Python (unos 70 MB, se omite si ya tienes Python 3.10 a 3.13), los paquetes de Python (unos 240 MB) y el modelo (unos 1,1 GB). Cada parte se comprueba con una suma de verificación fija. No necesitas instalar nada.",
+    ),
+    ("playai.get_model", "Get the model", "Obtener el modelo"),
+    (
+        "playai.no_python",
+        "Python 3.10 to 3.13 was not found and this computer has no built-in download of it. Install it from python.org first, or play the test bot.",
+        "No se encontró Python 3.10 a 3.13 y este equipo no tiene una descarga integrada. Instálalo desde python.org, o juega con el bot de prueba.",
+    ),
+    (
+        "playai.downloading",
+        "Downloading: {done} of {total} MB",
+        "Descargando: {done} de {total} MB",
+    ),
+    (
+        "playai.verifying",
+        "Checking the download...",
+        "Comprobando la descarga...",
+    ),
+    (
+        "playai.setting_up",
+        "Setting up Python and the packages the model needs (one time, a few minutes)...",
+        "Preparando Python y los paquetes que necesita el modelo (una vez, unos minutos)...",
+    ),
+    (
+        "playai.ready",
+        "The model is ready.",
+        "El modelo está listo.",
+    ),
+    (
+        "playai.starting",
+        "Starting the model...",
+        "Iniciando el modelo...",
+    ),
+    (
+        "playai.running",
+        "The model is running.",
+        "El modelo está en marcha.",
+    ),
+    (
+        "playai.checking",
+        "Checking the model...",
+        "Comprobando el modelo...",
+    ),
+    (
+        "playai.fake_note",
+        "Test mode: a stand-in server is used instead of the real model.",
+        "Modo de prueba: se usa un servidor de sustitución en lugar del modelo real.",
+    ),
+    ("playai.color", "Your colour", "Tu color"),
+    ("playai.white", "White", "Blancas"),
+    ("playai.black", "Black", "Negras"),
+    ("playai.start", "Start", "Empezar"),
+    ("playai.new_game", "New game", "Nueva partida"),
+    (
+        "playai.use_bot",
+        "Play the test bot instead",
+        "Jugar con el bot de prueba",
+    ),
+    ("playai.you", "You", "Tú"),
+    ("playai.your_turn", "Your move", "Tu turno"),
+    (
+        "playai.thinking",
+        "Opponent is thinking...",
+        "El oponente está pensando...",
+    ),
+    ("playai.finished", "Game over.", "Partida terminada."),
+    (
+        "playai.chat",
+        "Chat with your opponent",
+        "Habla con tu oponente",
+    ),
+    (
+        "playai.chat_placeholder",
+        "Say something about the game",
+        "Di algo sobre la partida",
+    ),
+    ("playai.send", "Send", "Enviar"),
+    ("playai.resign", "Resign", "Abandonar"),
 ];
 
 /// Like [`t`], but substitutes `{name}` placeholders. Used for messages that
@@ -1444,6 +1560,7 @@ mod tests {
             include_str!("views/assistant.rs"),
             include_str!("views/settings.rs"),
             include_str!("views/play.rs"),
+            include_str!("views/play_ai.rs"),
             include_str!("views/study.rs"),
             include_str!("views/compare.rs"),
             include_str!("views/analysis.rs"),

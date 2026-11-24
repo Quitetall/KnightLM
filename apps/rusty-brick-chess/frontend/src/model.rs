@@ -14,6 +14,7 @@ pub enum Tab {
     Analysis,
     Assistant,
     Play,
+    PlayAi,
     Study,
     Compare,
     Practice,
@@ -26,6 +27,7 @@ pub enum Tab {
 impl Tab {
     pub fn destination(self) -> Self {
         match self {
+            Self::PlayAi => Self::Play,
             Self::Openings | Self::Puzzles | Self::Practice | Self::Study => Self::Train,
             Self::Database
             | Self::Analysis
@@ -49,6 +51,7 @@ impl Tab {
             Self::Analysis => "nav.analysis",
             Self::Assistant => "nav.assistant",
             Self::Play => "nav.play",
+            Self::PlayAi => "nav.play_ai",
             Self::Study => "nav.study",
             Self::Compare => "nav.compare",
             Self::Practice => "nav.practice",
@@ -262,6 +265,7 @@ pub fn tab_name(tab: Tab) -> &'static str {
         Tab::Analysis => "analysis",
         Tab::Assistant => "assistant",
         Tab::Play => "play",
+        Tab::PlayAi => "play-ai",
         Tab::Study => "study",
         Tab::Compare => "compare",
         Tab::Practice => "practice",
@@ -283,6 +287,7 @@ pub fn tab_from_name(name: &str) -> Option<Tab> {
         "analysis" => Tab::Analysis,
         "assistant" => Tab::Assistant,
         "play" => Tab::Play,
+        "play-ai" => Tab::PlayAi,
         "study" => Tab::Study,
         "compare" => Tab::Compare,
         "practice" => Tab::Practice,

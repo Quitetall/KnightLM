@@ -140,6 +140,13 @@ fn configure_environment(app: &AppHandle) {
             if candidate.join("index.html").exists() {
                 std::env::set_var("RBC_STATIC", candidate);
             }
+            // ...and the model server's Python code, for Play AI.
+            let code = resource.join("model-runtime");
+            if code.join("model/serve/server.py").exists()
+                && std::env::var_os("RBC_MODEL_CODE").is_none()
+            {
+                std::env::set_var("RBC_MODEL_CODE", code);
+            }
         }
         // The database lives in the app data directory, never the cwd. An
         // existing database at the browser-mode default stays in use.
@@ -151,12 +158,15 @@ fn configure_environment(app: &AppHandle) {
             };
             std::env::set_var("RBC_DB", chosen);
         }
-        // Stockfish is not bundled: use the one on PATH unless told otherwise.
-        // A path chosen in Settings or the File menu still wins.
-        if std::env::var_os("STOCKFISH_PATH").is_none()
-            && let Some(engine) = find_engine()
-        {
-            std::env::set_var("STOCKFISH_PATH", engine);
+        // Engine order: STOCKFISH_PATH, the Stockfish this installer ships (resource dir),
+        // then a `stockfish` on PATH as a last resort, else none (the app says so).
+        // A path chosen in Settings or the File menu still wins at request time.
+        if std::env::var_os("STOCKFISH_PATH").is_none() {
+            let resource = app.path().resource_dir().ok();
+            let bundled = rusty_brick_chess::engine_locate::resolve_here(resource.as_deref());
+            if let Some(engine) = bundled.map(|e| e.path).or_else(find_engine) {
+                std::env::set_var("STOCKFISH_PATH", engine);
+            }
         }
     }
 }
@@ -257,6 +267,8 @@ fn wait_for_server(port: u16, token: &str) -> Result<(), String> {
 
 /// Stop the server and wait (bounded) for it and its engines to go away.
 fn stop_server(app: &AppHandle) {
+    // A managed model server must not outlive the app.
+    rusty_brick_chess::model_runtime::shutdown_all();
     if let Some(server) = app.try_state::<Server>() {
         let _ = server.stop.send(true);
         let finished = server.finished.lock().ok().and_then(|mut slot| slot.take());
