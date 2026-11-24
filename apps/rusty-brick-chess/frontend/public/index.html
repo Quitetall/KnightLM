@@ -568,6 +568,17 @@
     .destination-grid button:hover { background: #314331; }
     .destination-grid button:focus-visible { outline: 2px solid #a4c491; outline-offset: 2px; }
     .main > .destination-hub { flex: 0 1 auto; }
+    /* ---- Fit the playing view to the window ----
+       The board is sized by the window height as well as its column, and the setup
+       controls and tab bars get out of the way while a game is on. */
+    .play-switch { align-self: flex-start; }
+    /* Room the board leaves for what is above it; the setup controls are hidden during a game. */
+    .match-workspace { --board-reserve: 8rem; }
+    @media (max-width: 900px) { .match-workspace { --board-reserve: 13rem; } }
+    .main:has(.match-workspace) > .workspaces,
+    .main:has(.match-workspace) > .play-switch,
+    .play:has(.match-workspace) > .play-head,
+    .play:has(.match-workspace) .play-more { display: none; }
     .play-switch { display: inline-flex; gap: 2px; margin: 0 0 .75rem; padding: 2px; border: 1px solid #3a4a39; border-radius: 8px; background: #1f271f; }
     .play-switch button { padding: .4rem .9rem; border: 0; border-radius: 6px; background: transparent; color: #cfd9c8; font: 600 .9rem system-ui, sans-serif; cursor: pointer; }
     .play-switch button.active { background: #3d5a3a; color: #fff; }
