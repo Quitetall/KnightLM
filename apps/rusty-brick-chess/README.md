@@ -1,15 +1,15 @@
 # RustyBrickChess
 
 RBC is the local chess app. KnightLM is the chess model being trained for it.
-The Leptos frontend runs in your browser, served by a local Axum process that
-opens SQLite directly. Stockfish connects over UCI and the Assistant uses a
-configured model provider.
+The Leptos frontend is served by a local Axum process that opens SQLite directly,
+shown in a browser tab (`rusty-brick-chess`) or a native window (the Tauri desktop
+app). Stockfish connects over UCI and the Assistant uses a configured model provider.
 
 ## Run RBC
 
-Start with the [Linux install or Windows source quickstart](../../docs/app/running.md).
-The [roadmap](ROADMAP.md) tracks packaged releases, UI reliability, and the
-KnightLM player integration.
+Install a release or build from source: see [Running RBC](../../docs/app/running.md), the
+canonical page (including environment variables). The [roadmap](ROADMAP.md) tracks what is
+next. This file is the developer reference: API, frontend features and desktop internals.
 
 ## API
 
@@ -100,7 +100,8 @@ The report returns, per move, both a **Lichess-style** label and a
 
 `frontend/` is a Leptos CSR app (`rbc-frontend`) with the En Croissant shell:
 
-- sidebar: **Database, Analysis, Openings, Puzzles, Settings**
+- sidebar tabs on `main`: Home, Database, Analysis, Assistant, Play, Play AI, Study, Compare,
+  Practice, Openings, Puzzles, Stats, Settings (a redesign is in draft PR #14, not on `main`)
 - **Database**: PGN import, search, game table; click a game to analyze it
 - **Analysis**: BrickChess board + move list + engine panel (eval, best move,
   PV, nodes) via `POST /api/analyze`; **Lines** shows 3 MultiPV lines;
@@ -304,7 +305,7 @@ server and frontend. It uses Tauri's own mechanisms:
 # needs webkit2gtk-4.1 + gtk3 development packages (see docs/app/running.md)
 apps/rusty-brick-chess/frontend/deploy.sh   # build the web assets once
 make rbc-desktop                            # run the desktop app (release build)
-make rbc-desktop-bundle                     # .deb + .AppImage (+ .rpm); .dmg/.msi on their OS
+make rbc-desktop-bundle                     # .deb + .AppImage (+ .rpm) on Linux
 make check-desktop                          # fmt, clippy, virtual-display smoke test
 ```
 
@@ -356,88 +357,18 @@ without scanning the whole table.
 
 ## Desktop bundles
 
-`tauri.conf.json` already points the shell at the bundled frontend. Build
-installers locally or let CI do it:
+`tauri.conf.json` points the shell at the bundled frontend. Build installers locally, or let
+the release workflow do it on a pushed `v*` tag (see [releasing](../../docs/app/releasing.md)):
 
 ```bash
 cd src-tauri
 cargo tauri build                    # .deb/.rpm/.AppImage on Linux (cargo install tauri-cli --version "^2")
 ```
 
-`.github/workflows/release.yml` is configured to build the frontend and package
-desktop bundles on Linux, macOS, and Windows. See the
-[running guide](../../docs/app/running.md) for the verified launch paths and
-[roadmap](ROADMAP.md) for package testing and publication.
-
-### Auto-update signing
-
-Tauri updates are signed. The **private key** stays with the release owner
-(CI secret); the **public key** is baked into the app.
-
-1. Generate the keypair once (keep the file safe — losing it means you cannot
-   sign updates for installed copies, rotating it requires shipping a new
-   build with the new public key):
-
-   ```bash
-   npx @tauri-apps/cli@2 signer generate -w ~/.tauri/rustybrick.key
-   ```
-
-   It prints the public key (`~/.tauri/rustybrick.key.pub`).
-
-2. Add GitHub repository secrets:
-
-   | secret | value |
-   |---|---|
-   | `TAURI_SIGNING_PRIVATE_KEY` | contents of `~/.tauri/rustybrick.key` |
-   | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | the password you chose |
-
-3. Add the updater plugin and config:
-
-   ```bash
-   cd src-tauri && cargo add tauri-plugin-updater
-   ```
-
-   ```rust
-   // src-tauri/src/main.rs
-   .plugin(tauri_plugin_updater::Builder::new().build())
-   ```
-
-   ```json
-   // src-tauri/tauri.conf.json
-   "plugins": {
-     "updater": {
-       "pubkey": "PASTE_THE_PUBLIC_KEY",
-       "endpoints": [
-         "https://github.com/Quitetall/KnightLM/releases/latest/download/latest.json"
-       ]
-     }
-   },
-   "bundle": { "createUpdaterArtifacts": true }
-   ```
-
-4. Let the release workflow sign. `tauri-action` picks up
-   `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` from the
-   environment; add them to its `env:` block. With
-   `createUpdaterArtifacts: true` the action uploads every bundle plus its
-   `.sig` and a `latest.json` manifest to the GitHub release.
-
-5. Check for updates in the app (Rust, no JS needed):
-
-   ```rust
-   use tauri_plugin_updater::UpdaterExt;
-   let app = app.handle().clone();
-   tauri::async_runtime::spawn(async move {
-       if let Ok(updater) = app.updater() {
-           if let Ok(Some(update)) = updater.check().await {
-               let _ = update.download_and_install(|_, _| {}, || {}).await;
-           }
-       }
-   });
-   ```
-
-6. Bump `version` in `tauri.conf.json` (and the workspace version) for every
-   release: the updater compares versions, so a tag without a version bump is
-   never offered as an update. Draft releases are not served until published.
+The release workflow builds on Linux, Windows and macOS runners. The macOS job has never run
+because GitHub assigned no macOS runner, so no macOS installer exists. Installers are
+**unsigned**, and there is **no auto-updater**: `tauri.conf.json` has no updater configuration,
+no updater plugin is a dependency, and no signing key is set up. Adding one would be new work.
 
 ## Archives (Parquet)
 
@@ -459,15 +390,10 @@ is covered by a unit test.
 The database has a versioned schema (`schema_meta`); `GET /api/health` reports
 `schema`. Migrations run on open, so older files upgrade in place.
 
-Workspaces are stored twice: `localStorage` for instant restore and the server
+Workspaces (open boards, their game, side to move, history ply and the active tab) are
+stored twice: `localStorage` (`rbc.session.v1`) for instant restore and the server
 (`/api/session`, keyed by a per-browser client id) so a cleared cache or another
 window restores the same tabs.
-
-## Session persistence
-
-Open analysis boards (workspaces) survive a reload or app restart: tabs,
-their game, side to move, history ply and the active sidebar tab are stored in
-`localStorage` under `rbc.session.v1` and restored on startup.
 
 ## Backend status & En Croissant
 
@@ -482,17 +408,8 @@ the CC0 Lichess puzzle CSV (a sample is seeded, full CSV import supported).
 Engine analysis is `knightlm-engine` (`vampirc-uci`); classification is
 `brick-chess-analysis`. The frontend speaks all of it over `/api`.
 
-En Croissant's own backend (GPL-3.0) is Tauri-coupled (`AppState`,
-`tauri::Emitter`, `specta::Type`) and DuckDB-backed. The planned lift, in order:
-
-1. **`db/`** — collections, annotations, position search, PGN import
-   (~3.3k lines) → strip Tauri/specta, expose over this axum API.
-2. **`opening.rs`** — opening names/explorer.
-3. **`puzzle.rs`** — Lichess puzzle DB (CC0).
-4. **`game.rs` / engine tree** — analysis tree and engine lines.
-
-Until then, this crate's `db.rs` is the compatible seam: same domain shape,
-small enough to swap out.
+En Croissant's own backend (GPL-3.0) is Tauri-coupled and DuckDB-backed and is not used here;
+`crates/rbc-db` is a separate SQLite implementation of the same domain shape.
 
 ## License
 

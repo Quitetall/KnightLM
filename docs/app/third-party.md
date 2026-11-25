@@ -4,7 +4,7 @@
 
 - **What:** the unmodified official release build `stockfish-<os>-universal` of Stockfish 19,
   bundled as `engine/stockfish` (`stockfish.exe` on Windows) in the `.AppImage`, `.deb`, `.rpm`,
-  `.exe`/`.msi` and `.dmg`.
+  `.exe` and `.msi` installers (there is no macOS build).
 - **Licence:** GNU General Public License version 3. The full text ships with the app in
   `engine/COPYING-STOCKFISH-GPLv3.txt` and in this repository at
   `apps/rusty-brick-chess/src-tauri/bundled-engine/COPYING-STOCKFISH-GPLv3.txt`.

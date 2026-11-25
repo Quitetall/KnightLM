@@ -21,6 +21,7 @@ tokenizer, encoder, training, evaluation and serving. They meet at [the seam](mo
 
 ## Release and research evidence
 
+- [Releasing](app/releasing.md) describes how a desktop pre-release is cut.
 - [1.0 release notes](releases/release-notes-1.0.md) describe the feature set. The [release candidate](releases/release-candidate.md) records the checks for a specific build.
 - [Benchmarks](releases/benchmarks.md) record measured performance and test conditions.
 - [Burn and SmolVLM study](model/trackb-smolvlm-study.md) tracks backend parity. [Scaffold verification](model/history/verification.md) records the original fixture checks.

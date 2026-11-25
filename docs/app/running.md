@@ -1,12 +1,30 @@
 # Running RustyBrickChess
 
-RBC runs as one local server with a static browser frontend. The server opens
-SQLite directly. Stockfish and model providers are optional.
+This is the canonical page for running RBC. The desktop app (Tauri) and the web server
+(`rusty-brick-chess`) are two ways to run the same app: the same server and frontend code, one
+in a native window and one in a browser tab. SQLite is opened directly. Stockfish and model
+providers are optional.
+
+## Install a release
+
+Download an installer from the [Releases page](https://github.com/Quitetall/KnightLM/releases).
+The latest, `v0.1.0-prealpha.4`, has a Linux `.AppImage`, `.deb` and `.rpm` and a Windows
+`-setup.exe` and `.msi`. There is no macOS build (GitHub assigned no macOS runner); build from
+source on a Mac. The installers are not code-signed (Windows SmartScreen warns: "More info > Run
+anyway"). Only Linux has been run by hand. Linux: `chmod +x` the AppImage and run it, or install
+the `.deb`/`.rpm`. How releases are made: [releasing](releasing.md).
+
+## Prerequisites for building
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install cargo-leptos --version 0.3.11 --locked
+```
 
 ## Linux
 
-Install the [Rust and frontend prerequisites](../../README.md#start-rbc), then
-run these commands from the repository root:
+Install the [prerequisites](#prerequisites-for-building), then run these commands from the
+repository root:
 
 ```bash
 ./packaging/install.sh
@@ -44,9 +62,9 @@ The window talks to an in-process server on a random loopback port, protected
 by a per-launch token, so other local programs cannot call the API. Details,
 data locations and Stockfish discovery are in the
 [app README](../../apps/rusty-brick-chess/README.md#desktop-tauri). Only Linux
-is tested here (the bundle carries the model server code as a `model-runtime`
-resource, so Play AI works from an installed app); macOS and Windows bundles are built by the release workflow
-and still need native QA.
+has been run by hand (the bundle carries the model server code as a `model-runtime`
+resource, so Play AI works from an installed app). The release workflow also builds the Windows
+installers, which only CI has built; its macOS job has never run because GitHub assigned no runner.
 
 **Stockfish is bundled.** The release workflow downloads the official Stockfish 19 build for
 each OS, checks a pinned sha256 (`scripts/fetch_bundled_stockfish.sh`) and Tauri ships it as the
@@ -54,7 +72,7 @@ resource `engine/stockfish` (`stockfish.exe` on Windows). The engine is chosen i
 `STOCKFISH_PATH`, the bundled binary, a `stockfish` on `PATH` (desktop shell only), else none.
 The bundled binary is looked up in the resource directory and around the executable, so the
 `.deb`/`.rpm` (`/usr/lib/RustyBrickChess/engine/`), the AppImage (`$APPDIR/usr/lib/RustyBrickChess/engine/`),
-macOS (`Contents/Resources/engine/`) and Windows (next to the exe) layouts all work
+macOS (`Contents/Resources/engine/`) and Windows (next to the exe) layouts are all handled
 (`src/engine_locate.rs`, tested with fixtures of each layout). With no engine the analysis
 routes answer 503 "No chess engine found..." and Settings shows the same sentence; nothing
 crashes. We build the "universal" asset: one binary (about 100 MB, networks inside) that picks
@@ -65,7 +83,7 @@ would be smaller but fail on CPUs without AVX2. Licence and source: [third-party
 
 Use a Rust MSVC toolchain and the Visual Studio C++ build tools with a Windows
 SDK. The [Windows prerequisites](https://v2.tauri.app/start/prerequisites/#windows)
-describe the toolchain setup. Install the [same Rust WASM target and cargo-leptos](../../README.md#start-rbc),
+describe the toolchain setup. Install the [same Rust WASM target and cargo-leptos](#prerequisites-for-building),
 then run this from PowerShell at the repository root:
 
 ```powershell
@@ -74,9 +92,8 @@ then run this from PowerShell at the repository root:
 
 This builds the frontend and server, opens the default browser, and uses
 `%LOCALAPPDATA%\RustyBrickChess\rusty-brick-chess.db` by default. Set `RBC_DB`
-before launching to select an existing database. The Tauri Windows packaging
-workflow is configured for a desktop installer. A published installer and
-native Windows QA are still pending.
+before launching to select an existing database. Published Windows
+installers exist (see above) but have not been opened by a person.
 
 A 64-bit Windows GNU server build was smoke-tested under Wine. It served the
 browser assets, created a SQLite database, and imported a PGN. The native
@@ -108,17 +125,27 @@ at `RBC_STATIC`, `<exe>/../share/rustybrickchess/frontend`,
 `<exe>/frontend/public`, then the source tree. A binary copied somewhere on its
 own will serve the API and no UI.
 
-## Optional at run time
+## Environment variables
 
-| variable | effect when unset |
+All optional.
+
+| variable | effect |
 |---|---|
-| `STOCKFISH_PATH` | the Stockfish bundled with the desktop installers (`engine/stockfish` in the app resources) is used; with neither, analysis and engine features answer "No chess engine found" and the rest of the app works. A path saved in Settings or chosen from the File menu overrides both. |
-| `RBC_KNIGHTLM_PYTHON` | the model's Python: this interpreter (3.10 or newer) is used as is and nothing is downloaded; unset, see [models](models.md#play-ai-one-click-opponent) |
-| `MODEL_URL` | optional default model endpoint. A provider configured in Settings can also supply the Assistant model. |
-| `RBC_ADDR` | binds `127.0.0.1:8090` |
-| `RBC_DB` | uses the per-user default above |
-| `RBC_DATA` | data directory for models and sounds |
+| `RBC_ADDR` | server bind address; default `127.0.0.1:8090` |
+| `RBC_DB` | database file; default is the per-user path in the table above |
+| `RBC_DATA` | data directory for models, sounds and the managed KnightLM install |
+| `RBC_STATIC` | frontend directory to serve |
 | `RBC_DEPTH` | default analysis depth, 15 |
+| `STOCKFISH_PATH` | engine to use. Unset: the Stockfish bundled with the desktop installers (`engine/stockfish`), then `stockfish` on `PATH` (desktop shell only); with none, analysis answers "No chess engine found" and the rest of the app works. A path saved in Settings or chosen from the File menu overrides all of these. |
+| `MODEL_URL` | optional default chat endpoint; a provider configured in Settings can also supply the Assistant model |
+| `RBC_KNIGHTLM_PYTHON` | the model's Python: used as is (3.10 or newer), nothing downloaded; see [Play AI](models.md#play-ai-one-click-opponent) |
+| `RBC_KNIGHTLM_SERVE_URL` | endpoint the KnightLM server preset points at (default `http://127.0.0.1:8000/v1`) |
+| `RBC_MODEL_CODE` | where the model server's Python code is found |
+| `RBC_LAMU_BIN`, `RBC_LAMU_PORT` | optional LAMU integration, below |
+
+More switches (test bot seed, fake model server, desktop token and port) are listed in
+[Play AI](models.md#play-ai-one-click-opponent) and the
+[app README](../../apps/rusty-brick-chess/README.md#desktop-tauri).
 
 ## Play a local model through LAMU
 
@@ -162,12 +189,9 @@ shortcut or selecting KnightLM in Play. [KnightLM model tooling](../../model/REA
 
 ## The tabs
 
-`Home`, `Database`, `Analysis`, `Assistant`, `Play`, `Practice`, `Openings`,
-`Puzzles`, `Stats`, `Settings` — a workspace tab strip sits above the board, and
-the sidebar carries the board tree so a stored board can be reached without
-switching tabs. The Analysis tab keeps the older dock: the engine panel, the
-chat endpoint (`/api/chat`), and everything the app had before the assistant
-work started.
+On `main` the sidebar has 13 tabs: Home, Database, Analysis, Assistant, Play, Play AI, Study,
+Compare, Practice, Openings, Puzzles, Stats and Settings (`frontend/src/model.rs`). A redesign of
+this interface is in draft pull request #14 and is not on `main`.
 
 ## Other commands
 

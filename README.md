@@ -1,130 +1,61 @@
-# RustyBrickChess (RBC)
+# RustyBrickChess (RBC) and KnightLM
 
 This repository holds two products that meet at one wire contract.
 
 | | RBC (RustyBrickChess) | KnightLM |
 | --- | --- | --- |
-| What it is | The open-source chess workstation: import and search PGNs, analyze with Stockfish, build studies, play or watch models in the arena. | The ML path: corpus, tokenizer, board encoder, training, evaluation and serving of a chess model. |
-| Status | Linux browser app and desktop shell work; Windows and macOS packaging are not qualified. | Research code. Only one short training run (Run 1 short) has happened; there is no strength claim. |
-| Start here | [Quickstart](#quickstart), [running RBC](docs/app/running.md) | [KnightLM](#knightlm-the-model-path), [model docs](docs/model/README.md) |
-| Needs | Rust, a browser, optional Stockfish | Python 3.11+, optional GPU for training only |
+| What it is | A local chess workstation: import and search PGNs, analyze with Stockfish, build studies, play against a built-in test bot or a model. | The ML path: corpus, tokenizer, board encoder, training, evaluation and serving of a chess model. |
+| Status | Pre-alpha. Desktop installers for Linux and Windows are published as pre-releases (unsigned; only Linux hand-tested). No macOS build. | Research code. One short training run (Run 1 short) has happened; its adapter plays at about random strength and does not chat. |
+| Needs | Rust to build from source; nothing to run an installer | Python 3.11+, optional GPU for training only |
 
 They share no code beyond [`crates/contract`](crates/contract) and the OpenAI-compatible
 `/v1/chat/completions` endpoint ([the seam](docs/model/seam.md)). RBC works with no
-KnightLM present and with any provider; KnightLM can be served to any client.
+KnightLM present and with any provider.
 
-New here? Read the [getting started guide](docs/contributors/README.md) for either path.
+## Get RBC
 
-## Quickstart
+- **Installers:** download from the [Releases page](https://github.com/Quitetall/KnightLM/releases)
+  (Linux `.AppImage`, `.deb`, `.rpm`; Windows `-setup.exe`, `.msi`; Stockfish 19 is bundled).
+  They are unsigned, so Windows SmartScreen will warn. Release process:
+  [releasing](docs/app/releasing.md).
+- **From source:** `./packaging/install.sh` on Linux, `.\packaging\run-rbc.ps1` on Windows. The
+  prerequisites and every other way to run it (desktop shell, server from a checkout, environment
+  variables) are in [Running RBC](docs/app/running.md).
 
-### Start RBC
+The desktop app and the web server (`rusty-brick-chess`) are two ways to run the same app.
+The main branch still has the original multi-tab interface; a redesign is in draft pull
+request #14 and is not released.
 
-From the repository root, install the frontend build prerequisites once:
-
-```sh
-rustup target add wasm32-unknown-unknown
-cargo install cargo-leptos --version 0.3.11 --locked
-```
-
-| Platform | Build and open RBC | Setup details |
-| --- | --- | --- |
-| Linux | `./packaging/install.sh`, then open **RustyBrickChess** from the app menu or run `~/.local/bin/rusty-brick-chess --open` | [Linux install guide](docs/app/running.md#linux) |
-| Windows | `.\packaging\run-rbc.ps1` from PowerShell | [MSVC setup and verification status](docs/app/running.md#windows-from-source) |
-
-**Play an AI that talks to you, in three steps:** (1) install as above, (2) open RBC,
-(3) choose **Play AI**, pick your colour and press **Start**. The built-in *test bot*
-(random moves, canned chat, clearly labelled) works at once. To play the KnightLM model,
-choose it there and press **Get the model**: a one-time download of about 1.4 GB (about
-2.4 GB on disk), every piece checked against a fixed checksum. It includes its own Python,
-so you install nothing; the model is opt-in and nothing is downloaded until you press the
-button. The desktop installers also ship Stockfish 19 (GPL-3.0, see
-[third-party software](docs/app/third-party.md)). See
+**Play AI:** open the **Play AI** tab, pick a colour and press **Start**. The built-in test
+bot (random moves, canned chat, labelled as a test bot) works at once. The real KnightLM model
+is opt-in: **Get the model** downloads a private Python, CPU packages and pinned weights (about
+1.4 GB, about 2.4 GB on disk). It is weak and does not chat. See
 [Play AI](docs/app/models.md#play-ai-one-click-opponent).
 
-When RBC is running, open [localhost:8090](http://127.0.0.1:8090/). Go to
-**Database** to import a PGN or **Analysis** to explore a position. Configure
-Stockfish or a model provider in **Settings** when you want those features.
+## KnightLM in brief
 
-![RBC Analysis view with a Ruy Lopez position, move list, and Stockfish evaluation](docs/assets/rbc-analysis.png)
+KnightLM asks whether a fresh, complete state packet from a deterministic rules compiler
+improves chess reasoning and token cost compared with carrying the game history forward.
+Only Run 1 short (625 steps, 20,000 rows) has trained; the full Run 1, every other arm and
+larger bases are prepared, not run, and every GPU run needs the owner's go. There is no
+strength claim. The Run 1 short adapter is published as the release
+[`model-run1-short-adapter-v1`](https://github.com/Quitetall/KnightLM/releases/tag/model-run1-short-adapter-v1)
+(Apache-2.0). Start at the [model docs index](docs/model/README.md); tooling commands are in
+[model/README.md](model/README.md).
 
-*RBC’s Analysis view after importing a sample Ruy Lopez PGN and running Stockfish at depth 15.*
+## Build and check
 
-## How it works
-
-```mermaid
-flowchart LR
-    Browser[Leptos browser UI] <-->|HTTP and events| RBC[RBC Axum server]
-    RBC <--> DB[(SQLite)]
-    RBC --> Chess[Chess replay and rules]
-    RBC <-->|UCI| Engine[Stockfish]
-    Chess --> Context[Compiled context]
-    Context --> Provider[Configured model provider]
-    Provider --> RBC
-```
-
-RBC serves the WebAssembly UI and API from one local process. SQLite stores
-games, studies, sessions, and approvals. Rust handles move legality and replay.
-The Assistant compiles inspectable context, and writes that require approval
-enter a queue before they can change a board or study. [App reference](apps/rusty-brick-chess/README.md) ·
-[MCP and approvals](docs/app/mcp.md) · [Using a model](docs/app/models.md)
-
-## KnightLM: the model path
-
-KnightLM asks whether a fresh, complete state packet from a deterministic rules
-compiler improves chess reasoning and token cost compared with carrying the game
-history forward. No arm is presumed to win. What exists today:
-
-- **Compiler and packet.** `crates/core` and `crates/notation` replay games and emit a
-  versioned context packet; Python and Mojo check byte parity.
-- **Corpus.** The Run 1 pipeline (`model/corpus`) builds audited, leak-checked shards from
-  Lichess PGNs, with reasoning variants and a v3 multi-source design. [Corpus v3](docs/model/corpus-v3.md)
-- **Representation arms.** Text packet, Chess Graph Text, the `ctok/1` board tokenizer, a
-  board encoder, a move-policy head and a perceiver, each specified with CPU-tested reference
-  code. [Index and reading order](docs/model/README.md)
-- **Training.** A LoRA recipe on SmolVLM-500M through BLUT with a CPU preflight that launches
-  nothing; every GPU run needs the owner's go. [Training gate](docs/model/training-gate.md) ·
-  [vocabulary](docs/model/training-glossary.md)
-- **Evaluation.** A scorecard with separate axes (legality, centipawn loss, tactics, games,
-  explanation checks, move head) and deliberately no composite score. [Scorecard](docs/model/scorecard.md)
-- **Serving.** `model/serve` exposes `/v1/chat/completions` (play and coach turns, raw or
-  constrained decoding), `/v1/move` and `/v1/play`; `knightlm-uci` plays through it in any UCI
-  GUI. RBC adds it with Settings > **Add KnightLM server**. [Using a model](docs/app/models.md)
-- **Evidence.** Receipts live in the artifact store, not in git; docs cite them by name.
-
-**Status:** only Run 1 short (625 steps, 20,000 rows) has trained. The full 200,000-game
-Run 1, every other arm and Qwen-class bases are prepared, not run. Scorecards describe
-wiring and short-run behavior, not playing strength.
-
-Try the serving contract without a model or GPU: [fake predictor quickstart](docs/contributors/README.md#run-the-model-server-with-a-fake-predictor).
-Model tooling reference: [model/README.md](model/README.md).
-
-## Tooling and how it was made
-
-- **App.** Rust, Axum, Leptos/WASM, and SQLite. The Tauri desktop shell wraps
-  the same local server and browser frontend.
-- **Chess.** `crates/notation` and `crates/core` normalize records and replay
-  positions. Stockfish connects over UCI. The optional [Lichess bot integration](integrations/lichess-bot/README.md)
-  also uses the UCI interface.
-- **Model.** Python, PyTorch and PEFT for training, evaluation and serving; BLUT
-  (`apps/blut-knightlm`) runs the training recipe. Rust and Burn provide backend
-  experiments, and Python and Mojo check packet parity. [Model tooling](model/README.md)
-
-### Verification
-
-`make check` runs the Rust workspace, the Python model tests and the contract and layering checks; CI also runs the torch-dependent model tests, the desktop shell and the browser suites. See [Contributing](CONTRIBUTING.md#ci-jobs). Browser tests cover RBC workflows.
-
-![Million-game query latencies on a logarithmic scale, from 3 ms for exact position search to 1,312 ms for the opening explorer](docs/assets/rbc-million-game-latency.svg)
-
-*Recorded release-build query timings from one 3.6 GB SQLite database on tmpfs, populated with 1,000,000 seeded synthetic games of 8–67 plies. Position search and the opening explorer were measured after 1.e4. The horizontal axis is logarithmic.* [Benchmark notes](docs/releases/benchmarks.md#the-database)
+`make check` runs the Rust workspace, the Python model tests and the contract and layering
+checks; `make check-apps` and `make check-desktop` cover the server, the wasm frontend and the
+Tauri shell. See [CONTRIBUTING](CONTRIBUTING.md#ci-jobs) for what CI runs.
 
 ## Documentation and contributing
 
-- [Documentation index](docs/README.md) for app guides, model research, and release evidence.
-- [Getting started](docs/contributors/README.md) for setup on a fresh clone, for the RBC and KnightLM paths.
-- [Contributor guide](CONTRIBUTING.md) for the branch and pull request flow, CI and claiming work.
-- [Work orders by role](docs/contributors/work/README.md) for ready tasks and pickup commands; open
-  work is also mirrored to [GitHub Issues](https://github.com/Quitetall/KnightLM/issues).
-- [Roadmap](apps/rusty-brick-chess/ROADMAP.md) for upcoming app and model work.
+- [Documentation index](docs/README.md).
+- [Getting started](docs/contributors/README.md) for a fresh clone, for the RBC and KnightLM paths.
+- [Contributor guide](CONTRIBUTING.md) for the branch and pull request flow.
+- [Work orders](docs/contributors/work/README.md) and [GitHub Issues](https://github.com/Quitetall/KnightLM/issues).
+- [Roadmap](apps/rusty-brick-chess/ROADMAP.md).
 
 ## License
 
