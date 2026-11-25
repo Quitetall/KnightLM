@@ -13,7 +13,7 @@
 
 ## README.md
 > -
-- doc:README.md · document · - · RustyBrickChess (RBC) · README.md:1
+- doc:README.md · document · - · RustyBrickChess (RBC) and KnightLM · README.md:1
 
 ## SPEC.md
 > KnightLM — Software Architecture Specification, migrated from docs/sas/KnightLM_SAS.md.
@@ -49,6 +49,10 @@
 > -
 - doc:docs/app/models.md · document · - · Using a model from RustyBrickChess · docs/app/models.md:1
 
+## docs/app/releasing.md
+> -
+- doc:docs/app/releasing.md · document · - · Releasing a desktop pre-release · docs/app/releasing.md:1
+
 ## docs/app/running.md
 > -
 - doc:docs/app/running.md · document · - · Running RustyBrickChess · docs/app/running.md:1
@@ -56,6 +60,10 @@
 ## docs/app/security.md
 > -
 - doc:docs/app/security.md · document · - · Security review · docs/app/security.md:1
+
+## docs/app/third-party.md
+> -
+- doc:docs/app/third-party.md · document · - · Third-party software shipped with the desktop app · docs/app/third-party.md:1
 
 ## docs/contributors/README.md
 > -
