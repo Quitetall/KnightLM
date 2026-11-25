@@ -57,5 +57,5 @@ search 170 ms, the explorer 1.3 s. The explorer is the known slow spot.
 - `cdp_match_ui` was red for a fortnight because the tournament panel added a
   second button labelled "Step"; both panels keep the label because a person
   reading the screen wants it, and the check now goes by class.
-- No Tauri shell is built here: the app is a server plus a static frontend.
+- At the time of this note no Tauri installer had been built. Pre-release installers have since been published; see the [releases page](https://github.com/Quitetall/KnightLM/releases) and [releasing](../app/releasing.md).
 - Variants are parsed and rejected honestly rather than half-supported.

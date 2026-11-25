@@ -54,12 +54,10 @@ panel does not refresh. It is a frontend defect, not a queue defect.
 
 - The explorer takes 1.3 s against a million games (`docs/releases/benchmarks.md`).
 - The approvals panel does not reload after a turn queues a request.
-- The Tauri desktop shell (`apps/rusty-brick-chess/src-tauri`, Tauri 2) is
-  implemented and its release workflow builds `.deb`/`.AppImage`/`.dmg`/`.msi` on
-  a `v*` tag — but it has **never been built or installed here**, and there is no
-  tag, so the desktop pipeline has never run. An earlier version of this file
-  claimed no Tauri shell existed; that was wrong, and the cause was a search tool
-  that was not installed, returning empty rather than failing.
+- The Tauri desktop shell (`apps/rusty-brick-chess/src-tauri`, Tauri 2) existed at this
+  commit but had never been built here. Since then the release workflow has run on tags and
+  published pre-release installers (Linux and Windows; no macOS build). See
+  [releasing](../app/releasing.md).
 - The build machine's 4 TB volume was in an I/O failure state throughout, so the
   large benchmarks ran on a tmpfs and their import rates are optimistic.
 
@@ -75,7 +73,7 @@ Nothing here is signed by an agent, and nothing here can be:
 2. **Each Warrant's plan** (`war sign authorize <alias>`) and its close-out
    (`war sign resolve <alias>`).
 3. **The obligations**, by an independent verifier: `war evidence verify <alias>`.
-4. **Binary signing** is not implemented. The desktop bundle is produced by
+4. **Binary signing** is not implemented. The desktop installers are produced by
    `tauri-action` unsigned; there is no updater keypair and no signature over the
    artifact. `packaging/install.sh` copies the binary and its assets into a
    prefix. If a signed or notarized artifact is required, that is new work, not a

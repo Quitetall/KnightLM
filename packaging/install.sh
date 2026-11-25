@@ -9,6 +9,7 @@
 #   packaging/install.sh                      # ~/.local by default
 #   packaging/install.sh --prefix /usr/local  # system-wide (may need sudo)
 #   packaging/install.sh --no-desktop         # skip the .desktop entry
+#   packaging/install.sh --skip-build         # reuse an existing build
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +25,7 @@ while [ $# -gt 0 ]; do
     --prefix) PREFIX="$2"; shift 2 ;;
     --no-desktop) DESKTOP=0; shift ;;
     --skip-build) SKIP_BUILD=1; shift ;;
-    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done

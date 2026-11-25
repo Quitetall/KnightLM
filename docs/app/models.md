@@ -1,8 +1,9 @@
 # Using a model from RustyBrickChess
 
 RustyBrickChess (RBC) reaches a model through one door: an OpenAI-compatible
-`/v1/chat/completions` endpoint. It does not import, bundle or run KnightLM code. A
-KnightLM checkpoint is one provider among others, such as Ollama, LM Studio, vLLM,
+`/v1/chat/completions` endpoint. It never imports KnightLM code. The installers do ship the
+model server's Python files, which the app starts as a child process only if you press **Get the
+model** (see Play AI below). A KnightLM checkpoint is one provider among others, such as Ollama, LM Studio, vLLM,
 llama.cpp or a hosted API. The contract with a KnightLM server is in
 [docs/model/seam.md](../model/seam.md); RBC needs none of it to work.
 

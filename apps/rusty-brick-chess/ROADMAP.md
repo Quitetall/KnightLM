@@ -3,7 +3,7 @@
 RBC is the chess app. KnightLM is the model path: corpus, tokenizer, training, evaluation
 and serving. They advance in parallel and meet at the OpenAI-compatible
 `/v1/chat/completions` endpoint ([the seam](../../docs/model/seam.md)). Last reviewed against
-`main` at the merge of PR #54. Open work is tracked as tickets: see
+`main` at the merge of PR #76 (2026-11-24). Open work is tracked as tickets: see
 [work orders](../../docs/contributors/work/README.md) and `war view prime`.
 
 ## What ships today
@@ -11,7 +11,9 @@ and serving. They advance in parallel and meet at the OpenAI-compatible
 | Area | State | Where to read |
 | --- | --- | --- |
 | RBC on Linux (browser app, source installer) | Works. Import PGNs, search, Stockfish analysis, studies, arena, MCP with an approval queue | [Running RBC](../../docs/app/running.md) |
-| RBC desktop shell (Tauri) | Linux only; lint, build and a virtual-display smoke run in CI. Installers are built by the release workflow, not tested natively | [Desktop](../../docs/app/running.md#desktop-app-tauri) |
+| RBC desktop app (Tauri) | Pre-release installers on GitHub (latest `v0.1.0-prealpha.4`): Linux AppImage, deb, rpm and Windows setup.exe, msi. Unsigned. Only Linux hand-tested; no macOS build (GitHub gave no runner). Stockfish 19 bundled. CI lints, builds and smoke-runs the shell on Linux | [Install](../../docs/app/running.md#install-a-release), [releasing](../../docs/app/releasing.md) |
+| Play AI | Built-in test bot works at once; the real KnightLM model is opt-in (**Get the model**, about 1.4 GB). The published Run 1 short adapter is about random strength and does not chat | [Play AI](../../docs/app/models.md#play-ai-one-click-opponent) |
+| UI redesign | Draft PR #14, blocked on the human check RBCUI-LIB-09. Not on `main`, which still has the 13-tab interface | none |
 | Model providers in RBC | Any OpenAI-compatible server; provider settings, match seats, a chat toggle and coach marks on the board; a **KnightLM server** preset | [Using a model](../../docs/app/models.md) |
 | KnightLM serving | `model/serve`: `/v1/chat/completions` (play and coach turns, raw or constrained decoding), `/v1/move`, `/v1/play`; `knightlm-uci` for UCI GUIs. Checked by tests and a game gate over a fake predictor | [Seam](../../docs/model/seam.md), [scorecard](../../docs/model/scorecard.md#the-knightlm-uci-game-gate) |
 | KnightLM evaluation | Scorecard with separate axes and no composite score; Stockfish, lc0 and Maia are post-decision oracles | [Scorecard](../../docs/model/scorecard.md) |
@@ -19,7 +21,8 @@ and serving. They advance in parallel and meet at the OpenAI-compatible
 
 The Linux evidence is the [release candidate record](../../docs/releases/release-candidate.md)
 (commit `ec50e82`, before the provider and KnightLM work above) and the
-[benchmarks](../../docs/releases/benchmarks.md). Windows and macOS are unverified. Strength
+[benchmarks](../../docs/releases/benchmarks.md). Windows is unverified by a person and macOS has
+no build. Strength
 numbers exist only for the short run and describe wiring, not rating.
 
 ## RBC app and release
@@ -27,7 +30,7 @@ numbers exist only for the short run and describe wiring, not rating.
 | Priority | Work remaining | Done when | Ticket |
 | --- | --- | --- | --- |
 | 1 | Rebuild and verify the release bundle with the approval refresh fix on `main`, with an isolated browser gate. | A clean run of all browser checks passes against the packaged build. | [t-5b6e](../../docs/work/t-5b6e/t-5b6e-qa-engineer-isolate-the-rbc-browser-release-gate.md) |
-| 2 | Package Windows and macOS and test on native hosts. | An installer launches RBC with its frontend, opens or creates the per-user database, and passes a PGN import and analysis smoke. Publish the tested packages. | [t-1ce9](../../docs/work/t-1ce9/t-1ce9-release-engineer-qualify-rbc-on-native-windows.md), [t-a226](../../docs/work/t-a226/t-a226-windows-tester-try-the-rbc-source-launcher-on.md) |
+| 2 | Test the Windows installers on a native host and obtain a macOS build (needs a runner or a Mac). | An installer launches RBC with its frontend, opens or creates the per-user database, and passes a PGN import and analysis smoke. Sign them if signing is wanted. | [t-1ce9](../../docs/work/t-1ce9/t-1ce9-release-engineer-qualify-rbc-on-native-windows.md), [t-a226](../../docs/work/t-a226/t-a226-windows-tester-try-the-rbc-source-launcher-on.md) |
 | 3 | Make **Stop** responsive when a model provider stops sending data. | A browser check cancels a stalled provider within a bounded time and the composer becomes usable again. | [t-c168](../../docs/work/t-c168/t-c168-frontend-engineer-make-stop-responsive-during-a.md) |
 | 4 | Improve opening-explorer latency. | The same million-game benchmark shows a faster query and the returned continuations match. The recorded reference is about 1.3 seconds. | none yet |
 

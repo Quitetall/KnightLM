@@ -39,7 +39,8 @@ Check `df -h` before a large build or download.
 
 ## Path A: RBC, the chess app
 
-1. Install the frontend prerequisites once (see the [README quickstart](../../README.md#start-rbc)).
+1. Install the frontend prerequisites once ([prerequisites](../app/running.md#prerequisites-for-building)),
+   or skip building and install a release from the [Releases page](https://github.com/Quitetall/KnightLM/releases).
 2. Build and run it: `./packaging/install.sh`, then `~/.local/bin/rusty-brick-chess --open`
    ([Linux](../app/running.md#linux), [Windows](../app/running.md#windows-from-source),
    [from a checkout](../app/running.md#run-from-a-unix-checkout), [desktop shell](../app/running.md#desktop-app-tauri)).
